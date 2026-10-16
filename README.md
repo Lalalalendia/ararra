@@ -23,7 +23,7 @@ Server-first, closed-team translation backend based on the existing Chaptera lit
 - **Opt-in, content-redacted evaluation:** offline simulated `html_v0` versus `atoms_v1` structural/cost-proxy report; explicitly gated, *not yet executed* billable Gemini pilot. See [evaluation checkpoint](docs/EVAL_REPORT.md).
 - **v0.6 read-only book import preview:** authenticated `POST /v1/imports/preview` accepts TXT, HTML, EPUB, DOCX and the existing Windows Rulate-account metadata JSON. Detects chapter titles/numbers and exposes bounded samples, archive safety warnings and unknown/pre-chapter text. It does **not** commit source chapters yet. See [frozen API contract and import limits](docs/CORE_API_CONTRACT.md).
 
-**Status:** local backend prototype, not a deployed multi-user production server. The original Windows program is unchanged. Provider integration uses a new native Gemini adapter; it has **not** been exercised against the live Gemini API. A server-specific prompt policy now supports scoped glossary versions, enforcement classes, literary style guidance and fingerprint-verified chapter context snapshots, adapted from the desktop source. **The server now has atom transport and bounded targeted repair, but full
+**Status:** server core has passed a real VPS live Gemini smoke (`gemini-3.8-flash`); permanent multi-user production deployment remains a separate acceptance gate. The original Windows program is unchanged. Provider integration uses a new native Gemini adapter; a synthetic live worker request has succeeded on the VPS. A server-specific prompt policy now supports scoped glossary versions, enforcement classes, literary style guidance and fingerprint-verified chapter context snapshots, adapted from the desktop source. **The server now has atom transport and bounded targeted repair, but full
 Windows PromptBuilder parity is not yet demonstrated.** Automatic context extraction is now available only for book-managed jobs; the standalone `POST /v1/jobs` remains backwards compatible. No browser UI, Rulate publishing or persisted EPUB import yet. The new import endpoint provides preview only, not canonical book creation.
 
 ## Install locally (Python 3.11+)
@@ -40,7 +40,7 @@ On Windows activate with `.venv\\Scripts\\activate` instead of the POSIX command
 export CHAPTERA_DB_PATH='./data/jobs.sqlite3'
 export CHAPTERA_TEAM_TOKENS_JSON='{"admin":"generate-a-real-strong-random-token"}'
 export CHAPTERA_GEMINI_API_KEY='your-google-api-key'
-export CHAPTERA_GEMINI_MODEL='gemini-2.5-flash'
+export CHAPTERA_GEMINI_MODEL='gemini-3.8-flash'
 ```
 
 Do **not** commit real credentials. For now bind the API to `127.0.0.1` and test through local access or a secure tunnel. The HTTP header `X-API-Key` is required for every job endpoint; without configured team tokens, the API fails closed. The health check is public and returns no private data.
@@ -174,3 +174,18 @@ paid pilot, safeguards and no-go decision for changing defaults.
 Run `chaptera-smoke` for an offline REST/worker/SQLite test; real Gemini access requires an explicit on-host opt-in and a securely configured API key. A passing CI test alone does **not** prove server-to-Gemini connectivity.
 
 On the host running the worker, use `CHAPTERA_SMOKE_ALLOW_LIVE=YES chaptera-smoke --live --authorize-billable --transport html_v0` after configuring `CHAPTERA_GEMINI_API_KEY` in the environment (never in command arguments or Git). The smoke test uses only a synthetic Chinese phrase, a temporary SQLite DB and at most one provider request by default. For `docker compose -f compose.dev.yml`, run `docker compose -f compose.dev.yml exec -e CHAPTERA_SMOKE_ALLOW_LIVE=YES worker chaptera-smoke --live --authorize-billable --transport html_v0`. The report never includes the key, prompt or translated text. To test the atom protocol separately, pass `--transport atoms_v1`.
+
+### Server deployment and systemd credentials
+
+The verified default Gemini model is `gemini-3.8-flash`; override it explicitly
+using `CHAPTERA_GEMINI_MODEL` only after testing a candidate on your own key.
+Under systemd, `Settings.from_env()` reads `gemini_api_key` and
+`team_tokens_json` through `CREDENTIALS_DIRECTORY` when their files exist, and
+rejects conflicting environment secrets. The API must have a valid member token
+credential and the worker must have a Gemini credential. Never include these
+values in unit files, shell arguments, GitHub commits, or diagnostic logs.
+
+See `chaptera-site/deploy/translator/` for separate rootless release delivery,
+root-required one-time service provisioning, read-only localhost checks, and
+explicitly authorized paid smoke tests. Do not expose the closed-team API to a
+public host until browser authentication and access-control work is complete.
