@@ -2,7 +2,7 @@
 
 Server-first, closed-team translation backend based on the existing Chaptera literary translation algorithms. **This repository is independent of `full_cycle_app`: it does not import, modify, or depend on the Windows application.** The original desktop translation engine is deliberately left untouched.
 
-## What is implemented (v0.5 development)
+## What is implemented (v0.6 development)
 
 - Standalone `chaptera_translation_core` package with source-unit segmentation, structural/provenance markers, deterministic completeness checks, request packing, source preparation and HTML finalization from the prior extraction.
 - Async `TranslationCore` abstraction: transport-independent translation provider, glossary/context inputs, status events, cooperative cancellation.
@@ -21,9 +21,10 @@ Server-first, closed-team translation backend based on the existing Chaptera lit
 
 - **v0.5 complete-window context preflight:** bounded, ordered source windows for 50k+ visible-character chapters, deterministic fail-closed merging, conflict-safe terminology, source/glossary/predecessor fencing and fingerprinted source-window audit. See [windowed context](docs/WINDOWED_CONTEXT.md).
 - **Opt-in, content-redacted evaluation:** offline simulated `html_v0` versus `atoms_v1` structural/cost-proxy report; explicitly gated, *not yet executed* billable Gemini pilot. See [evaluation checkpoint](docs/EVAL_REPORT.md).
+- **v0.6 read-only book import preview:** authenticated `POST /v1/imports/preview` accepts TXT, HTML, EPUB, DOCX and the existing Windows Rulate-account metadata JSON. Detects chapter titles/numbers and exposes bounded samples, archive safety warnings and unknown/pre-chapter text. It does **not** commit source chapters yet. See [frozen API contract and import limits](docs/CORE_API_CONTRACT.md).
 
 **Status:** local backend prototype, not a deployed multi-user production server. The original Windows program is unchanged. Provider integration uses a new native Gemini adapter; it has **not** been exercised against the live Gemini API. A server-specific prompt policy now supports scoped glossary versions, enforcement classes, literary style guidance and fingerprint-verified chapter context snapshots, adapted from the desktop source. **The server now has atom transport and bounded targeted repair, but full
-Windows PromptBuilder parity is not yet demonstrated.** Automatic context extraction is now available only for book-managed jobs; the standalone `POST /v1/jobs` remains backwards compatible. No browser UI, Rulate publishing or EPUB import yet.
+Windows PromptBuilder parity is not yet demonstrated.** Automatic context extraction is now available only for book-managed jobs; the standalone `POST /v1/jobs` remains backwards compatible. No browser UI, Rulate publishing or persisted EPUB import yet. The new import endpoint provides preview only, not canonical book creation.
 
 ## Install locally (Python 3.11+)
 
@@ -62,6 +63,18 @@ curl -sS -X POST http://127.0.0.1:8000/v1/jobs \\
 ```
 
 Inspect the job with `GET /v1/jobs/{job_id}` or its events with `GET /v1/jobs/{job_id}/events`, using the same `X-API-Key`. List jobs with `GET /v1/jobs`. Cancel with `POST /v1/jobs/{job_id}/cancel`. A cancelled in-flight provider request may continue until its current response arrives; it will not save a translation as completed after the cancel flag is set.
+
+## Import-file preview (new in v0.6)
+
+The source import starts with a safe inspection request. It does **not** modify the library or create translation jobs:
+
+```bash
+curl -X POST http://127.0.0.1:8000/v1/imports/preview \
+  -H 'X-API-Key: YOUR_TEAM_TOKEN' \
+  -F 'file=@novel.epub'
+```
+
+The response shows the title, order, detected chapter numbers, bounded text samples, metadata and any warnings about unmapped preface or duplicate numbers. DOCX, TXT, HTML and EPUB produce a `book` preview. A JSON exported by our Windows Rulate account metadata tool produces a `metadata_catalog` of books and links **without chapter texts**. The next implementation milestone is explicit user selection and revision-safe confirmation; a preview response must not be treated as a completed import.
 
 ## Book-managed translation (new in v0.3)
 

@@ -1,7 +1,7 @@
 """Small closed-team HTTP boundary; queue worker is a separate process."""
 from __future__ import annotations
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, File, UploadFile
 from pydantic import BaseModel, Field
 from typing import Any, Literal
 
@@ -11,6 +11,7 @@ from .auth import authenticate
 from .config import Settings
 from .storage import IdempotencyConflict, JobSpec, QueueStore
 from .library import BookLibrary, LibraryConflict, LibraryNotFound
+from .book_import import ImportFormatError, MAX_UPLOAD_BYTES, preview_book_import
 
 
 class CreateBook(BaseModel):
@@ -64,7 +65,7 @@ class SubmitChapter(BaseModel):
 
 
 def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
-    app = FastAPI(title="Chaptera Team Translation API", version="0.4.0",
+    app = FastAPI(title="Chaptera Team Translation API", version="0.6.0",
                   docs_url=None, redoc_url=None, openapi_url=None)
     repo = store or QueueStore(settings.db_path)
     library = BookLibrary(repo)
@@ -93,6 +94,24 @@ def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
             return library.create_book(body.book_id, body.title)
         except (LibraryNotFound, LibraryConflict, ValueError) as exc:
             raise map_library_error(exc) from exc
+
+    @app.post('/v1/imports/preview')
+    async def inspect_upload(file: UploadFile = File(...), actor: str = Depends(require_member)):
+        """Authenticated, size-bounded, side-effect-free book/catalog inspection.
+
+        The response contains only a chapter outline and short previews, not a
+        draft book or accepted translations. Import confirmation is a separate
+        future API with revision-aware conflict handling.
+        """
+        try:
+            content = await file.read(MAX_UPLOAD_BYTES + 1)
+            if len(content) > MAX_UPLOAD_BYTES:
+                raise HTTPException(status_code=413, detail='File exceeds 12 MiB limit')
+            return preview_book_import(file.filename or '', content)
+        except ImportFormatError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            await file.close()
 
     @app.get('/v1/books/{book_id}')
     def get_book(book_id: str, actor: str = Depends(require_member)):
