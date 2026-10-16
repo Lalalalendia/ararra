@@ -11,6 +11,7 @@ from fastapi.routing import APIRoute
 from chaptera_server.api import create_app
 from chaptera_server.config import Settings
 from chaptera_server.http.dependencies import require_member
+from chaptera_server.http.routers import books, health, imports, jobs
 from chaptera_server.storage import QueueStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -59,10 +60,23 @@ def test_violations_detected_for_cross_layer_imports_and_misowned_endpoints():
 def test_http_paths_and_methods_are_unique_and_stable(tmp_path):
     store = QueueStore(tmp_path / 'jobs.sqlite3')
     app = create_app(Settings(db_path=store.db_path, team_tokens={'alice': 'alice-secret'}), store)
-    # Recent FastAPI versions expose a private _IncludedRouter marker in app.routes;
-    # only actual APIRoute instances represent reachable HTTP endpoints.
-    http_routes = [route for route in app.routes if isinstance(route, APIRoute)]
+    # FastAPI >=0.137 uses lazy _IncludedRouter objects in app.routes. Inspect
+    # the canonical APIRouters instead of version-dependent app internals.
+    http_routes = [
+        route
+        for owner in (books, health, imports, jobs)
+        for route in owner.router.routes
+        if isinstance(route, APIRoute)
+    ]
     routes = [(method, route.path) for route in http_routes for method in sorted(route.methods or ())]
+    # OpenAPI is the public app-level inventory on both lazy/flattened routers.
+    visible = {
+        (method.upper(), path)
+        for path, operations in app.openapi()['paths'].items()
+        for method in operations
+        if method.upper() in {'GET', 'POST', 'PUT', 'DELETE', 'PATCH'}
+    }
+    assert visible == ROUTE_CONTRACT
     assert len(routes) == len(set(routes)), 'Duplicate handlers shadow one another'
     assert set(routes) == ROUTE_CONTRACT
     for route in http_routes:

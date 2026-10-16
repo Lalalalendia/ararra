@@ -112,8 +112,9 @@ def inspect_repository(root: Path = ROOT) -> list[str]:
             errors.append('api.py must only compose routers, not implement endpoints')
         # A router can be renamed, but the app must continue to expose all four ownership groups.
         for name in EXPECTED_ROUTERS:
-            if f'{name.removesuffix(".py")}.router' not in source:
-                errors.append(f'api.py does not compose {name} router')
+            call = f'app.include_router({name.removesuffix(".py")}.router)'
+            if source.count(call) != 1:
+                errors.append(f'api.py must compose {name} router exactly once')
 
     for file in sorted((root / 'web/src').rglob('*')):
         if not file.is_file() or file.suffix not in {'.ts', '.tsx', '.js', '.jsx'}:
