@@ -36,7 +36,7 @@ Only run against chapters the team is authorized to submit to the API, with an a
 export CHAPTERA_GEMINI_API_KEY='your-key-from-secure-storage'
 export CHAPTERA_EVAL_ALLOW_PAID='YES'
 chaptera-eval --live --authorize-billable --chapter-file /secure/path/chapter.html \
-  --model gemini-2.5-flash --max-requests 6 --max-prompt-chars 30000 \
+  --model gemini-3.8-flash --max-requests 6 --max-prompt-chars 30000 \
   --output /secure/path/evaluation-metrics.json
 ```
 
