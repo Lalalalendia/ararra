@@ -30,7 +30,8 @@ caller-supplied context hashes, glossary hashes or predecessor references:
    current snapshot. If the preflight is incomplete/malformed, the same job
    enters bounded retry (`retry_wait`) and no translation is published.
 7. A human editor can accept a result with `PUT /v1/books/novel-1/chapters/001/accepted-translation`:
-   `{"translated_html":"<p>Перевод</p>","expected_revision":0}`. Merely
+   `{"translated_html":"<p>Перевод</p>","expected_revision":0,"expected_source_revision":1}`. Both accepted
+   translation and source revisions must match the editor's view. Merely
    completing the model job **does not** promote output to accepted memory.
 
 All endpoints except `/healthz` require the member token, including GET

@@ -74,7 +74,7 @@ def test_two_team_members_share_persisted_context_with_no_duplicate_prepass(tmp_
     store, lib = setup_library(tmp_path)
     lib.put_glossary('book1', glossary={'李明': {'rus': 'Ли Мин', 'authority': 'required'}},
                      versions={}, authority='READY', expected_revision=0, actor_id='alice')
-    lib.accept_translation('book1', 'c1', '<p>Ли Мин отправился в замок.</p>', expected_revision=0)
+    lib.accept_translation('book1', 'c1', '<p>Ли Мин отправился в замок.</p>', expected_revision=0, expected_source_revision=1)
     provider = ContextAwareProvider()
     job_a = enqueue(lib, store, actor='alice', key='a2')
     assert asyncio.run(TranslationWorker(store, provider).run_once())
@@ -108,7 +108,7 @@ def test_accepted_predecessor_and_source_change_invalidate_context(tmp_path):
     assert asyncio.run(TranslationWorker(store, provider).run_once())
     assert lib.context_for_chapter('book1', 'c2')['status'] == 'current'
     assert lib.context_for_chapter('book1', 'c2')['snapshot']['predecessor']['translation_tail'] == ''
-    lib.accept_translation('book1', 'c1', '<p>Герой в замке.</p>', expected_revision=0)
+    lib.accept_translation('book1', 'c1', '<p>Герой в замке.</p>', expected_revision=0, expected_source_revision=1)
     assert lib.context_for_chapter('book1', 'c2')['status'] == 'missing_or_stale'
     job2 = enqueue(lib, store, 'bob')
     assert asyncio.run(TranslationWorker(store, provider).run_once())
@@ -163,7 +163,7 @@ def test_context_changed_during_provider_cannot_be_persisted(tmp_path):
     store, lib = setup_library(tmp_path)
     provider = ContextAwareProvider()
     provider.hook = lambda stage: lib.accept_translation(
-        'book1', 'c1', '<p>Открылась тайна.</p>', expected_revision=0,
+        'book1', 'c1', '<p>Открылась тайна.</p>', expected_revision=0, expected_source_revision=1,
     ) if stage == 'context' else None
     job = enqueue(lib, store)
     assert asyncio.run(TranslationWorker(store, provider).run_once())
@@ -176,7 +176,7 @@ def test_predecessor_edited_during_translation_fences_final_result(tmp_path):
     store, lib = setup_library(tmp_path)
     provider = ContextAwareProvider()
     provider.hook = lambda stage: lib.accept_translation(
-        'book1', 'c1', '<p>Новый принятый перевод.</p>', expected_revision=0,
+        'book1', 'c1', '<p>Новый принятый перевод.</p>', expected_revision=0, expected_source_revision=1,
     ) if stage == 'translation' else None
     job = enqueue(lib, store)
     assert asyncio.run(TranslationWorker(store, provider).run_once())
@@ -208,10 +208,12 @@ def test_optimistic_revisions_prevent_two_editors_silently_overwriting(tmp_path)
     with pytest.raises(LibraryConflict, match='source revision'):
         lib.put_chapter('book1', 'c1', chapter_index=1, chapter_path='chapters/1.xhtml',
                         source_html='<p>Конфликт</p>', expected_revision=0)
-    rev = lib.accept_translation('book1', 'c1', '<p>One.</p>', expected_revision=0)
+    rev = lib.accept_translation('book1', 'c1', '<p>One.</p>', expected_revision=0, expected_source_revision=1)
     assert rev['accepted_revision'] == 1
+    with pytest.raises(LibraryConflict, match='Source revision changed'):
+        lib.accept_translation('book1', 'c1', '<p>Outdated review.</p>', expected_revision=1, expected_source_revision=2)
     with pytest.raises(LibraryConflict, match='revision mismatch'):
-        lib.accept_translation('book1', 'c1', '<p>Two.</p>', expected_revision=0)
+        lib.accept_translation('book1', 'c1', '<p>Two.</p>', expected_revision=0, expected_source_revision=1)
     with pytest.raises(LibraryConflict, match='revision mismatch'):
         lib.put_glossary('book1', glossary={}, versions={}, authority='READY',
                          expected_revision=2, actor_id='bob')
@@ -233,6 +235,13 @@ def test_server_api_two_members_share_book_and_not_required_to_supply_hashes(tmp
             clash = await client.put('/v1/books/novel/chapters/c2', headers=a,
                 json={'chapter_index': 2, 'chapter_path': 'c2.xhtml', 'source_html': SOURCE2 + 'updated', 'expected_revision': 0})
             assert clash.status_code == 409
+            no_source_guard = await client.put('/v1/books/novel/chapters/c2/accepted-translation',
+                headers=a, json={'translated_html': '<p>Ready</p>', 'expected_revision': 0})
+            assert no_source_guard.status_code == 422
+            old_source_guard = await client.put('/v1/books/novel/chapters/c2/accepted-translation',
+                headers=a, json={'translated_html': '<p>Ready</p>', 'expected_revision': 0,
+                                 'expected_source_revision': 8})
+            assert old_source_guard.status_code == 409
             glossary = await client.put('/v1/books/novel/glossary', headers=a, json={
                 'expected_revision': 0, 'glossary': {'李明': 'Ли Мин'},
             })
@@ -261,7 +270,7 @@ def test_cjk_and_japanese_context_json_shape_has_explicit_id():
 
 def test_old_accepted_translation_is_not_used_after_original_source_revision_change(tmp_path):
     store, lib = setup_library(tmp_path)
-    lib.accept_translation('book1', 'c1', '<p>Старый перевод первой главы.</p>', expected_revision=0)
+    lib.accept_translation('book1', 'c1', '<p>Старый перевод первой главы.</p>', expected_revision=0, expected_source_revision=1)
     lib.put_chapter('book1', 'c1', chapter_index=1, chapter_path='chapters/1.xhtml',
                     source_html=SOURCE1 + '<p>Новые события.</p>', expected_revision=1)
     chapter = lib.get_chapter('book1', 'c1')

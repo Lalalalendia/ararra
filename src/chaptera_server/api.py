@@ -35,6 +35,7 @@ class SaveGlossary(BaseModel):
 class AcceptTranslation(BaseModel):
     translated_html: str = Field(min_length=1, max_length=2_000_000)
     expected_revision: int = Field(ge=0)
+    expected_source_revision: int = Field(ge=1)
 
 
 class TranslateBookChapter(BaseModel):

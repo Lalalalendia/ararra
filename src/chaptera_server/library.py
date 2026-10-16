@@ -269,7 +269,8 @@ class BookLibrary:
             return self._chapter_dict(row)
 
     def accept_translation(self, book_id: str, chapter_id: str, translated_html: str,
-                           expected_revision: int, actor_id: str = 'system') -> dict:
+                           expected_revision: int, expected_source_revision: int,
+                           actor_id: str = 'system') -> dict:
         if not str(translated_html or '').strip() or not _translation_tail(translated_html):
             raise ValueError('A nonempty accepted translation is required')
         with self.queue._connect() as con:
@@ -280,6 +281,8 @@ class BookLibrary:
                 raise LibraryNotFound('Chapter not found')
             if int(row['accepted_revision']) != expected_revision:
                 raise LibraryConflict('Accepted translation revision mismatch')
+            if int(row['source_revision']) != expected_source_revision:
+                raise LibraryConflict('Source revision changed before translation acceptance')
             if row['accepted_html'] == translated_html and row['accepted_source_revision'] == row['source_revision']:
                 return self._chapter_dict(row)
             now = time.time()
