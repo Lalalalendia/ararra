@@ -19,10 +19,13 @@ Completed server-only slice: desktop chapter-context snapshot/validation policy 
 - **v0.4 delivered:** opt-in source-owned atom JSON transport, bounded repair,
   complete coverage/provenance gate, 50k+ chapter translation and additive SQLite
   audit migration. `html_v0` remains the default for old clients and jobs.
-  Expand real-model golden fixtures and implement batched/long-chapter context
-  extraction; see `docs/ATOM_TRANSPORT.md`.
+  **v0.5 delivered:** complete-window context extraction (prompt v6 with fingerprinted
+  offsets, fail-closed aggregation and bounded glossary visibility), synthetic
+  structural protocol comparisons and strictly opt-in live-evaluation CLI. No
+  live Gemini experiment or human literary comparison yet. See
+  `docs/WINDOWED_CONTEXT.md` and `docs/EVAL_REPORT.md`.
 - Compare generated provider prompts, segmentation and final output against fixture expectations, not against a mutable live provider.
-- Instrument token usage, costs and model behavior.
+- Capture live provider token usage and model behavior only with explicit authorization; keep `atoms_v1` opt-in until the documented quality gate is passed.
 
 ### M2. Server-grade persistence and teamwork
 

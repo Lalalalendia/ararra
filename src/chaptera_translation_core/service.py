@@ -82,7 +82,13 @@ class TranslationCore:
         if diagnostics.context_conflicts:
             self._emit(chapter.chapter_id, 'context_conflict', f'count={diagnostics.context_conflicts}')
         self._emit(chapter.chapter_id, 'provider_request', f'units={len(units)}')
-        raw = await self.provider.generate(ProviderRequest(chapter.chapter_id, prompt, marked_source, len(units)))
+        raw = await self.provider.generate(ProviderRequest(
+            chapter.chapter_id, prompt, marked_source, len(units), 'html_v0',
+            lambda usage: self._emit(chapter.chapter_id, 'gemini_usage',
+                f'prompt_tokens={usage.get("promptTokenCount", 0)} '
+                f'output_tokens={usage.get("candidatesTokenCount", 0)} '
+                f'total_tokens={usage.get("totalTokenCount", 0)}'),
+        ))
         self._cancel_check()
         if not isinstance(raw, str) or not raw.strip():
             raise TranslationRejected(chapter.chapter_id, 'provider', 'empty response')

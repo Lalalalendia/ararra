@@ -42,9 +42,11 @@ markup is sanitized, and all declared source atoms must be accounted for.
 - Reserved `TSEG_...`/`TSRC_...` marker-like content in the incoming source is
   currently rejected rather than silently stripped. It needs an independent
   escaping protocol before it can be supported safely.
-- **Book-managed chapters over 50k visible characters** skip the one-request
-  context preflight, emit `context_skipped_long_chapter`, and translate the full
-  source. A fabricated partial-chapter context is never cached or trusted.
+- **Book-managed chapters over 50k visible characters** now use bounded source-complete windowed
+  context preflight (up to 32 windows of 12,000 characters each), with an audited
+  snapshot only after all responses pass. Out-of-bounds or incomplete coverage
+  fails the job without saving a fabricated partial context. See
+  `docs/WINDOWED_CONTEXT.md`.
 
 ## QA and provenance
 
@@ -77,5 +79,5 @@ against a real model require a later controlled, authorized trial.
 behavioral parity with the full Windows PromptBuilder. No semantic fact-checker
 can prove that a linguistically plausible translation is truthful. Quality
 checks reject demonstrable missing/reordered source units and structural
-corruption, not every possible mistranslation. Large-book context preflight
-windowing, PostgreSQL, multi-worker delivery and the browser UI are later work.
+corruption, not every possible mistranslation. PostgreSQL, multi-worker delivery and the browser UI are later work. A real Gemini token/quality
+comparison is still pending explicit authorization; see `docs/EVAL_REPORT.md`.

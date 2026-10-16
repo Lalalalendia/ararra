@@ -12,3 +12,7 @@ dist/
 .env.*
 !.env.example
 *.log
+
+# Locally generated evaluation metrics and authorized probe inputs
+offline-report.json
+*evaluation-metrics.json

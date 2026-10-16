@@ -122,7 +122,7 @@ def test_truncated_jsonl_recovers_only_missing_atom():
     assert result.translated_html == '<p>Мир。</p><p>Мир！</p>'
 
 
-def test_managed_long_chapter_translates_without_fabricated_partial_context(tmp_path):
+def test_managed_long_chapter_translates_with_complete_windowed_context(tmp_path):
     from chaptera_server.library import BookLibrary
     store = QueueStore(tmp_path / 'long.sqlite3')
     lib = BookLibrary(store)
@@ -133,11 +133,32 @@ def test_managed_long_chapter_translates_without_fabricated_partial_context(tmp_
     spec = lib.new_job('long', 'c1', source_language='auto', target_language='Russian',
                        style_instructions='', max_attempts=3, transport='atoms_v1')
     job = store.create_job('alice', spec)
-    provider = NativeAtomProvider()
+
+    class LongProvider(NativeAtomProvider):
+        context_prompts = []
+        async def generate(self, request):
+            if request.chapter_id.startswith('context:'):
+                self.context_prompts.append(request.prompt)
+                return json.dumps({'c0': {
+                    'summary': 'Повествование продолжается.', 'pov': '', 'tone_and_register': '',
+                    'setting': [], 'active_entities': [], 'relationships': [],
+                    'important_events': [], 'continuity_in': [], 'continuity_out': [],
+                    'ambiguous_references': [], 'reveal_constraints': [], 'semantic_terms': [],
+                }}, ensure_ascii=False)
+            return await super().generate(request)
+
+    provider = LongProvider()
     assert asyncio.run(TranslationWorker(store, provider).run_once())
     result = store.get_job(job['id'])
     assert result['status'] == 'completed'
     assert 'Мир。' in result['translated_html']
     assert len(result['atom_provenance']) == result['unit_count']
-    assert any(item['stage'] == 'context_skipped_long_chapter' for item in store.events(job['id']))
-    assert lib.context_for_chapter('long', 'c1')['status'] == 'missing_or_stale'
+    assert len(provider.context_prompts) > 1
+    snap = lib.context_for_chapter('long', 'c1')
+    assert snap['status'] == 'current'
+    windows = snap['snapshot']['window_coverage']['windows']
+    assert len(windows) == len(provider.context_prompts)
+    assert windows[0]['start'] == 0
+    assert windows[-1]['end'] == 51000
+    assert all(windows[i]['end'] == windows[i+1]['start'] for i in range(len(windows)-1))
+    assert any(event['stage'] == 'context_windows_complete' for event in store.events(job['id']))

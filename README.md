@@ -2,7 +2,7 @@
 
 Server-first, closed-team translation backend based on the existing Chaptera literary translation algorithms. **This repository is independent of `full_cycle_app`: it does not import, modify, or depend on the Windows application.** The original desktop translation engine is deliberately left untouched.
 
-## What is implemented (v0.3 development)
+## What is implemented (v0.5 development)
 
 - Standalone `chaptera_translation_core` package with source-unit segmentation, structural/provenance markers, deterministic completeness checks, request packing, source preparation and HTML finalization from the prior extraction.
 - Async `TranslationCore` abstraction: transport-independent translation provider, glossary/context inputs, status events, cooperative cancellation.
@@ -10,7 +10,7 @@ Server-first, closed-team translation backend based on the existing Chaptera lit
 - Every team member has a separate API token but uses one shared workspace/queue. There is no public signup.
 - Translation is only marked completed after deterministic QA. Partial or missing segment responses are rejected.
 - Chapter-scoped glossary bindings and version-map overrides (`scope` + `override`), separate required/session/advisory authority, terminology enforcement classes and source-only matching.
-- Verified source-derived chapter context snapshots (schema v3/prompt v5 from desktop); stale source/glossary/predecessor snapshots are **ignored with an event**, not silently trusted. Predecessor translation tails are capped and advisory only.
+- Verified source-derived chapter context snapshots (schema v3/prompt v6 server policy); stale source/glossary/predecessor snapshots are **ignored with an event**, not silently trusted. Predecessor translation tails are capped and advisory only.
 - Custom literary style is filtered to exclude machine/output contract instructions. Existing queued jobs without these new inputs remain readable.
 - **v0.3 team library:** persistent books/chapters, optimistic source/glossary and accepted-translation revisions; accepted-translation history; automatic context generation and cache reuse before managed translations. Clients do not calculate context fingerprints. See [book memory contract](docs/BOOK_MEMORY.md).
 
@@ -18,6 +18,9 @@ Server-first, closed-team translation backend based on the existing Chaptera lit
   targeted repair, deterministic DOM reconstruction, and persisted hashed
   provenance. The existing `html_v0` jobs remain readable and continue to be
   the default. See [atom transport contract](docs/ATOM_TRANSPORT.md).
+
+- **v0.5 complete-window context preflight:** bounded, ordered source windows for 50k+ visible-character chapters, deterministic fail-closed merging, conflict-safe terminology, source/glossary/predecessor fencing and fingerprinted source-window audit. See [windowed context](docs/WINDOWED_CONTEXT.md).
+- **Opt-in, content-redacted evaluation:** offline simulated `html_v0` versus `atoms_v1` structural/cost-proxy report; explicitly gated, *not yet executed* billable Gemini pilot. See [evaluation checkpoint](docs/EVAL_REPORT.md).
 
 **Status:** local backend prototype, not a deployed multi-user production server. The original Windows program is unchanged. Provider integration uses a new native Gemini adapter; it has **not** been exercised against the live Gemini API. A server-specific prompt policy now supports scoped glossary versions, enforcement classes, literary style guidance and fingerprint-verified chapter context snapshots, adapted from the desktop source. **The server now has atom transport and bounded targeted repair, but full
 Windows PromptBuilder parity is not yet demonstrated.** Automatic context extraction is now available only for book-managed jobs; the standalone `POST /v1/jobs` remains backwards compatible. No browser UI, Rulate publishing or EPUB import yet.
@@ -76,7 +79,7 @@ curl -X POST http://127.0.0.1:8000/v1/books/demo/chapters/1/translate \
   -H 'Idempotency-Key: demo-1' -d '{}'
 ```
 
-Worker performs asynchronous JSON context preflight before the translation call,
+Worker performs asynchronous JSON context preflight (or complete bounded windows for long chapters) before the translation call,
 then caches source-grounded context against source, glossary and predecessor
 revision fingerprints. See [docs/BOOK_MEMORY.md](docs/BOOK_MEMORY.md) for
 scoped glossary, acceptance and multi-editor conflict behavior.
@@ -120,3 +123,13 @@ python -m pip wheel --no-deps --no-build-isolation . -w dist
 ```
 
 See `docs/PROMPT_POLICY.md` for versioned glossary and context snapshot examples, `docs/ROADMAP.md` for milestones, and `docs/PROVENANCE.md` for extraction boundaries.
+
+## Protocol quality/cost evaluation (v0.5)
+
+Run `chaptera-eval --output offline-report.json` for three synthetic, **offline**
+transport fixtures. The generated JSON contains only structural metrics and
+character counts; it does not contain chapters or request/response text. No
+Gemini key, network access or charges are needed. Actual token counts are
+reported only when a provider supplies `usageMetadata`. See
+[docs/EVAL_REPORT.md](docs/EVAL_REPORT.md) for the independent explicit opt-in
+paid pilot, safeguards and no-go decision for changing defaults.

@@ -91,7 +91,8 @@ class GeminiProvider:
             counters = data.get('usageMetadata') or {}
             safe = {
                 name: int(counters[name]) for name in
-                ('promptTokenCount', 'candidatesTokenCount', 'totalTokenCount')
+                ('promptTokenCount', 'candidatesTokenCount', 'totalTokenCount',
+                 'thoughtsTokenCount', 'cachedContentTokenCount')
                 if isinstance(counters.get(name), int) and not isinstance(counters[name], bool)
                 and counters[name] >= 0
             }
