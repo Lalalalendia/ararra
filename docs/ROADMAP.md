@@ -15,7 +15,8 @@
 Completed server-only slice: desktop chapter-context snapshot/validation policy (schema v3), glossary enforcement, exact chapter-scoped version overrides, required/session/advisory binding selection, filtered literary style preferences, context conflict warnings, and worker/API wiring. Local tests use deterministic fake providers; no live Gemini output is claimed.
 
 - Build a golden fixture corpus: single HTML chapters, nonadjacent chapters, fragmented chapters, mixed scripts, glossary ambiguity and truncated model answers.
-- Continue original PromptBuilder source-atom JSON transport and targeted render-domain repair; current server still uses TSEG/TSRC HTML for QA. Move glossary versions and chapter-context snapshots into persistent book-level DB, with automatic source-grounded context preflight and predecessor summaries. Keep desktop unchanged.
+- **v0.3 delivered:** a persistent shared book/chapter library, optimistic glossary revisions and acceptance history, source-grounded automatic async context preflight, dependency-verified snapshots and predecessor-tail continuity. A single SQLite worker remains the development limit; desktop unchanged.
+- Continue original PromptBuilder source-atom JSON transport and targeted render-domain repair; current server still uses TSEG/TSRC HTML for QA. Add batched/long-chapter context processing and broader golden fixtures.
 - Compare generated provider prompts, segmentation and final output against fixture expectations, not against a mutable live provider.
 - Instrument token usage, costs and model behavior.
 

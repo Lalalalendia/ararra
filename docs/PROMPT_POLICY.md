@@ -74,10 +74,11 @@ that snapshot** to Gemini.
 
 ## Limits and next steps
 
-The REST API currently accepts caller-provided snapshots: there is **no server
-endpoint that generates chapter memory automatically**. Permanent book-level
-glossary editing, snapshot invalidation, automatic context prepass, and
-per-revision dependency tracking need persistent project models. The desktop
+The legacy `POST /v1/jobs` continues to accept caller-provided snapshots.
+**v0.3 adds** shared book/chapter endpoints and automatic async context preflight
+within book-managed translation jobs, with permanent glossary revisions,
+context invalidation and predecessor dependency checks. See
+`docs/BOOK_MEMORY.md` for the new workflow and remaining limits. The desktop
 atom-based JSON `PromptBuilder`, richer repair passes, Gemini parity and web UI
 are separate milestones. A `completed` status still requires deterministic
 source unit and structure validation; prompt improvements do not bypass QC.
