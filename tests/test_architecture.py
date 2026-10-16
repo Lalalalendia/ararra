@@ -6,7 +6,7 @@ import importlib.util
 from pathlib import Path
 
 import httpx
-import pytest
+from fastapi.routing import APIRoute
 
 from chaptera_server.api import create_app
 from chaptera_server.config import Settings
@@ -59,10 +59,13 @@ def test_violations_detected_for_cross_layer_imports_and_misowned_endpoints():
 def test_http_paths_and_methods_are_unique_and_stable(tmp_path):
     store = QueueStore(tmp_path / 'jobs.sqlite3')
     app = create_app(Settings(db_path=store.db_path, team_tokens={'alice': 'alice-secret'}), store)
-    routes = [(method, route.path) for route in app.routes for method in sorted(route.methods or ())]
+    # Recent FastAPI versions expose a private _IncludedRouter marker in app.routes;
+    # only actual APIRoute instances represent reachable HTTP endpoints.
+    http_routes = [route for route in app.routes if isinstance(route, APIRoute)]
+    routes = [(method, route.path) for route in http_routes for method in sorted(route.methods or ())]
     assert len(routes) == len(set(routes)), 'Duplicate handlers shadow one another'
     assert set(routes) == ROUTE_CONTRACT
-    for route in app.routes:
+    for route in http_routes:
         if route.path == '/healthz':
             continue
         # Import preview authenticates at router level, others at endpoint level.
