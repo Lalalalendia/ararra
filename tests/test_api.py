@@ -41,3 +41,22 @@ def test_api_fails_closed_when_tokens_are_unconfigured(tmp_path):
             assert (await client.get("/v1/jobs", headers={"X-API-Key": "anything"})).status_code == 401
 
     asyncio.run(scenario())
+
+
+def test_api_rejects_conflicting_glossary_versions_before_queueing(tmp_path):
+    store = QueueStore(tmp_path / 'jobs.db')
+    app = create_app(Settings(db_path=tmp_path / 'jobs.db', team_tokens={'alice': 'test-secret'}), store)
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://localhost') as client:
+            result = await client.post('/v1/jobs', headers={'X-API-Key': 'test-secret'}, json={
+                'chapter_id': '517', 'source_html': '<p>李明 пришёл.</p>',
+                'chapter_path': 'ch517.xhtml',
+                'glossary': {'李明': 'Ли Мин'},
+                'glossary_versions': {'李明': [
+                    {'scope': ['ch517.xhtml'], 'override': {'rus': 'Ли Мин'}},
+                    {'scope': ['ch517.xhtml'], 'override': {'rus': 'Ли Минь'}},
+                ]},
+            })
+            assert result.status_code == 422
+            assert not store.list_jobs()
+    asyncio.run(scenario())
