@@ -18,7 +18,7 @@ services:
     environment:
       CHAPTERA_DB_PATH: /data/jobs.sqlite3
       CHAPTERA_GEMINI_API_KEY: ${CHAPTERA_GEMINI_API_KEY:?set_gemini_key}
-      CHAPTERA_GEMINI_MODEL: ${CHAPTERA_GEMINI_MODEL:-gemini-2.5-flash}
+      CHAPTERA_GEMINI_MODEL: ${CHAPTERA_GEMINI_MODEL:-gemini-3.8-flash}
     volumes:
       - jobs:/data
 volumes:

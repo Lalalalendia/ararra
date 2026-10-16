@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chaptera-server-translator"
-version = "0.6.1"
+version = "0.6.2"
 description = "Independent team translation backend based on the Chaptera translation algorithms"
 requires-python = ">=3.11"
 dependencies = [

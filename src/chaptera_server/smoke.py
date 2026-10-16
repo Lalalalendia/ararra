@@ -86,7 +86,7 @@ def _mock_gemini(request: httpx.Request) -> httpx.Response:
 
 
 async def run_smoke(*, live: bool = False, transport: str = 'html_v0',
-                    max_requests: int = 1, model: str = 'gemini-2.5-flash',
+                    max_requests: int = 1, model: str = 'gemini-3.8-flash',
                     api_key: str = '') -> dict[str, Any]:
     if transport not in {'html_v0', 'atoms_v1'} or not 1 <= max_requests <= 3:
         raise ValueError('Invalid transport or request budget')
@@ -140,7 +140,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--live', action='store_true', help='Use real Gemini API (may incur charges)')
     parser.add_argument('--authorize-billable', action='store_true')
     parser.add_argument('--transport', choices=['html_v0', 'atoms_v1'], default='html_v0')
-    parser.add_argument('--model', default=os.environ.get('CHAPTERA_GEMINI_MODEL', 'gemini-2.5-flash'))
+    parser.add_argument('--model', default=os.environ.get('CHAPTERA_GEMINI_MODEL', 'gemini-3.8-flash'))
     parser.add_argument('--max-requests', type=int, default=1)
     parser.add_argument('--output', type=Path)
     args = parser.parse_args(argv)

@@ -181,7 +181,7 @@ def _argument_parser() -> argparse.ArgumentParser:
     parser.add_argument('--live', action='store_true', help='Use Gemini (billable; requires additional explicit gates)')
     parser.add_argument('--authorize-billable', action='store_true', help='Confirm API charges are authorized')
     parser.add_argument('--chapter-file', type=Path, help='Locally supplied, authorized chapter HTML; required for live')
-    parser.add_argument('--model', default=os.environ.get('CHAPTERA_GEMINI_MODEL', 'gemini-2.5-flash'))
+    parser.add_argument('--model', default=os.environ.get('CHAPTERA_GEMINI_MODEL', 'gemini-3.8-flash'))
     parser.add_argument('--max-requests', type=int, default=6)
     parser.add_argument('--max-prompt-chars', type=int, default=30_000)
     parser.add_argument('--output', type=Path, help='Write redacted statistics (never text or prompts)')
