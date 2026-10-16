@@ -53,6 +53,11 @@ class TranslationWorker:
                 glossary=data["glossary"],
                 context=data["context"],
                 chapter_path=data["chapter_path"],
+                glossary_versions=data.get("glossary_versions") or {},
+                glossary_authority=data.get("glossary_authority", "READY"),
+                chapter_context_snapshot=data.get("chapter_context_snapshot"),
+                predecessor=data.get("predecessor"),
+                style_instructions=data.get("style_instructions", ""),
             ))
             self.store.complete(jid, token, result.translated_html, result.source_hash, result.unit_count)
         except TranslationCancelled:
