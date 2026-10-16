@@ -25,10 +25,15 @@ class JobSpec:
     source_html: str
     source_language: str = "auto"
     target_language: str = "Russian"
-    glossary: dict[str, str] | None = None
+    glossary: dict[str, str | dict[str, Any]] | None = None
     context: str = ""
     chapter_path: str = ""
     max_attempts: int = 3
+    glossary_versions: dict[str, list[dict[str, Any]]] | None = None
+    glossary_authority: str = "READY"
+    chapter_context_snapshot: dict[str, Any] | None = None
+    predecessor: dict[str, Any] | None = None
+    style_instructions: str = ""
 
     def normalized(self) -> dict[str, Any]:
         return {
@@ -40,6 +45,11 @@ class JobSpec:
             "context": self.context,
             "chapter_path": self.chapter_path,
             "max_attempts": self.max_attempts,
+            "glossary_versions": dict(self.glossary_versions or {}),
+            "glossary_authority": self.glossary_authority,
+            "chapter_context_snapshot": dict(self.chapter_context_snapshot) if self.chapter_context_snapshot else None,
+            "predecessor": dict(self.predecessor) if self.predecessor else None,
+            "style_instructions": self.style_instructions,
         }
 
 

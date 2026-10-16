@@ -9,6 +9,7 @@ from chaptera_translation_core import (
 )
 
 from .provider import ProviderFailure, TransientProviderFailure
+from chaptera_translation_core.prompt_policy import GlossaryVersionConflict
 from .storage import QueueStore
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,11 @@ class TranslationWorker:
                 glossary=data["glossary"],
                 context=data["context"],
                 chapter_path=data["chapter_path"],
+                glossary_versions=data.get("glossary_versions") or {},
+                glossary_authority=data.get("glossary_authority", "READY"),
+                chapter_context_snapshot=data.get("chapter_context_snapshot"),
+                predecessor=data.get("predecessor"),
+                style_instructions=data.get("style_instructions", ""),
             ))
             self.store.complete(jid, token, result.translated_html, result.source_hash, result.unit_count)
         except TranslationCancelled:
@@ -61,7 +67,7 @@ class TranslationWorker:
         except TransientProviderFailure as exc:
             retry_in = max(min(300.0, 2 ** min(job["attempts"], 8)), exc.retry_after_seconds or 0.0)
             self.store.retry(jid, token, str(exc), delay_seconds=retry_in)
-        except (ProviderFailure, TranslationRejected) as exc:
+        except (ProviderFailure, TranslationRejected, GlossaryVersionConflict) as exc:
             self.store.fail(jid, token, str(exc))
         except Exception as exc:
             logger.error("Unexpected job error in %s: %s", jid, type(exc).__name__)

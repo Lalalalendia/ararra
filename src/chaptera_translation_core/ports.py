@@ -1,7 +1,7 @@
 """I/O contracts for GUI, server workers, and provider implementations."""
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Callable, Mapping, Protocol
+from typing import Any, Callable, Mapping, Protocol
 
 
 @dataclass(frozen=True, slots=True)
@@ -10,9 +10,15 @@ class ChapterInput:
     source_html: str
     target_language: str = "Russian"
     source_language: str = "auto"
-    glossary: Mapping[str, str] = field(default_factory=dict)
+    glossary: Mapping[str, str | dict[str, Any]] = field(default_factory=dict)
     context: str = ""
     chapter_path: str = ""
+    # Server-specific extension: desktop glossary versions use exact chapter paths.
+    glossary_versions: Mapping[str, list[dict[str, Any]]] = field(default_factory=dict)
+    glossary_authority: str = "READY"
+    chapter_context_snapshot: Mapping[str, Any] | None = None
+    predecessor: Mapping[str, Any] | None = None
+    style_instructions: str = ""
 
 
 @dataclass(frozen=True, slots=True)

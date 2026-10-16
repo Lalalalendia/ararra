@@ -3,6 +3,9 @@ from __future__ import annotations
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
+from typing import Any, Literal
+
+from chaptera_translation_core.prompt_policy import GlossaryVersionConflict, scoped_glossary
 
 from .auth import authenticate
 from .config import Settings
@@ -14,14 +17,19 @@ class SubmitChapter(BaseModel):
     source_html: str = Field(min_length=1, max_length=2_000_000)
     source_language: str = Field(default="auto", max_length=64)
     target_language: str = Field(default="Russian", min_length=1, max_length=64)
-    glossary: dict[str, str] = Field(default_factory=dict)
+    glossary: dict[str, str | dict[str, Any]] = Field(default_factory=dict)
     context: str = Field(default="", max_length=100_000)
     chapter_path: str = Field(default="", max_length=1024)
     max_attempts: int = Field(default=3, ge=1, le=10)
+    glossary_versions: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    glossary_authority: Literal['READY', 'READY_WITH_WARNINGS', 'EMPTY_EXPECTED', 'UNAVAILABLE', 'DISABLED'] = 'READY'
+    chapter_context_snapshot: dict[str, Any] | None = None
+    predecessor: dict[str, Any] | None = None
+    style_instructions: str = Field(default='', max_length=10_000)
 
 
 def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
-    app = FastAPI(title="Chaptera Team Translation API", version="0.1.0",
+    app = FastAPI(title="Chaptera Team Translation API", version="0.2.0",
                   docs_url=None, redoc_url=None, openapi_url=None)
     repo = store or QueueStore(settings.db_path)
 
@@ -36,7 +44,10 @@ def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
     def submit(body: SubmitChapter, actor: str = Depends(require_member),
                idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
         try:
+            scoped_glossary(body.glossary, body.glossary_versions, body.chapter_path, body.glossary_authority)
             return repo.create_job(actor, JobSpec(**body.model_dump()), idempotency_key=idempotency_key)
+        except GlossaryVersionConflict as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         except IdempotencyConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError as exc:

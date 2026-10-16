@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 from typing import Callable, Iterable
 
 from .ports import (
@@ -16,6 +15,7 @@ from .ports import (
     TranslationEvent, TranslationEventHandler, TranslationCancelled,
     TranslationRejected,
 )
+from .prompt_policy import compose_prompt
 from .core.worker_helpers.translation_completeness import (
     build_translation_unit_source_bundle,
     finalize_publication_html,
@@ -26,25 +26,8 @@ from .core.worker_helpers.translation_completeness import (
 
 
 def build_translation_prompt(item: ChapterInput, marked_source: str) -> str:
-    """Explicit TSEG/TSRC protocol, suitable for deterministic completeness QA."""
-    if not item.target_language.strip():
-        raise ValueError('target_language is required')
-    settings = {
-        'source_language': item.source_language,
-        'target_language': item.target_language,
-        'glossary': dict(item.glossary),
-        'previous_context': item.context,
-    }
-    return (
-        'Translate the following HTML literary chapter using these settings. '
-        'Return ONLY the translated HTML. Preserve its DOM element structure, '
-        'all attributes and the EXACT TSEG_ and TSRC_ HTML comment markers in place. '
-        'Translate every source segment associated with a TSEG marker; omit nothing. '
-        'Do not add plot information, headings, annotations or explanations. '
-        'Respect glossary mappings for matching terms.\n'
-        'Settings (JSON):\n' + json.dumps(settings, ensure_ascii=False, sort_keys=True) +
-        '\nSource HTML:\n' + marked_source
-    )
+    """Public compatibility helper for the server's deterministic HTML protocol."""
+    return compose_prompt(item, marked_source, marked_source)[0]
 
 
 class TranslationCore:
@@ -82,7 +65,11 @@ class TranslationCore:
         if not units:
             raise TranslationRejected(chapter.chapter_id, 'input', 'no translatable source units')
         self._cancel_check()
-        prompt = build_translation_prompt(chapter, marked_source)
+        prompt, diagnostics = compose_prompt(chapter, marked_source, source)
+        if diagnostics.context_status == 'stale_ignored':
+            self._emit(chapter.chapter_id, 'context_stale', 'ignored out-of-date chapter context snapshot')
+        if diagnostics.context_conflicts:
+            self._emit(chapter.chapter_id, 'context_conflict', f'count={diagnostics.context_conflicts}')
         self._emit(chapter.chapter_id, 'provider_request', f'units={len(units)}')
         raw = await self.provider.generate(ProviderRequest(chapter.chapter_id, prompt, marked_source, len(units)))
         self._cancel_check()
