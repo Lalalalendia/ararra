@@ -82,3 +82,7 @@ snapshot with `status=current`; stale/missing context returns `snapshot=null`.
 revision conflict handling, CJK source grounding, future spoiler exclusion,
 nonadjacent chapters, source/glossary/predecessor invalidation, cancellation and
 malformed model responses. Run `pytest -q` for the full regression suite.
+
+## v0.5 windowed preflight upgrade
+
+Schema v3 / prompt version **6** fingerprints window coverage and invalidates earlier prompt-v5 cached snapshots on demand. Existing SQLite tables remain unchanged. Details and failure cases: [WINDOWED_CONTEXT.md](WINDOWED_CONTEXT.md).

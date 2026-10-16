@@ -71,3 +71,26 @@ def test_actual_gemini_usage_metadata_can_be_reported_without_logging_prompts():
             assert result == 'Привет'
     asyncio.run(scenario())
     assert usages == [{'promptTokenCount': 126, 'candidatesTokenCount': 23, 'totalTokenCount': 149}]
+
+
+def test_extended_gemini_usage_counters_include_thought_and_cached_tokens():
+    import asyncio
+    import httpx
+    from chaptera_server.provider import GeminiProvider
+    from chaptera_translation_core.ports import ProviderRequest
+    usages = []
+    def response(_request):
+        return httpx.Response(200, json={
+            'candidates': [{'finishReason': 'STOP', 'content': {'parts': [{'text': 'Мир'}]}}],
+            'usageMetadata': {'promptTokenCount': 100, 'candidatesTokenCount': 15,
+                              'totalTokenCount': 130, 'thoughtsTokenCount': 15,
+                              'cachedContentTokenCount': 80},
+        })
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(response)) as client:
+            provider = GeminiProvider('fake-test-key', 'gemini-test', client=client)
+            return await provider.generate(ProviderRequest('x', 'prompt', '', 0, on_usage=usages.append))
+    assert asyncio.run(run()) == 'Мир'
+    assert usages == [{'promptTokenCount': 100, 'candidatesTokenCount': 15,
+                       'totalTokenCount': 130, 'thoughtsTokenCount': 15,
+                       'cachedContentTokenCount': 80}]

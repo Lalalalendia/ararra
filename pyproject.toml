@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chaptera-server-translator"
-version = "0.4.0"
+version = "0.5.0"
 description = "Independent team translation backend based on the Chaptera translation algorithms"
 requires-python = ">=3.11"
 dependencies = [
@@ -20,6 +20,7 @@ test = ["pytest>=8", "pytest-asyncio>=0.23"]
 
 [project.scripts]
 chaptera-server = "chaptera_server.cli:main"
+chaptera-eval = "chaptera_server.eval_pilot:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

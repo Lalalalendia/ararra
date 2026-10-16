@@ -83,3 +83,7 @@ context invalidation and predecessor dependency checks. See
 rounds, but full desktop prompt parity, live Gemini quality comparisons and web
 UI remain separate milestones. See `ATOM_TRANSPORT.md`. A `completed` status still requires deterministic
 source unit and structure validation; prompt improvements do not bypass QC.
+
+## v0.5 context prompt policy
+
+The server now uses schema v3 / **prompt v6** and bounded source-complete windows for long chapters. Only the current window is supplied as source evidence; glossary visibility is scoped to that window. Provenance/failure guarantees and cache invalidation: [WINDOWED_CONTEXT.md](WINDOWED_CONTEXT.md).

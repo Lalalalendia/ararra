@@ -8,7 +8,7 @@ from typing import Any
 # Adapted from the desktop chapter_context utilities (schema v3/prompt v5).
 # Server policy is self-contained: no desktop configuration or GUI imports.
 CHAPTER_CONTEXT_SCHEMA_VERSION = 3
-CHAPTER_CONTEXT_PROMPT_VERSION = 5
+CHAPTER_CONTEXT_PROMPT_VERSION = 6
 PREDECESSOR_TRANSLATION_TAIL_CHARS = 2400
 _MODEL_FIELDS = (
     'summary',
@@ -182,6 +182,7 @@ def _snapshot_fingerprint_payload(snapshot: dict, normalized_context: dict | Non
         'predecessor': normalize_predecessor_dependency(snapshot.get('predecessor')),
         'context': context,
         'semantic_terms': list(snapshot.get('semantic_terms') or []),
+        'window_coverage': snapshot.get('window_coverage') or {},
     }
 def context_policy_is_current(snapshot: Any, *, glossary_hash: str) -> bool:
     if not isinstance(snapshot, dict):
@@ -357,6 +358,7 @@ def make_snapshot(
     context: Any,
     predecessor: Any = None,
     semantic_terms: Any = None,
+    window_coverage: dict | None = None,
 ) -> dict:
     normalized = normalize_model_context(context)
     normalized_predecessor = normalize_predecessor_dependency(predecessor)
@@ -369,6 +371,7 @@ def make_snapshot(
         'prompt_version': CHAPTER_CONTEXT_PROMPT_VERSION,
         'predecessor': normalized_predecessor,
         'semantic_terms': normalized_terms,
+        'window_coverage': window_coverage or {},
     }, normalized)
     return {
         'chapter_path': fingerprint_payload['chapter_path'],
@@ -380,6 +383,7 @@ def make_snapshot(
         'context_fingerprint': sha256_text(_canonical_json(fingerprint_payload)),
         'predecessor': normalized_predecessor,
         'semantic_terms': normalized_terms,
+        'window_coverage': window_coverage or {},
         **normalized,
     }
 def model_facing_context(snapshot: Any) -> dict | None:

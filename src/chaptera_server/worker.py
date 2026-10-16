@@ -12,7 +12,7 @@ from .provider import ProviderFailure, TransientProviderFailure
 from chaptera_translation_core.prompt_policy import GlossaryVersionConflict
 from .storage import QueueStore
 from .library import BookLibrary, LibraryNotFound, StaleBookJob
-from .context_prepass import ContextPrepassRejected, generate_chapter_context, prepass_source_length
+from .context_prepass import ContextPrepassRejected, ContextPrepassUnserviceable, generate_chapter_context
 
 logger = logging.getLogger(__name__)
 
@@ -57,19 +57,16 @@ class TranslationWorker:
                 snapshot = self.library.current_context(managed)
                 predecessor = managed.predecessor
                 if snapshot is None:
-                    if data.get('transport') == 'atoms_v1' and prepass_source_length(managed.source_html) > 50_000:
-                        # The single-request context extractor cannot reliably summarize
-                        # a truncated 50k+ chapter. Translate the full chapter instead of
-                        # pretending that a partial context is source-grounded.
-                        self.store.record_event(jid, token, 'context_skipped_long_chapter',
-                                                'prepass would exceed 50000 visible characters')
-                    else:
-                        self.store.record_event(jid, token, 'context_preparing', 'server-owned preflight')
-                        snapshot = await generate_chapter_context(self.provider, managed)
-                        if self.store.cancellation_requested(jid, token):
-                            raise TranslationCancelled('Translation cancelled during context preflight')
-                        self.library.save_context(managed, snapshot)
-                        self.store.record_event(jid, token, 'context_generated', 'snapshot persisted')
+                    self.store.record_event(jid, token, 'context_preparing', 'server-owned windowed preflight')
+                    snapshot = await generate_chapter_context(
+                        self.provider, managed,
+                        on_event=lambda stage, detail: self.store.record_event(jid, token, stage, detail),
+                        is_cancelled=lambda: self.store.cancellation_requested(jid, token),
+                    )
+                    if self.store.cancellation_requested(jid, token):
+                        raise TranslationCancelled('Translation cancelled during context preflight')
+                    self.library.save_context(managed, snapshot)
+                    self.store.record_event(jid, token, 'context_generated', 'complete snapshot persisted')
                 else:
                     self.store.record_event(jid, token, 'context_cache_hit', 'fresh snapshot reused')
                 # A concurrent book edit cannot slip between prepass and translation.
@@ -104,6 +101,9 @@ class TranslationWorker:
         except TransientProviderFailure as exc:
             retry_in = max(min(300.0, 2 ** min(job["attempts"], 8)), exc.retry_after_seconds or 0.0)
             self.store.retry(jid, token, str(exc), delay_seconds=retry_in)
+        except ContextPrepassUnserviceable as exc:
+            self.store.record_event(jid, token, 'context_unserviceable', str(exc))
+            self.store.fail(jid, token, str(exc))
         except ContextPrepassRejected as exc:
             self.store.retry(jid, token, str(exc), delay_seconds=3.0)
         except (ProviderFailure, TranslationRejected, GlossaryVersionConflict, StaleBookJob, LibraryNotFound) as exc:
