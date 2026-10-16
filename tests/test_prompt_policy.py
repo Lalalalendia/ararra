@@ -176,3 +176,25 @@ def test_context_response_parser_preserves_exact_id_and_rejects_invented_terms()
     accepted, missing = validate_context_response(response, documents)
     assert not missing
     assert [x['source'] for x in accepted[0]['semantic_terms']] == ['李明']
+
+
+def test_conflicting_glossary_versions_are_permanent_not_retryable(tmp_path):
+    from chaptera_server.storage import QueueStore, JobSpec
+    from chaptera_server.worker import TranslationWorker
+
+    versions = {'李明': [
+        {'scope': [CHAPTER_PATH], 'override': {'rus': 'Ли Мин'}},
+        {'scope': [CHAPTER_PATH], 'override': {'rus': 'Ли Минь'}},
+    ]}
+    store = QueueStore(tmp_path / 'jobs.sqlite3')
+    job = store.create_job('alice', JobSpec(
+        '517', SOURCE, glossary=GLOSSARY, chapter_path=CHAPTER_PATH,
+        glossary_versions=versions,
+    ))
+    provider = RecordingProvider()
+    assert asyncio.run(TranslationWorker(store, provider).run_once())
+    saved = store.get_job(job['id'])
+    assert saved['status'] == 'failed'
+    assert saved['attempts'] == 1
+    assert not provider.requests
+    assert store.claim_next() is None
