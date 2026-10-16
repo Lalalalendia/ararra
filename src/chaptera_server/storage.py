@@ -37,6 +37,7 @@ class JobSpec:
     book_id: str = ""
     book_chapter_revision: int = 0
     book_glossary_revision: int = 0
+    transport: str = "html_v0"
 
     def normalized(self) -> dict[str, Any]:
         return {
@@ -56,6 +57,7 @@ class JobSpec:
             "book_id": self.book_id,
             "book_chapter_revision": self.book_chapter_revision,
             "book_glossary_revision": self.book_glossary_revision,
+            "transport": self.transport,
         }
 
 
@@ -94,6 +96,7 @@ class QueueStore:
                     result_html TEXT,
                     source_hash TEXT,
                     unit_count INTEGER,
+                    provenance_json TEXT,
                     last_error TEXT,
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL,
@@ -110,6 +113,10 @@ class QueueStore:
                 );
                 CREATE INDEX IF NOT EXISTS ix_job_events ON job_events(job_id, id);
             """)
+            # Existing v0.2/v0.3 databases have no provenance column; upgrade in place.
+            columns = {row['name'] for row in con.execute('PRAGMA table_info(jobs)')}
+            if 'provenance_json' not in columns:
+                con.execute('ALTER TABLE jobs ADD COLUMN provenance_json TEXT')
 
     @staticmethod
     def _public(row: sqlite3.Row | dict[str, Any], *, include_result: bool = False) -> dict[str, Any]:
@@ -119,11 +126,14 @@ class QueueStore:
         )}
         if include_result:
             result["translated_html"] = row["result_html"]
+            result["atom_provenance"] = json.loads(row["provenance_json"]) if row["provenance_json"] else []
         return result
 
     def create_job(self, actor_id: str, spec: JobSpec, idempotency_key: str | None = None) -> dict[str, Any]:
         if not actor_id.strip() or not spec.chapter_id.strip() or not spec.source_html.strip():
             raise ValueError("actor_id, chapter_id and nonempty source_html required")
+        if spec.transport not in {"html_v0", "atoms_v1"}:
+            raise ValueError("Unsupported transport")
         if spec.max_attempts < 1 or spec.max_attempts > 10:
             raise ValueError("max_attempts must be between 1 and 10")
         request_json = json.dumps(spec.normalized(), sort_keys=True, ensure_ascii=False, separators=(",", ":"))
@@ -140,8 +150,14 @@ class QueueStore:
                 ).fetchone()
                 if existing is not None:
                     if existing["request_hash"] != digest:
-                        con.execute("ROLLBACK")
-                        raise IdempotencyConflict("Idempotency key refers to different input")
+                        # Backward-compatible replay of a v0.3 job without an explicit
+                        # transport field. Treat absent protocol as legacy HTML.
+                        previous = json.loads(existing['input_json'])
+                        legacy_request = dict(spec.normalized())
+                        legacy_request.pop('transport', None)
+                        if not (spec.transport == 'html_v0' and previous == legacy_request):
+                            con.execute("ROLLBACK")
+                            raise IdempotencyConflict("Idempotency key refers to different input")
                     con.execute("COMMIT")
                     return self._public(existing)
             con.execute("""
@@ -230,7 +246,8 @@ class QueueStore:
 
     def _finish(self, job_id: str, lease_owner: str, status: str, *, message: str = "",
                 translated_html: str | None = None, source_hash: str | None = None,
-                unit_count: int | None = None, run_after: float | None = None) -> bool:
+                unit_count: int | None = None, run_after: float | None = None,
+                atom_provenance: tuple[dict[str, Any], ...] | None = None) -> bool:
         now = time.time()
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
@@ -241,23 +258,26 @@ class QueueStore:
                 return False
             actual = "cancelled" if row["cancel_requested"] else status
             if actual != "completed":
-                translated_html, source_hash, unit_count = None, None, None
+                translated_html, source_hash, unit_count, atom_provenance = None, None, None, None
+            proof = json.dumps(atom_provenance, ensure_ascii=False) if atom_provenance else None
             con.execute("""
-                UPDATE jobs SET status=?, result_html=?, source_hash=?, unit_count=?, last_error=?,
+                UPDATE jobs SET status=?, result_html=?, source_hash=?, unit_count=?, provenance_json=?, last_error=?,
                                 run_after=?, lease_owner=NULL, lease_until=NULL, updated_at=?
                 WHERE id=? AND lease_owner=?
-            """, (actual, translated_html, source_hash, unit_count,
+            """, (actual, translated_html, source_hash, unit_count, proof,
                   message[:4000] if actual not in {"completed", "cancelled"} else "",
                   now if run_after is None else run_after, now, job_id, lease_owner))
             self._event(con, job_id, actual, message if actual != "completed" else "", now)
             con.execute("COMMIT")
             return True
 
-    def complete(self, job_id: str, lease_owner: str, translated_html: str, source_hash: str, unit_count: int) -> bool:
+    def complete(self, job_id: str, lease_owner: str, translated_html: str, source_hash: str, unit_count: int,
+                 atom_provenance: tuple[dict[str, Any], ...] = ()) -> bool:
         if not translated_html.strip():
             raise ValueError("Empty translation must not be persisted")
         return self._finish(job_id, lease_owner, "completed", translated_html=translated_html,
-                            source_hash=source_hash, unit_count=unit_count)
+                            source_hash=source_hash, unit_count=unit_count,
+                            atom_provenance=atom_provenance)
 
     def fail(self, job_id: str, lease_owner: str, message: str) -> bool:
         return self._finish(job_id, lease_owner, "failed", message=message)

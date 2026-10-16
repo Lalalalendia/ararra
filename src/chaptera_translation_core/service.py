@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import re
 from typing import Callable, Iterable
 
 from .ports import (
@@ -16,6 +17,12 @@ from .ports import (
     TranslationRejected,
 )
 from .prompt_policy import compose_prompt
+from .atom_transport import (
+    MAX_REPAIR_ROUNDS, MAX_REPAIR_DOMAINS_PER_ROUND,
+    prepare_source_atoms, packets_for_atoms, parse_packet_response,
+    merge_proven_segments, repair_domains, apply_proven_repair, atom_provenance,
+)
+from .core.translation_units import build_render_plan, expected_render_domain_covers
 from .core.worker_helpers.translation_completeness import (
     build_translation_unit_source_bundle,
     finalize_publication_html,
@@ -56,6 +63,8 @@ class TranslationCore:
             raise ValueError('chapter_id is required')
         if not chapter.source_html.strip():
             raise TranslationRejected(chapter.chapter_id, 'input', 'source HTML is empty')
+        if chapter.transport not in {'html_v0', 'atoms_v1'}:
+            raise ValueError('Unknown translation transport')
         self._cancel_check()
         self._emit(chapter.chapter_id, 'preparing')
         source = strip_source_boilerplate(
@@ -65,6 +74,8 @@ class TranslationCore:
         if not units:
             raise TranslationRejected(chapter.chapter_id, 'input', 'no translatable source units')
         self._cancel_check()
+        if chapter.transport == 'atoms_v1':
+            return await self._translate_atoms(chapter, source, marked_source, units)
         prompt, diagnostics = compose_prompt(chapter, marked_source, source)
         if diagnostics.context_status == 'stale_ignored':
             self._emit(chapter.chapter_id, 'context_stale', 'ignored out-of-date chapter context snapshot')
@@ -92,6 +103,101 @@ class TranslationCore:
             source_hash=hashlib.sha256(chapter.source_html.encode('utf-8')).hexdigest(),
             translated_html=cleaned,
             unit_count=len(units),
+        )
+
+    async def _translate_atoms(self, chapter: ChapterInput, source: str, marked_source: str,
+                               units: list[dict]) -> ChapterResult:
+        # Source owned identity and DOM are prepared ONCE; the provider only supplies text.
+        # TSEG service-looking user text cannot be roundtripped by the publication stripper.
+        if re.search(r'(?i)\b(?:TSEG_\d{1,12}|TSRC_[0-9a-f]{6,64})\b', source):
+            raise TranslationRejected(chapter.chapter_id, 'input', 'reserved marker-like source content')
+        atoms = prepare_source_atoms(units, chapter_id=chapter.chapter_id)
+        batches = packets_for_atoms(atoms)
+        if not batches:
+            raise TranslationRejected(chapter.chapter_id, 'input', 'no source atoms')
+        self._emit(chapter.chapter_id, 'atom_prepared', f'atoms={len(atoms)} batches={len(batches)}')
+        accepted = []
+        for index, batch in enumerate(batches, start=1):
+            self._cancel_check()
+            prompt, diagnostics = compose_prompt(chapter, marked_source, source, atom_payload=batch.payload)
+            if index == 1:
+                if diagnostics.context_status == 'stale_ignored':
+                    self._emit(chapter.chapter_id, 'context_stale', 'ignored out-of-date chapter context snapshot')
+                if diagnostics.context_conflicts:
+                    self._emit(chapter.chapter_id, 'context_conflict', f'count={diagnostics.context_conflicts}')
+            self._emit(chapter.chapter_id, 'atom_batch',
+                       f'{index}/{len(batches)} atoms={len(batch.atoms)} prompt_chars={len(prompt)} payload_chars={len(batch.payload)}')
+            raw = await self.provider.generate(ProviderRequest(
+                chapter.chapter_id, prompt, batch.payload, len(batch.atoms), 'atoms_v1',
+                lambda usage, part=index: self._emit(chapter.chapter_id, 'gemini_usage',
+                    f'batch={part} prompt_tokens={usage.get("promptTokenCount", 0)} '
+                    f'output_tokens={usage.get("candidatesTokenCount", 0)} '
+                    f'total_tokens={usage.get("totalTokenCount", 0)}'),
+            ))
+            self._cancel_check()
+            try:
+                part = parse_packet_response(raw, batch.atoms)
+            except ValueError as exc:
+                raise TranslationRejected(chapter.chapter_id, 'atom_identity', str(exc)) from exc
+            accepted.append(part)
+        try:
+            coverage = merge_proven_segments(atoms, accepted)
+        except ValueError as exc:
+            raise TranslationRejected(chapter.chapter_id, 'atom_identity', str(exc)) from exc
+        for round_index in range(MAX_REPAIR_ROUNDS + 1):
+            self._cancel_check()
+            domains = repair_domains(coverage, marked_source)
+            if not domains:
+                break
+            if round_index == MAX_REPAIR_ROUNDS:
+                break
+            if len(domains) > MAX_REPAIR_DOMAINS_PER_ROUND:
+                raise TranslationRejected(chapter.chapter_id, 'atom_repair',
+                                          f'too many damaged domains: {len(domains)}')
+            self._emit(chapter.chapter_id, 'atom_repair',
+                       f'round={round_index + 1} domains={len(domains)}')
+            for domain in domains:
+                self._cancel_check()
+                payload = packets_for_atoms(domain)[0].payload
+                prompt, _ = compose_prompt(chapter, marked_source, source,
+                                           atom_payload=payload, repair=True)
+                raw = await self.provider.generate(ProviderRequest(
+                    chapter.chapter_id, prompt, payload, len(domain), 'atoms_v1',
+                    lambda usage: self._emit(chapter.chapter_id, 'gemini_repair_usage',
+                        f'prompt_tokens={usage.get("promptTokenCount", 0)} '
+                        f'output_tokens={usage.get("candidatesTokenCount", 0)} '
+                        f'total_tokens={usage.get("totalTokenCount", 0)}'),
+                ))
+                self._cancel_check()
+                try:
+                    part = parse_packet_response(raw, domain)
+                except ValueError as exc:
+                    raise TranslationRejected(chapter.chapter_id, 'atom_identity', str(exc)) from exc
+                coverage = apply_proven_repair(coverage, part)
+        self._emit(chapter.chapter_id, 'validating')
+        plan = build_render_plan(marked_source, coverage)
+        expected = expected_render_domain_covers(atoms)
+        actual = [tuple(seg.covers) for seg in coverage.segments]
+        if coverage.missing_atom_ids or plan.debts or plan.rendered_html is None or actual != expected:
+            raise TranslationRejected(chapter.chapter_id, 'atom_coverage',
+                                      f'missing={len(coverage.missing_atom_ids)} debts={len(plan.debts)}')
+        cleaned = finalize_publication_html(marked_source, plan.rendered_html, chapter.chapter_path or None)
+        ok, reason = validate_chunk_completeness(source, cleaned)
+        if not ok:
+            raise TranslationRejected(chapter.chapter_id, 'structure', reason)
+        if not cleaned.strip():
+            raise TranslationRejected(chapter.chapter_id, 'finalize', 'empty final HTML')
+        proof = atom_provenance(coverage)
+        if len(proof) != len(atoms):
+            raise TranslationRejected(chapter.chapter_id, 'atom_provenance', 'incomplete proof')
+        self._cancel_check()
+        self._emit(chapter.chapter_id, 'completed')
+        return ChapterResult(
+            chapter_id=chapter.chapter_id,
+            source_hash=hashlib.sha256(chapter.source_html.encode('utf-8')).hexdigest(),
+            translated_html=cleaned,
+            unit_count=len(atoms),
+            atom_provenance=tuple(proof),
         )
 
     async def translate_batch(self, chapters: Iterable[ChapterInput], *, concurrency: int = 1) -> list[ChapterResult]:

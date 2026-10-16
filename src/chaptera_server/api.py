@@ -43,6 +43,7 @@ class TranslateBookChapter(BaseModel):
     target_language: str = Field(default='Russian', min_length=1, max_length=64)
     style_instructions: str = Field(default='', max_length=10_000)
     max_attempts: int = Field(default=3, ge=1, le=10)
+    transport: Literal["html_v0", "atoms_v1"] = "html_v0"
 
 
 class SubmitChapter(BaseModel):
@@ -59,10 +60,11 @@ class SubmitChapter(BaseModel):
     chapter_context_snapshot: dict[str, Any] | None = None
     predecessor: dict[str, Any] | None = None
     style_instructions: str = Field(default='', max_length=10_000)
+    transport: Literal["html_v0", "atoms_v1"] = "html_v0"
 
 
 def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
-    app = FastAPI(title="Chaptera Team Translation API", version="0.3.0",
+    app = FastAPI(title="Chaptera Team Translation API", version="0.4.0",
                   docs_url=None, redoc_url=None, openapi_url=None)
     repo = store or QueueStore(settings.db_path)
     library = BookLibrary(repo)

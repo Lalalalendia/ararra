@@ -56,3 +56,18 @@ def test_gemini_rejects_bad_model_and_truncated_answer():
                     ProviderRequest("1", "prompt", "<p>source</p>", 1))
 
     asyncio.run(scenario())
+
+
+def test_actual_gemini_usage_metadata_can_be_reported_without_logging_prompts():
+    usages = []
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json={
+            'candidates': [{'finishReason': 'STOP', 'content': {'parts': [{'text': 'Привет'}]}}],
+            'usageMetadata': {'promptTokenCount': 126, 'candidatesTokenCount': 23,
+                              'totalTokenCount': 149},
+        }))) as client:
+            provider = GeminiProvider('secret', 'gemini-2.5-flash', client=client)
+            result = await provider.generate(ProviderRequest('1', 'prompt', '{}', 1, 'atoms_v1', usages.append))
+            assert result == 'Привет'
+    asyncio.run(scenario())
+    assert usages == [{'promptTokenCount': 126, 'candidatesTokenCount': 23, 'totalTokenCount': 149}]

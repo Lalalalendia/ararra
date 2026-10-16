@@ -1,7 +1,8 @@
 # Server prompt policy: chapter-scoped glossary and context (M1 slice)
 
 This is a **server-only** implementation; the Windows app is untouched. The
-input/output is still the TSEG/TSRC HTML protocol. This milestone does **not**
+old input/output is the TSEG/TSRC HTML protocol; server v0.4 adds opt-in
+`atoms_v1` JSON transport. This milestone does **not**
 claim feature parity with the desktop atom-based PromptBuilder or automatic
 context generation.
 
@@ -78,7 +79,7 @@ The legacy `POST /v1/jobs` continues to accept caller-provided snapshots.
 **v0.3 adds** shared book/chapter endpoints and automatic async context preflight
 within book-managed translation jobs, with permanent glossary revisions,
 context invalidation and predecessor dependency checks. See
-`docs/BOOK_MEMORY.md` for the new workflow and remaining limits. The desktop
-atom-based JSON `PromptBuilder`, richer repair passes, Gemini parity and web UI
-are separate milestones. A `completed` status still requires deterministic
+`docs/BOOK_MEMORY.md` for the new workflow and remaining limits. The server now implements deterministic atom JSON and two bounded repair
+rounds, but full desktop prompt parity, live Gemini quality comparisons and web
+UI remain separate milestones. See `ATOM_TRANSPORT.md`. A `completed` status still requires deterministic
 source unit and structure validation; prompt improvements do not bypass QC.

@@ -520,6 +520,11 @@ def _sources_allow_same_target(left_source: str, right_source: str) -> bool:
     if left_source_norm == right_source_norm:
         return True
     shorter_source, longer_source = sorted((left_source_norm, right_source_norm), key=len)
+    # SequenceMatcher autojunk returns spurious near-zero similarity for very
+    # long, highly repetitive CJK prose. Exact source containment is explicit
+    # evidence that identical Russian repetitions can be intentional.
+    if len(shorter_source) >= 24 and (longer_source.startswith(shorter_source) or longer_source.endswith(shorter_source)):
+        return True
     similarity = SequenceMatcher(None, shorter_source, longer_source).ratio()
     # Preserve the pre-R15.1.5 allowance for long near-identical source repetition.
     if len(shorter_source) >= 24 and similarity >= 0.92:
