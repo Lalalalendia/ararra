@@ -1,0 +1,17 @@
+:root { font-family: Inter, system-ui, -apple-system, sans-serif; color: #1b2c36; background: #f6f7f7; font-synthesis: none; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+.shell { min-height: 100vh; }
+.header { background: #fff; border-bottom: 1px solid #dce3e5; display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 18px max(24px, calc((100vw - 1100px) / 2)); }
+.brand { font-size: 19px; font-weight: 750; }
+.brand span { font-weight: 450; color: #48626d; font-size: 15px; margin-left: 8px; }
+nav { display: flex; gap: 22px; }
+nav a { color: #355463; text-decoration: none; }
+nav a.active { color: #00587d; font-weight: 700; }
+.content { max-width: 1100px; padding: 46px 24px; margin: 0 auto; }
+section { background: #fff; border: 1px solid #e0e7e8; border-radius: 14px; padding: 36px; }
+h1 { font-size: 28px; margin: 10px 0 20px; }
+section p { max-width: 650px; line-height: 1.6; }
+.eyebrow { color: #516c77; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+.status { background: #eaf0f2; border-radius: 8px; padding: 14px; display: inline-block; }
+@media (max-width: 600px) { .header { padding: 18px 24px; flex-wrap: wrap; } section { padding: 24px; } }

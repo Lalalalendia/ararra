@@ -97,6 +97,27 @@ then caches source-grounded context against source, glossary and predecessor
 revision fingerprints. See [docs/BOOK_MEMORY.md](docs/BOOK_MEMORY.md) for
 scoped glossary, acceptance and multi-editor conflict behavior.
 
+## Enforced module boundaries
+
+Python transport is composed in `chaptera_server/api.py` from separately owned
+`http/routers/{books,jobs,imports,health}.py`. Request DTOs live in
+`http/schemas.py`, HTTP error mapping/dependencies in `http/dependencies.py`;
+the library, queue, worker and `chaptera_translation_core` do not import web
+frameworks. The `auth.py` token validator raises a transport-neutral exception;
+the HTTP adapter converts it to 401. Legacy endpoint paths/status codes are
+covered by regression tests.
+
+The **independent browser app** is in top-level [`web/`](web/), not inside the
+Python wheel. Browser routes are owned by `web/src/routes/`, features under
+`web/src/features/`, and outgoing HTTP by `web/src/shared/api/`. The web shell
+currently provides navigation and public health status only; team sign-in and
+private book pages are intentionally not implemented yet.
+
+Architecture contracts run on every GitHub PR and push: `python
+tools/check_architecture.py`, `pytest tests/test_architecture.py` and `cd web
+&& npm run test:architecture`. GitHub Actions also builds the TypeScript/React
+app. See [architecture decisions and extension rules](docs/ARCHITECTURE.md).
+
 ## Architecture
 
 ```text

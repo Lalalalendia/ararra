@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import hmac
 
-from fastapi import Header, HTTPException
-
 from .config import Settings
+
+
+class InvalidTeamToken(ValueError):
+    """Authentication failed; HTTP adapters decide how to expose the error."""
 
 
 def authenticate(api_key: str | None, settings: Settings) -> str:
@@ -15,5 +17,5 @@ def authenticate(api_key: str | None, settings: Settings) -> str:
         if hmac.compare_digest(str(api_key or ""), token):
             authenticated = member_id
     if not authenticated:
-        raise HTTPException(status_code=401, detail="Valid team API token required")
+        raise InvalidTeamToken("Valid team API token required")
     return authenticated
