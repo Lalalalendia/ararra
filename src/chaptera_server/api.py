@@ -5,6 +5,8 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 from typing import Any, Literal
 
+from chaptera_translation_core.prompt_policy import GlossaryVersionConflict, scoped_glossary
+
 from .auth import authenticate
 from .config import Settings
 from .storage import IdempotencyConflict, JobSpec, QueueStore
@@ -42,7 +44,10 @@ def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
     def submit(body: SubmitChapter, actor: str = Depends(require_member),
                idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
         try:
+            scoped_glossary(body.glossary, body.glossary_versions, body.chapter_path, body.glossary_authority)
             return repo.create_job(actor, JobSpec(**body.model_dump()), idempotency_key=idempotency_key)
+        except GlossaryVersionConflict as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         except IdempotencyConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError as exc:
