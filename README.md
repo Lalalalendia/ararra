@@ -167,3 +167,10 @@ Gemini key, network access or charges are needed. Actual token counts are
 reported only when a provider supplies `usageMetadata`. See
 [docs/EVAL_REPORT.md](docs/EVAL_REPORT.md) for the independent explicit opt-in
 paid pilot, safeguards and no-go decision for changing defaults.
+
+
+### Gemini smoke test on the worker host
+
+Run `chaptera-smoke` for an offline REST/worker/SQLite test; real Gemini access requires an explicit on-host opt-in and a securely configured API key. A passing CI test alone does **not** prove server-to-Gemini connectivity.
+
+On the host running the worker, use `CHAPTERA_SMOKE_ALLOW_LIVE=YES chaptera-smoke --live --authorize-billable --transport html_v0` after configuring `CHAPTERA_GEMINI_API_KEY` in the environment (never in command arguments or Git). The smoke test uses only a synthetic Chinese phrase, a temporary SQLite DB and at most one provider request by default. For `docker compose -f compose.dev.yml`, run `docker compose -f compose.dev.yml exec -e CHAPTERA_SMOKE_ALLOW_LIVE=YES worker chaptera-smoke --live --authorize-billable --transport html_v0`. The report never includes the key, prompt or translated text. To test the atom protocol separately, pass `--transport atoms_v1`.
