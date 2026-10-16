@@ -1,0 +1,25 @@
+# Local development only. Bind the API to loopback; add TLS and permanent DB before deployment.
+services:
+  api:
+    build: .
+    command: ["chaptera-server", "serve"]
+    environment:
+      CHAPTERA_BIND: "0.0.0.0"
+      CHAPTERA_PORT: "8000"
+      CHAPTERA_DB_PATH: /data/jobs.sqlite3
+      CHAPTERA_TEAM_TOKENS_JSON: ${CHAPTERA_TEAM_TOKENS_JSON:?set_team_tokens}
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - jobs:/data
+  worker:
+    build: .
+    command: ["chaptera-server", "worker"]
+    environment:
+      CHAPTERA_DB_PATH: /data/jobs.sqlite3
+      CHAPTERA_GEMINI_API_KEY: ${CHAPTERA_GEMINI_API_KEY:?set_gemini_key}
+      CHAPTERA_GEMINI_MODEL: ${CHAPTERA_GEMINI_MODEL:-gemini-2.5-flash}
+    volumes:
+      - jobs:/data
+volumes:
+  jobs:
