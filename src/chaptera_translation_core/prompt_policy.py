@@ -27,6 +27,10 @@ from .chapter_context import (
 from .glossary_enforcement import infer_enforcement
 
 
+class GlossaryVersionConflict(ValueError):
+    """Overlapping canonical glossary overrides for a single chapter."""
+
+
 @dataclass(frozen=True, slots=True)
 class PromptDiagnostics:
     glossary_hash: str
@@ -98,7 +102,7 @@ def scoped_glossary(
                        ensure_ascii=False, sort_keys=True) for item in matching
         }
         if len(unique) > 1:
-            raise ValueError(f'Conflicting glossary versions for term {key!r} in chapter {normalized_path!r}')
+            raise GlossaryVersionConflict(f'Conflicting glossary versions for term {key!r} in chapter {normalized_path!r}')
         override = matching[0]
         entry = dict(result.get(key) or {})
         target = str(override.get('rus') or entry.get('rus') or '').strip()
