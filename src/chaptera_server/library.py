@@ -342,7 +342,8 @@ class BookLibrary:
         return current
 
     def new_job(self, book_id: str, chapter_id: str, *, source_language: str,
-                target_language: str, style_instructions: str, max_attempts: int) -> JobSpec:
+                target_language: str, style_instructions: str, max_attempts: int,
+                transport: str = "html_v0") -> JobSpec:
         with self.queue._connect() as con:
             inputs = self._inputs(con, book_id, chapter_id)
         return JobSpec(
@@ -351,7 +352,7 @@ class BookLibrary:
             source_language=source_language, target_language=target_language,
             glossary=inputs.glossary, glossary_versions=inputs.glossary_versions,
             glossary_authority=inputs.glossary_authority, style_instructions=style_instructions,
-            max_attempts=max_attempts,
+            max_attempts=max_attempts, transport=transport,
             book_id=book_id, book_chapter_revision=inputs.chapter_revision,
             book_glossary_revision=inputs.glossary_revision,
         )
@@ -398,7 +399,8 @@ class BookLibrary:
             return True
 
     def complete_book_job(self, job_id: str, token: str, translated_html: str,
-                          source_hash: str, unit_count: int, inputs: ContextInputs) -> bool:
+                          source_hash: str, unit_count: int, inputs: ContextInputs,
+                          atom_provenance: tuple[dict, ...] = ()) -> bool:
         """Fence the final result and all revision checks in ONE SQLite write transaction."""
         now = time.time()
         with self.queue._connect() as con:
@@ -411,10 +413,11 @@ class BookLibrary:
             stale = live.guard() != inputs.guard()
             status = 'cancelled' if row['cancel_requested'] else 'failed' if stale else 'completed'
             message = 'Book source, glossary or predecessor changed while translation was running' if stale else ''
-            con.execute('UPDATE jobs SET status=?,result_html=?,source_hash=?,unit_count=?,last_error=?,run_after=?,lease_until=NULL,lease_owner=NULL,updated_at=? WHERE id=? AND lease_owner=?',
+            con.execute('UPDATE jobs SET status=?,result_html=?,source_hash=?,unit_count=?,provenance_json=?,last_error=?,run_after=?,lease_until=NULL,lease_owner=NULL,updated_at=? WHERE id=? AND lease_owner=?',
                         (status, translated_html if status == 'completed' else None,
                          source_hash if status == 'completed' else None,
                          unit_count if status == 'completed' else None,
+                         json.dumps(atom_provenance, ensure_ascii=False) if status == 'completed' and atom_provenance else None,
                          message, now, now, job_id, token))
             self.queue._event(con, job_id, status, message, now)
             return status == 'completed'

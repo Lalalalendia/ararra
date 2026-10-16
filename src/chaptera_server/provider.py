@@ -87,4 +87,14 @@ class GeminiProvider:
         text = "".join(str(part["text"]) for part in parts if isinstance(part, dict) and part.get("text") and not part.get("thought"))
         if not text.strip():
             raise ProviderFailure("Gemini returned empty text")
+        if request.on_usage is not None:
+            counters = data.get('usageMetadata') or {}
+            safe = {
+                name: int(counters[name]) for name in
+                ('promptTokenCount', 'candidatesTokenCount', 'totalTokenCount')
+                if isinstance(counters.get(name), int) and not isinstance(counters[name], bool)
+                and counters[name] >= 0
+            }
+            if safe:
+                request.on_usage(safe)
         return text

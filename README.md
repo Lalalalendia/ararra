@@ -14,7 +14,13 @@ Server-first, closed-team translation backend based on the existing Chaptera lit
 - Custom literary style is filtered to exclude machine/output contract instructions. Existing queued jobs without these new inputs remain readable.
 - **v0.3 team library:** persistent books/chapters, optimistic source/glossary and accepted-translation revisions; accepted-translation history; automatic context generation and cache reuse before managed translations. Clients do not calculate context fingerprints. See [book memory contract](docs/BOOK_MEMORY.md).
 
-**Status:** local backend prototype, not a deployed multi-user production server. The original Windows program is unchanged. Provider integration uses a new native Gemini adapter; it has **not** been exercised against the live Gemini API. A server-specific prompt policy now supports scoped glossary versions, enforcement classes, literary style guidance and fingerprint-verified chapter context snapshots, adapted from the desktop source. **The desktop atom-based PromptBuilder, targeted repair and full parity are not yet ported.** Automatic context extraction is now available only for book-managed jobs; the standalone `POST /v1/jobs` remains backwards compatible. No browser UI, Rulate publishing or EPUB import yet.
+- **v0.4 opt-in `atoms_v1`**: source-owned atom JSON transport, bounded packets,
+  targeted repair, deterministic DOM reconstruction, and persisted hashed
+  provenance. The existing `html_v0` jobs remain readable and continue to be
+  the default. See [atom transport contract](docs/ATOM_TRANSPORT.md).
+
+**Status:** local backend prototype, not a deployed multi-user production server. The original Windows program is unchanged. Provider integration uses a new native Gemini adapter; it has **not** been exercised against the live Gemini API. A server-specific prompt policy now supports scoped glossary versions, enforcement classes, literary style guidance and fingerprint-verified chapter context snapshots, adapted from the desktop source. **The server now has atom transport and bounded targeted repair, but full
+Windows PromptBuilder parity is not yet demonstrated.** Automatic context extraction is now available only for book-managed jobs; the standalone `POST /v1/jobs` remains backwards compatible. No browser UI, Rulate publishing or EPUB import yet.
 
 ## Install locally (Python 3.11+)
 

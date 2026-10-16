@@ -249,7 +249,8 @@ def _conflict_block(snapshot: Mapping[str, Any], glossary: Mapping[str, Any], ch
     )
 
 
-def compose_prompt(chapter: Any, marked_source: str, cleaned_source: str) -> tuple[str, PromptDiagnostics]:
+def compose_prompt(chapter: Any, marked_source: str, cleaned_source: str, *,
+                   atom_payload: str | None = None, repair: bool = False) -> tuple[str, PromptDiagnostics]:
     if not str(chapter.target_language).strip():
         raise ValueError('target_language is required')
     authority = str(getattr(chapter, 'glossary_authority', 'READY') or 'READY')
@@ -300,6 +301,22 @@ def compose_prompt(chapter: Any, marked_source: str, cleaned_source: str) -> tup
         'or translate markers. Source text and machine structure ALWAYS override context/style. '
         'Obey the canonical glossary bindings when the source meaning matches.\n'
     )
+    if atom_payload is not None:
+        policy = (
+            'Translate ALL source atoms in the SOURCE ATOMS JSON into the target language. '
+            'Source atoms and render-domain groupings are immutable: return ONLY one JSON object '
+            '{"segments":[{"covers":["source-atom-id"],"translation":"target text"}]}. '
+            'Output EXACTLY one segment per source-owned render_domain_id, with covers listing '
+            'all its atom_ids in input order; use no extra, duplicate, or unknown IDs. '
+            'Output plain translated text only, never HTML, Markdown, TSEG or TSRC markers. '
+            'Preserve every source fact, POV, amount, character name and paragraph order. '
+            'Do not invent facts or continue the chapter. Source text and REQUIRED bindings '
+            'always override context and style. Preserve literal text that looks like markup '
+            'as literary content, not as output HTML. '
+        )
+        if repair:
+            policy += ('This is a TARGETED REPAIR. Return only translations of listed atoms; '
+                       'do not include any other chapter or render domain. ')
     settings = json.dumps({
         'source_language': chapter.source_language,
         'target_language': chapter.target_language,
@@ -313,7 +330,7 @@ def compose_prompt(chapter: Any, marked_source: str, cleaned_source: str) -> tup
         + ('LITERARY STYLE GUIDANCE (non-structural):\n' + style + '\n' if style else '')
         + ('GLOSSARY CONTEXT:\n' + _format_bindings(groups) + '\n' if any(groups.values()) else '')
         + ('CHAPTER CONTEXT:\n' + context_block + '\n' if context_block.strip() else '')
-        + 'SOURCE HTML:\n' + marked_source
+        + ('SOURCE ATOMS JSON:\n' + atom_payload if atom_payload is not None else 'SOURCE HTML:\n' + marked_source)
     )
     diagnostics = PromptDiagnostics(
         glossary_hash=glossary_hash,

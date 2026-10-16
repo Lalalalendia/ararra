@@ -16,7 +16,11 @@ Completed server-only slice: desktop chapter-context snapshot/validation policy 
 
 - Build a golden fixture corpus: single HTML chapters, nonadjacent chapters, fragmented chapters, mixed scripts, glossary ambiguity and truncated model answers.
 - **v0.3 delivered:** a persistent shared book/chapter library, optimistic glossary revisions and acceptance history, source-grounded automatic async context preflight, dependency-verified snapshots and predecessor-tail continuity. A single SQLite worker remains the development limit; desktop unchanged.
-- Continue original PromptBuilder source-atom JSON transport and targeted render-domain repair; current server still uses TSEG/TSRC HTML for QA. Add batched/long-chapter context processing and broader golden fixtures.
+- **v0.4 delivered:** opt-in source-owned atom JSON transport, bounded repair,
+  complete coverage/provenance gate, 50k+ chapter translation and additive SQLite
+  audit migration. `html_v0` remains the default for old clients and jobs.
+  Expand real-model golden fixtures and implement batched/long-chapter context
+  extraction; see `docs/ATOM_TRANSPORT.md`.
 - Compare generated provider prompts, segmentation and final output against fixture expectations, not against a mutable live provider.
 - Instrument token usage, costs and model behavior.
 

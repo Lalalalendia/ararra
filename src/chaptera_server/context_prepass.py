@@ -51,6 +51,11 @@ def _decode_context(raw: str) -> dict:
     return parsed
 
 
+def prepass_source_length(source_html: str) -> int:
+    """Return visible text length for bounding a context model preflight."""
+    return len(BeautifulSoup(source_html or '', 'html.parser').get_text(' ', strip=True))
+
+
 async def generate_chapter_context(provider, inputs: ContextInputs) -> dict:
     source_text = BeautifulSoup(inputs.source_html, 'html.parser').get_text(' ', strip=True)
     if not source_text or len(source_text) > 50_000:

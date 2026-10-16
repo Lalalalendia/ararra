@@ -19,6 +19,7 @@ class ChapterInput:
     chapter_context_snapshot: Mapping[str, Any] | None = None
     predecessor: Mapping[str, Any] | None = None
     style_instructions: str = ""
+    transport: str = "html_v0"
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +28,8 @@ class ProviderRequest:
     prompt: str
     source_html_with_markers: str
     unit_count: int
+    transport: str = "html_v0"
+    on_usage: Callable[[dict[str, int]], None] | None = None
 
 
 class TranslationProvider(Protocol):
@@ -52,6 +55,7 @@ class ChapterResult:
     source_hash: str
     translated_html: str
     unit_count: int
+    atom_provenance: tuple[dict[str, Any], ...] = ()
 
 
 class TranslationRejected(ValueError):
