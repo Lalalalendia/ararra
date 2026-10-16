@@ -13,7 +13,7 @@ from .chapter_context import (
     context_is_current,
 )
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 __all__ = [
     "ChapterInput", "ChapterResult", "ProviderRequest", "TranslationProvider",
     "TranslationEvent", "TranslationEventHandler", "TranslationRejected", "TranslationCancelled",

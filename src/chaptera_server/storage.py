@@ -34,6 +34,9 @@ class JobSpec:
     chapter_context_snapshot: dict[str, Any] | None = None
     predecessor: dict[str, Any] | None = None
     style_instructions: str = ""
+    book_id: str = ""
+    book_chapter_revision: int = 0
+    book_glossary_revision: int = 0
 
     def normalized(self) -> dict[str, Any]:
         return {
@@ -50,6 +53,9 @@ class JobSpec:
             "chapter_context_snapshot": dict(self.chapter_context_snapshot) if self.chapter_context_snapshot else None,
             "predecessor": dict(self.predecessor) if self.predecessor else None,
             "style_instructions": self.style_instructions,
+            "book_id": self.book_id,
+            "book_chapter_revision": self.book_chapter_revision,
+            "book_glossary_revision": self.book_glossary_revision,
         }
 
 
