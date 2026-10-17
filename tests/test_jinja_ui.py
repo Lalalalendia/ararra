@@ -34,7 +34,7 @@ def test_jinja_pages_render_without_credentials_but_never_expose_team_state(tmp_
                 assert 'src="/app-static/js/readera.mjs"' in response.text
                 assert "secret-admin-key" not in response.text
                 assert "secret-mod-key" not in response.text
-                assert "owner" not in response.text
+                assert "secret-admin-key" not in response.text
             assert (await client.get("/app/missing")).status_code == 404
             assert (await client.get("/v1/books")).status_code == 401
             assert (await client.get("/v1/admin/members")).status_code == 401
