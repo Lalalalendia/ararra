@@ -17,7 +17,7 @@ def create_book(body: CreateBook, request: Request, actor: str = Depends(require
     from ...auth import role_for
     owner = body.owner_member_id or actor
     settings = request.app.state.settings
-    if role_for(owner, settings) != "moderator":
+    if owner not in settings.team_tokens or role_for(owner, settings) != "moderator":
         raise HTTPException(status_code=422, detail="Book owner must be an active moderator")
     if role_for(actor, settings) != "admin" and owner != actor:
         raise HTTPException(status_code=403, detail="Only administrator can assign another owner")
@@ -38,7 +38,8 @@ def reassign_book_owner(book_id: str, body: ReassignBookOwner, request: Request,
                         actor: str = Depends(require_admin),
                         library: BookLibrary = Depends(get_library)):
     from ...auth import role_for
-    if role_for(body.owner_member_id, request.app.state.settings) != "moderator":
+    if (body.owner_member_id not in request.app.state.settings.team_tokens or
+            role_for(body.owner_member_id, request.app.state.settings) != "moderator"):
         raise HTTPException(status_code=422, detail="Book owner must be an active moderator")
     try:
         return library.reassign_book_owner(
