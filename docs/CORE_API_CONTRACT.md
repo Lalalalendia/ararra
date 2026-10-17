@@ -46,7 +46,83 @@ For the Rulate metadata JSON the response has `kind=metadata_catalog`, arrays of
 
 Limits: 2,000 book chapters, 2 million visible characters per chapter, 2,000 metadata-only books and 50,000 metadata chapter links. Unsafe ZIP paths, encrypted archives, archive bombs and XML DTDs are rejected. 413 indicates an oversized uploaded file; 422 indicates unrecognized/invalid content. Set HTTP ingress/request-body limits before external deployment; this development API is not internet-hardened.
 
-**Not implemented in v0.6:** staged upload persistence, confirmation, manual chapter mapping, conflict resolution, ingestion to canonical SQLite, web UI, import of chapter texts from the metadata-only JSON or Rulate site. Those are the following milestones. Preview success must not be displayed as successful import.
+## RE-02: opt-in staged full-source import (additive API)
+
+**The existing \`POST /v1/imports/preview\` remains read-only and keeps its
+v0.6 response shape.** Staging and confirmation require additional authenticated
+calls; no upload is ever silently treated as a successful import.
+
+1. \`POST /v1/imports/stages\`, multipart \`file\`, optional \`Idempotency-Key\`:
+   accepts TXT/HTML/EPUB/DOCX, parses and persists an **actor-owned** temporary
+   session in the same SQLite DB as the shared BookLibrary. Returns \`201\`
+   and \`{stage_id,status:"staged",file_sha256,expires_at,preview,
+   unassigned_prefix_saved}\`; \`preview\` contains the old safe samples, not
+   chapter body text. Maximum original upload is 12 MiB; maximum expanded
+   staged candidate+preface JSON is 24 MiB. Up to three uncommitted sessions per
+   member. Unconfirmed sessions expire in 30 minutes. Reusing the same
+   member-scoped idempotency key with different file bytes/name yields 409.
+2. \`GET /v1/imports/stages/{stage_id}\`: owner only (404 for other members).
+   Returns the preview and **full unassigned_prefix_html** for review. No
+   generated translations or public chapter body.
+3. \`POST /v1/imports/stages/{stage_id}/confirm\`: owner only, under
+   \`BEGIN IMMEDIATE\`, one atomic transaction over book creation, chapter
+   revisions, optional preserved preface and stage receipt. Every original
+   sequence number must have exactly one choice. Any invalid or stale choice
+   rolls the entire confirmation back; replays of the exact same confirmation
+   return the original receipt. A different confirmation after commit yields 409.
+4. \`GET /v1/imports/books/{book_id}/unassigned\`: authenticated shared-team
+   retrieval of explicitly preserved pre-chapter text. The text is not
+   automatically assigned a chapter number, translated or published.
+
+For example, confirm two chapters into a **new** book after inspecting their
+detected numbers and deciding they belong at indices 12 and 13:
+
+\`\`\`json
+{
+  "book_id":"demo",
+  "book_mode":"create",
+  "title":"Новелла",
+  "prefix_policy":"preserve",
+  "chapters":[
+    {"sequence":1,"action":"create","chapter_id":"12",
+     "chapter_index":12,"chapter_path":"chapters/12.xhtml","expected_revision":0},
+    {"sequence":2,"action":"create","chapter_id":"13",
+     "chapter_index":13,"chapter_path":"chapters/13.xhtml","expected_revision":0}
+  ]
+}
+\`\`\`
+
+Every chapter decision is explicit: \`action=create|replace|skip\`.
+A skip must specify no destination. A replacement requires an existing exact
+\`chapter_id\` and its **live \`expected_revision\`**. An unnumbered or
+duplicate-heading chapter must be mapped manually; any duplicate target
+chapter_id/index/path rejects the whole batch. For an existing book use
+\`book_mode=existing\` (no implicit book creation or rename). Even if two
+editors race, stale revisions fail closed. Source replacement increments the
+source revision, preserves all previously accepted translation versions, and
+makes old accepted content **not current** until explicitly accepted again.
+
+Unassigned pre-chapter material is not thrown away silently. When present,
+\`prefix_policy\` must be \`preserve\` (stays in separately retrievable
+\`book_import_unassigned\`) or \`discard\` (explicit intentional exclusion).
+Default \`reject\` prevents confirmation when an unassigned preface exists.
+Detected chapter headings are restored into stored canonical source HTML.
+Sessions never change the job queue and never call Gemini.
+
+**Error codes:** 401 missing/invalid member token, 404 unknown/unowned
+stage/book, 410 expired stage, 409 conflicts/idempotency mismatch/ambiguous
+selection, 413 upload or expanded-session budget, 422 unsupported or metadata-
+only input. Committed receipts are retained for up to one day.
+
+**Not implemented in this RE-02 slice:** persistent imported Rulate metadata
+URLs/IDs, import staging UI, public authentication, automatic Rulate scraping,
+non-text media import, a bulk publication button, long-lived source-asset
+storage outside SQLite. The metadata-only JSON **still works for read-only
+preview** and is explicitly rejected for source chapter staging. Do not claim
+that a metadata-only catalog contains downloadable chapters.
+
+The next RE-02 work is metadata URL/id persistence and the browser book-import flow. No metadata-only JSON can create source chapters.
+
 
 Example for a trusted local developer instance:
 
