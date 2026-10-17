@@ -162,20 +162,60 @@ $('logout').addEventListener('click',()=>{
   hideImportSteps();flash('');
 });
 
+async function chooseBookOwner(book, candidates) {
+  const modal=$('book-owner-dialog');
+  if(typeof modal.showModal!=='function'){
+    throw new Error('Браузер не поддерживает безопасный диалог переназначения.');
+  }
+  if(modal.open) throw new Error('Закройте предыдущее назначение.');
+
+  const select=$('book-owner-target');
+  select.replaceChildren();
+  for(const member of candidates){
+    const option=document.createElement('option');
+    option.value=member.member_id;
+    option.textContent=member.member_id;
+    select.append(option);
+  }
+  $('book-owner-title').textContent='Ответственный за «'+book.title+'»';
+  $('book-owner-help').textContent=book.owner_member_id
+    ? 'Текущий ответственный: '+book.owner_member_id+'. Выберите другого модератора.'
+    : 'У книги ещё нет ответственного. Выберите модератора.';
+
+  // "cancel" is the safe default for Escape/closing without confirmation.
+  modal.returnValue='cancel';
+  const selection=new Promise(resolve=>{
+    modal.addEventListener('close',()=>{
+      resolve(modal.returnValue==='confirm' ? select.value : null);
+    },{once:true});
+  });
+  modal.showModal();
+  select.focus();
+  return selection;
+}
+
 const libraryView=createLibraryView({
   body:$('book-list'),filter:$('book-filter'),ownerFilter:$('book-owner-filter'),
   empty:$('books-empty'),request,
   currentMember:()=>identity?.member_id || '',
   canReassign:()=>identity?.role==='admin',
   activeModerators:()=>members.filter(m=>m.role==='moderator' && m.status==='active'),
+  chooseOwner:chooseBookOwner,
   reassignOwner:async(book,newOwner)=>{
-    await request('/v1/books/'+encodeURIComponent(book.book_id)+'/owner',{
-      method:'PUT',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        owner_member_id:newOwner,expected_owner_revision:book.owner_revision,
-      }),
-    });
+    try{
+      await request('/v1/books/'+encodeURIComponent(book.book_id)+'/owner',{
+        method:'PUT',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          owner_member_id:newOwner,expected_owner_revision:book.owner_revision,
+        }),
+      });
+    }catch(error){
+      // A parallel admin may already have transferred this book. Refresh the
+      // live CAS revision even when the attempted transfer was rejected.
+      await refreshBooks().catch(()=>{});
+      throw error;
+    }
     await refreshBooks();
     flash('Ответственный за книгу изменён.');
   },

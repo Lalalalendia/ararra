@@ -91,6 +91,12 @@ def test_page_template_uses_books_platform_components_without_paid_features():
     assert "price_amount" not in source
     assert "data-page" in source
     assert "React" not in source
+    assert '<dialog id="book-owner-dialog"' in source
+    assert 'aria-labelledby="book-owner-title"' in source
+    assert 'id="book-owner-target"' in source
+    library = (templates.parent / "static" / "js" / "library-view.mjs").read_text(encoding="utf-8")
+    assert "window.prompt(" not in library
+    assert "window.confirm(" not in library
 
 
 def test_bundled_resource_files_exist_in_source_tree():

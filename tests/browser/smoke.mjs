@@ -346,6 +346,56 @@ try{
   await assertMobileNavigation('mobile direct-route nav');
   await mobile.close();
 
+  // Book responsibility is shared visibility, but transferring it is admin-only.
+  // Exercise real native dialog: cancellation, confirmation and stale CAS.
+  await page.goto(origin+'/app/books');await login(page,adminKey);
+  await page.locator('#book-owner-filter').selectOption('mine');
+  assert.equal(await page.locator('#book-list .library-book-row').count(),0);
+  await page.locator('#book-owner-filter').selectOption('unassigned');
+  assert.equal(await page.locator('#book-list .library-book-row').count(),0);
+  await page.locator('#book-owner-filter').selectOption('all');
+  const ownerBook=page.locator('#book-list .library-book-row')
+    .filter({hasText:'Браузерная проверка'});
+  const openTransfer=()=>ownerBook.getByRole('button',{
+    name:'Переназначить ответственным за книгу Браузерная проверка',
+  });
+  await openTransfer().click();
+  const ownerDialog=page.locator('#book-owner-dialog');
+  await ownerDialog.waitFor({state:'visible'});
+  assert.match(await ownerDialog.locator('#book-owner-help').innerText(),/writer/);
+  assert.deepEqual(await ownerDialog.locator('option').allTextContents(),['moderator']);
+  await ownerDialog.getByRole('button',{name:'Отмена'}).click();
+  await ownerDialog.waitFor({state:'hidden'});
+  assert.equal((await api('/v1/books/browser-novel',adminKey)).data.owner_member_id,'writer');
+
+  await openTransfer().click();
+  await ownerDialog.waitFor({state:'visible'});
+  await ownerDialog.locator('#book-owner-target').selectOption('moderator');
+  await ownerDialog.getByRole('button',{name:'Переназначить'}).click();
+  await ownerDialog.waitFor({state:'hidden'});
+  await page.waitForFunction(()=>Array.from(document.querySelectorAll('#book-list .library-book-row'))
+    .some(r=>r.textContent.includes('Браузерная проверка')
+      && r.querySelectorAll('td')[3]?.textContent==='moderator'));
+  const transferred=await api('/v1/books/browser-novel',adminKey);
+  assert.equal(transferred.data.owner_member_id,'moderator');
+  assert.equal(transferred.data.owner_revision,1);
+
+  await openTransfer().click();
+  await ownerDialog.waitFor({state:'visible'});
+  const concurrentOwner=await api('/v1/books/browser-novel/owner',adminKey,'PUT',{
+    owner_member_id:'writer',expected_owner_revision:1,
+  });
+  assert.equal(concurrentOwner.status,200);
+  await ownerDialog.locator('#book-owner-target').selectOption('writer');
+  await ownerDialog.getByRole('button',{name:'Переназначить'}).click();
+  await ownerDialog.waitFor({state:'hidden'});
+  await page.locator('#flash').getByText(/Конфликт версий/).waitFor({timeout:15000});
+  await page.waitForFunction(()=>Array.from(document.querySelectorAll('#book-list .library-book-row'))
+    .some(r=>r.textContent.includes('Браузерная проверка')
+      && r.querySelectorAll('td')[3]?.textContent==='writer'));
+  assert.equal((await api('/v1/books/browser-novel',adminKey)).data.owner_revision,2);
+  await screenshot(page,'12-book-owner-dialog.png');
+
   // Book ownership prevents disabling an account until explicit reassignment.
   await page.goto(origin+'/app/team');await login(page,adminKey);
   const row=page.locator('#members-list tr').filter({hasText:'writer'});
