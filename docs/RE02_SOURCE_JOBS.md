@@ -67,6 +67,32 @@ a complete novel. This feature never marks any chapter accepted, translated
 or published. The existing moderator confirmation is still necessary to
 import chapter source into ReadEra's managed library.
 
+## Server-owned history and explicit cleanup (RE-02-WEB-SOURCE-04)
+
+The user no longer needs to copy and retain opaque UUIDs to reopen a crawl.
+`GET /v1/source-books/jobs?limit=30` returns the authenticated actor's
+recent jobs ordered by last update, with source, original book URL, selected
+range, counts, failure receipts and status — **never raw novel text**.
+The native Jinja UI renders a recent-job picker, reloads the server-owned
+job before opening it, and clears the list whenever the authenticated
+workspace is reset. No browser `localStorage` or new role is introduced.
+
+`DELETE /v1/source-books/jobs/{job_id}` requires an explicit confirmed
+action and the job state to be `complete`, `partial`, or `cancelled`.
+A `queued` or `running` worker must first be cancelled, which revokes
+its current lease. An immediate SQLite transaction removes only the source
+capture record and its chapter checkpoints; actor boundaries still apply.
+Its return receipt records removed checkpoint count and reclaimed source
+bytes. Confirmed BookLibrary chapters, accepted translations, staged
+imports and their separate provenance remain unchanged. There is **no
+automatic retention/deletion of downloaded chapters**.
+
+**Outstanding production gate:** job history is bounded per query (max 50),
+but historical source storage across all actors is not globally quota
+controlled. VPS installation requires monitored disk budgets and a
+well-defined retention/quota policy before opening bulk uploads to a larger
+team. Deleting a source job does not rewrite/undo any published book.
+
 ## Operational / release gates
 
 - Run **one** source-worker initially alongside the standard Gemini worker; they use different queues. `CHAPTERA_GEMINI_API_KEY` is **not required** for the crawler worker. Start via `chaptera-server source-worker` in an explicitly managed unit/service.
