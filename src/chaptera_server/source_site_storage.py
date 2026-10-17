@@ -66,6 +66,14 @@ class SourceCatalogStore:
                     created_at REAL NOT NULL
                 );
             """)
+            # Idempotent additive upgrade of existing RE-02 SQLite stores.
+            columns = {row["name"] for row in con.execute("PRAGMA table_info(source_book_catalogs)")}
+            if "toc_pages_json" not in columns:
+                con.execute("ALTER TABLE source_book_catalogs ADD COLUMN toc_pages_json TEXT NOT NULL DEFAULT '[]'")
+            if "declared_chapter_count" not in columns:
+                con.execute("ALTER TABLE source_book_catalogs ADD COLUMN declared_chapter_count INTEGER")
+            if "coverage_state" not in columns:
+                con.execute("ALTER TABLE source_book_catalogs ADD COLUMN coverage_state TEXT NOT NULL DEFAULT 'observed_html_only'")
 
     @staticmethod
     def _public(row: sqlite3.Row) -> dict:
@@ -90,6 +98,11 @@ class SourceCatalogStore:
             "last_ordinal": max(ordinals),
             "chapters": chapters,
             "catalog_gaps": gaps,
+            "toc_page_count": max(1,len(json.loads(row["toc_pages_json"]))),
+            "toc_page_urls": json.loads(row["toc_pages_json"]) or [row["book_url"]],
+            "declared_chapter_count": row["declared_chapter_count"],
+            "coverage_state": row["coverage_state"],
+            "scope": "observed_public_html_only",
         }
 
     def save(self, actor: str, catalog: SourceCatalog) -> dict:
@@ -99,6 +112,11 @@ class SourceCatalogStore:
             raise SourceCatalogConflict("Chapter number outside supported range")
         if catalog.catalog_sha256 != _fingerprint(catalog.chapters):
             raise SourceCatalogConflict("Source catalog fingerprint mismatch")
+        if (catalog.coverage_state not in ("declared_count_matched","observed_html_only") or
+            not 1 <= len(catalog.page_urls) <= 12 or
+            (catalog.declared_chapter_count is not None and
+             catalog.declared_chapter_count != len(catalog.chapters))):
+            raise SourceCatalogConflict("Source catalog coverage metadata invalid")
         now = time.time()
         with self.store._connect() as con:
             con.execute("BEGIN IMMEDIATE")
@@ -116,11 +134,14 @@ class SourceCatalogStore:
             cat_id = str(uuid.uuid4())
             con.execute(
                 "INSERT INTO source_book_catalogs("
-                "id,actor_id,source,book_url,catalog_sha256,chapters_json,created_at,expires_at"
-                ") VALUES (?,?,?,?,?,?,?,?)",
+                "id,actor_id,source,book_url,catalog_sha256,chapters_json,created_at,expires_at,"
+                "toc_pages_json,declared_chapter_count,coverage_state"
+                ") VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (cat_id,actor,catalog.source,catalog.book_url,catalog.catalog_sha256,
                  json.dumps([asdict(ch) for ch in catalog.chapters],ensure_ascii=False),
-                 now,now+CATALOG_TTL_SECONDS),
+                 now,now+CATALOG_TTL_SECONDS,
+                 json.dumps(catalog.page_urls),catalog.declared_chapter_count,
+                 catalog.coverage_state),
             )
             row = con.execute("SELECT * FROM source_book_catalogs WHERE id=?", (cat_id,)).fetchone()
             return self._public(row)
@@ -153,7 +174,21 @@ class SourceCatalogStore:
                 raise ValueError("Duplicate ordinals")
             if len({c.source_id for c in chapters}) != len(chapters):
                 raise ValueError("Duplicate source IDs")
-            return SourceCatalog(row["source"],row["book_url"],chapters,row["catalog_sha256"])
+            pages=tuple(json.loads(row["toc_pages_json"])) or (row["book_url"],)
+            if not 1 <= len(pages) <= 12:
+                raise ValueError("Invalid TOC page provenance")
+            for url in pages:
+                validate_url(url,row["source"])
+                if source_book_id(url,row["source"]) != book_id:
+                    raise ValueError("Foreign TOC page in stored catalog")
+            declared=row["declared_chapter_count"]
+            if declared is not None and declared!=len(chapters):
+                raise ValueError("Advertised chapter count diverged from catalog")
+            coverage=row["coverage_state"]
+            if coverage not in ("declared_count_matched","observed_html_only"):
+                raise ValueError("Invalid TOC coverage state")
+            return SourceCatalog(row["source"],row["book_url"],chapters,
+                                 row["catalog_sha256"],pages,declared,coverage)
         except (ValueError, KeyError, TypeError) as exc:
             raise SourceCatalogConflict("Stored catalog is invalid") from exc
 
