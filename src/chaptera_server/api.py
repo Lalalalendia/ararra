@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 
 from .config import Settings
 from .library import BookLibrary
@@ -9,6 +11,7 @@ from .import_sessions import ImportSessions
 from .team_credentials import TeamCredentials
 from .storage import QueueStore
 from .http.routers import books, health, identity, imports, jobs
+from .web_ui.routes import router as ui_router, ASSETS as UI_ASSETS
 
 # Keep historical Python imports of request models working for existing callers.
 from .http.schemas import (  # noqa: F401
@@ -34,6 +37,11 @@ def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
     app.include_router(books.router)
     app.include_router(imports.router)
     app.include_router(jobs.router)
+    # Jinja2 shell + static sources copied/adapted from books_platform.
+    # Existing /v1 API and the optional React pilot are untouched.
+    app.mount("/app-static", StaticFiles(directory=str(UI_ASSETS / "static")),
+              name="readera-static")
+    app.include_router(ui_router)
     return app
 
 
