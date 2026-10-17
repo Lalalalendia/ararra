@@ -95,8 +95,8 @@ def _build_catalog(source, book_url, discovery) -> SourceCatalog:
         SourceChapter(ch.ordinal, ch.title, ch.source_id, ch.url)
         for ch in entries
     )
-    canonical = "\\n".join(
-        f"{ch.ordinal}\\t{ch.source_id}\\t{ch.url}" for ch in chapters
+    canonical = "\n".join(
+        f"{ch.ordinal}\t{ch.source_id}\t{ch.url}" for ch in chapters
     )
     return SourceCatalog(
         source, book_url, chapters,
