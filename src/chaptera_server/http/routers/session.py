@@ -155,18 +155,31 @@ def change_password(body: BrowserPasswordChange, request: Request) -> Response:
     proof = request.headers.get(CSRF_HEADER, "")
     if not proof or not hmac.compare_digest(proof, TeamSessions.csrf_token(token)):
         raise HTTPException(status_code=403, detail="CSRF proof required")
+    peer = request.client.host if request.client is not None else None
+    throttle = request.app.state.team_login_throttle
+    try:
+        throttle.begin(peer, member_id=member)
+    except BrowserLoginThrottled as exc:
+        raise HTTPException(
+            status_code=429, detail="Слишком много попыток",
+            headers={**_PRIVATE, "Retry-After": str(exc.retry_after)},
+        ) from exc
     try:
         request.app.state.team_passwords.change(
             member_id=member, current_password=body.current_password,
             new_password=body.new_password,
         )
     except PasswordRejected as exc:
+        throttle.failure(peer, member_id=member)
         raise HTTPException(status_code=401, detail="Неверный текущий пароль",
                             headers=_PRIVATE) from exc
     except PasswordVersionConflict as exc:
+        throttle.failure(peer, member_id=member)
         raise HTTPException(status_code=409, detail=str(exc), headers=_PRIVATE) from exc
     except ValueError as exc:
+        throttle.failure(peer, member_id=member)
         raise HTTPException(status_code=422, detail=str(exc), headers=_PRIVATE) from exc
+    throttle.success(peer, member_id=member)
     response = Response(status_code=204, headers=_PRIVATE)
     response.delete_cookie(COOKIE_NAME, path="/",
                            secure=request.app.state.settings.browser_session_secure,
