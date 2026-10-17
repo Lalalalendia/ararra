@@ -182,6 +182,46 @@ class RoyalRoadAdapter(PublicHtmlAdapter):
     catalog_selectors = ("#chapters a[href]", ".chapter-row a[href]")
     content_selectors = (".chapter-content", ".chapter-inner.chapter-content")
 
+    def parse_catalog(self, html: str) -> list[Chapter]:
+        """Follow the *published TOC order*, not the author's title numbering.
+
+        Royal Road permits prologues, interludes, Roman numerals and author
+        rearrangements. Requiring "Chapter <arabic>" silently drops valid
+        chapters. The observed DOM's official TOC order is the only ordering
+        input; it is exposed as a sequence index, not a claimed author number.
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        anchors = soup.select("#chapters a[href], .chapter-row a[href]")
+        if not anchors:
+            raise IngestError("catalog_missing", "Royal Road table of contents not found")
+        collected: dict[str, Chapter] = {}
+        for link in anchors:
+            href = link.get("href")
+            if not href:
+                continue
+            url = urljoin(self.book_url, href)
+            try:
+                chapter_id = chapter_identity(url, self.source, self.book_id)
+            except ValueError:
+                continue
+            if chapter_id is None:
+                continue
+            # No tracking query or fragment is part of a chapter identity.
+            if urlsplit(url).query or urlsplit(url).fragment:
+                continue
+            title = re.sub(r"\s+", " ", link.get_text(" ", strip=True)).strip()
+            if not title:
+                continue
+            old = collected.get(chapter_id)
+            if old is not None:
+                if old.url != url:
+                    raise IngestError("catalog_conflict", "Same chapter ID has different URLs in TOC")
+                continue
+            collected[chapter_id] = Chapter(len(collected) + 1, title, url, chapter_id)
+        if not collected:
+            raise IngestError("catalog_missing", "No recognized Royal Road chapter links")
+        return list(collected.values())
+
 
 class WebNovelAdapter(PublicHtmlAdapter):
     catalog_selectors = (
