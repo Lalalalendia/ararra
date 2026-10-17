@@ -227,6 +227,7 @@ class ImportSessions:
 
             book_id = request["book_id"].strip()
             title = (request.get("title") or "").strip()
+            owner = str(request.get("owner_member_id") or actor).strip()
             if not book_id or len(book_id) > 128:
                 raise ValueError("Valid book_id is required")
             book = con.execute("SELECT * FROM books WHERE id=?", (book_id,)).fetchone()
@@ -235,11 +236,15 @@ class ImportSessions:
                     raise LibraryConflict("Book already exists; explicitly select existing mode")
                 if not title or len(title) > 500:
                     raise ValueError("A book title is required for create mode")
+                if not owner or len(owner) > 128:
+                    raise ValueError("A moderator book owner is required")
             elif request["book_mode"] == "existing":
                 if book is None:
                     raise LibraryNotFound("Book not found; explicitly select create mode")
                 if title and title != book["title"]:
                     raise StageConflict("Confirmation cannot silently rename an existing book")
+                if request.get("owner_member_id") is not None:
+                    raise StageConflict("Import cannot change existing book ownership")
             else:
                 raise ValueError("Invalid book mode")
 
@@ -309,8 +314,12 @@ class ImportSessions:
             now = time.time()
             if request["book_mode"] == "create":
                 con.execute(
-                    "INSERT INTO books(id,title,created_at,updated_at) VALUES(?,?,?,?)",
-                    (book_id, title, now, now),
+                    "INSERT INTO books(id,title,owner_member_id,created_at,updated_at) VALUES(?,?,?,?,?)",
+                    (book_id, title, owner, now, now),
+                )
+                con.execute(
+                    "INSERT INTO book_owner_events VALUES(?,?,?,?,?,?)",
+                    (book_id, 0, None, owner, actor, now),
                 )
             try:
                 for seq, action, chapter_id, index, path, html, expected in writes:

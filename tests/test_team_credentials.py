@@ -77,6 +77,12 @@ def test_admin_issues_one_time_access_code_and_revocation_survives_restart(tmp_p
             assert (await client.post("/v1/admin/members", headers=ADMIN,
                                       json={"member_id": "maria"})).status_code == 409
 
+            # The newly issued moderator owns the created book: admin must
+            # reassign it before disabling that account (no orphaned books).
+            transferred = await client.put("/v1/books/shared/owner", headers=ADMIN, json={
+                "owner_member_id": "mod", "expected_owner_revision": 0,
+            })
+            assert transferred.status_code == 200, transferred.text
             disabled = await client.post("/v1/admin/members/maria/disable", headers=ADMIN)
             assert disabled.status_code == 200, disabled.text
             assert disabled.json()["status"] == "disabled"
@@ -175,7 +181,7 @@ def test_moderator_revoke_cancels_queued_and_requests_cancel_running_jobs(tmp_pa
 def test_disable_owner_requires_explicit_reassignment_if_owner_schema_exists(tmp_path):
     app, _ = make_app(tmp_path)
     lib = app.state.library
-    lib.create_book("owned", "Owner must be deliberate")
+    lib.create_book("owned", "Owner must be deliberate", owner_member_id="mod")
     with app.state.store._connect() as con:
         columns = {row["name"] for row in con.execute("PRAGMA table_info(books)")}
         if "owner_member_id" not in columns:
@@ -211,5 +217,34 @@ def test_admin_unset_cannot_issue_or_list_moderator_credentials(tmp_path):
             assert (await c.post("/v1/admin/members", headers=ADMIN,
                                  json={"member_id": "test"})).status_code == 403
             assert (await c.post("/v1/admin/members/mod/rotate", headers=ADMIN)).status_code == 403
+
+    asyncio.run(work())
+
+
+def test_managed_moderator_book_owner_and_explicit_transfer(tmp_path):
+    """Invitation roles integrate with book owner metadata but not book ACL."""
+    app, _ = make_app(tmp_path)
+
+    async def work():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://api"
+        ) as c:
+            response = await c.post("/v1/admin/members", headers=ADMIN,
+                                    json={"member_id": "writer"})
+            assert response.status_code == 201, response.text
+            writer = {"X-API-Key": response.json()["access_token"]}
+            created = await c.post("/v1/books", headers=writer,
+                                   json={"book_id": "writer-book", "title": "Novel"})
+            assert created.status_code == 201, created.text
+            assert created.json()["owner_member_id"] == "writer"
+            assert (await c.get("/v1/books/writer-book", headers=OLD_MOD)).status_code == 200
+            assert (await c.post("/v1/admin/members/writer/disable", headers=ADMIN)).status_code == 409
+            reassigned = await c.put("/v1/books/writer-book/owner", headers=ADMIN, json={
+                "owner_member_id": "mod", "expected_owner_revision": 0,
+            })
+            assert reassigned.status_code == 200, reassigned.text
+            assert reassigned.json()["owner_member_id"] == "mod"
+            assert (await c.post("/v1/admin/members/writer/disable", headers=ADMIN)).status_code == 200
+            assert (await c.get("/v1/me", headers=writer)).status_code == 401
 
     asyncio.run(work())

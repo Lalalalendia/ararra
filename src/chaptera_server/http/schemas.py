@@ -13,6 +13,12 @@ Transport = Literal["html_v0", "atoms_v1"]
 class CreateBook(BaseModel):
     book_id: str = Field(min_length=1, max_length=128)
     title: str = Field(min_length=1, max_length=500)
+    owner_member_id: str | None = Field(default=None, max_length=128)
+
+
+class ReassignBookOwner(BaseModel):
+    owner_member_id: str = Field(min_length=1, max_length=128)
+    expected_owner_revision: int = Field(ge=0)
 
 
 class SaveChapter(BaseModel):
@@ -74,6 +80,7 @@ class ConfirmBookImport(BaseModel):
     book_id: str = Field(min_length=1, max_length=128)
     book_mode: Literal["create", "existing"]
     title: str | None = Field(default=None, max_length=500)
+    owner_member_id: str | None = Field(default=None, max_length=128)
     prefix_policy: Literal["reject", "preserve", "discard"] = "reject"
     chapters: list[ImportChapterDecision] = Field(min_length=1, max_length=2000)
 

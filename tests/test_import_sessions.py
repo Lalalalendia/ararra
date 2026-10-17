@@ -116,7 +116,7 @@ def test_duplicate_headings_require_mapping_and_any_failure_rolls_back_whole_bat
 
 def test_two_editors_cannot_overwrite_stale_source_or_accepted_revision(tmp_path):
     store, lib, sessions = make_store(tmp_path)
-    lib.create_book("demo", "Новая книга")
+    lib.create_book("demo", "Новая книга", owner_member_id="alice")
     lib.put_chapter("demo", "c12", chapter_index=12, chapter_path="chapters/12.xhtml",
                     source_html="<p>Исходник 1</p>", expected_revision=0)
     lib.accept_translation("demo", "c12", "<p>Принятый перевод</p>",
@@ -143,7 +143,7 @@ def test_two_editors_cannot_overwrite_stale_source_or_accepted_revision(tmp_path
 
 def test_index_or_path_collision_with_other_chapter_aborts_batch(tmp_path):
     store, lib, sessions = make_store(tmp_path)
-    lib.create_book("demo", "Новая книга")
+    lib.create_book("demo", "Новая книга", owner_member_id="alice")
     lib.put_chapter("demo", "existing", chapter_index=13, chapter_path="chapters/13.xhtml",
                     source_html="<p>Не трогать</p>", expected_revision=0)
     staged = sessions.stage("alice", "book.txt", source())

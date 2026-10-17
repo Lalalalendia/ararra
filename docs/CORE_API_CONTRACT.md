@@ -14,6 +14,32 @@ This is a **server-only contract**. `full_cycle_app` and the Windows executable 
 - \`POST /v1/admin/members/{member_id}/disable\`: admin-only, **200** status disabled. Invalidates all currently known moderator credentials, cancels queued/retry jobs and signals running jobs to stop. **409** if the moderator still owns any books after the separate ownership schema is introduced: reassign those books first.
 - Error statuses: 401 invalid/missing token, 403 moderator trying an admin action, 404 unknown moderator, 409 duplicate ID/admin credential operation/book ownership conflict, 422 invalid member ID. All admin and token-issuance replies set \`Cache-Control: no-store, private\`.
 
+### Moderator book ownership (RE-03-OWNER-CAS)
+
+ReadEra still has exactly **two global roles**, administrator and moderator,
+and **all authenticated members may view and work on the shared library**.
+Ownership is a separate accountability attribute, not per-book access control.
+
+- Newly created books must name one ACTIVE moderator owner. For a moderator
+  caller this defaults to their own member ID; the administrator explicitly
+  supplies \`owner_member_id\` when creating a new book or confirming a staged
+  import. Managed moderators issued in \`/team\` are valid owners, just like
+  configured static moderators.
+- \`POST /v1/books\`: additive \`owner_member_id\` field. \`GET /v1/books\`
+  returns a shared catalogue of book IDs/titles and owner fields.
+- \`GET /v1/books/{book_id}\` now includes \`owner_member_id\` and
+  \`owner_revision\` (initial revision 0).
+- \`PUT /v1/books/{book_id}/owner\`: administrator only, body
+  \`{"owner_member_id":"active_moderator","expected_owner_revision":0}\`.
+  Atomic CAS rejects stale owner revision as **409**, and rejects unknown/
+  disabled/admin owners as **422**. Owner history is appended in SQLite
+  \`book_owner_events\` without modifying sources, glossaries or accepted text.
+- Preexisting SQLite books migrate with \`owner_member_id=NULL\`. NEVER guess
+  an owner from a book's title, first translator, imported metadata or the
+  admin account; explicitly assign a real moderator using the admin endpoint.
+- Admin may not disable a moderator until all their owned books are reassigned.
+  The moderator's key may otherwise be rotated without changing ownership.
+
 ### Moderator access security invariants (RE-03-MEMBER-MGMT)
 
 - The **single administrator's** ID and bearer key remain solely in the protected \`team_tokens_json\` systemd credential/config, selected explicitly via \`CHAPTERA_ADMIN_MEMBER_ID\`. No implicit admin and **no HTTP endpoint** for changing/admin promotion.
