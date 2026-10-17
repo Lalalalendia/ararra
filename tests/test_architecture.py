@@ -11,7 +11,7 @@ from fastapi.routing import APIRoute
 from chaptera_server.api import create_app
 from chaptera_server.config import Settings
 from chaptera_server.http.dependencies import require_member
-from chaptera_server.http.routers import books, health, imports, jobs
+from chaptera_server.http.routers import books, health, identity, imports, jobs
 from chaptera_server.storage import QueueStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,6 +24,8 @@ SPEC.loader.exec_module(architecture)
 # Canonical v0.6 HTTP contract; additions are intentional policy edits, not accidental router drift.
 ROUTE_CONTRACT = {
     ('GET', '/healthz'),
+    ('GET', '/v1/me'),
+    ('GET', '/v1/admin/members'),
     ('POST', '/v1/books'),
     ('GET', '/v1/books/{book_id}'),
     ('PUT', '/v1/books/{book_id}/glossary'),
@@ -68,7 +70,7 @@ def test_http_paths_and_methods_are_unique_and_stable(tmp_path):
     # the canonical APIRouters instead of version-dependent app internals.
     http_routes = [
         route
-        for owner in (books, health, imports, jobs)
+        for owner in (books, health, identity, imports, jobs)
         for route in owner.router.routes
         if isinstance(route, APIRoute)
     ]

@@ -1,11 +1,11 @@
 """Centralized authentication, service lookup and HTTP exception mapping."""
 from __future__ import annotations
 
-from fastapi import Header, HTTPException, Request
+from fastapi import Depends, Header, HTTPException, Request
 
 from chaptera_translation_core.prompt_policy import GlossaryVersionConflict
 
-from ..auth import InvalidTeamToken, authenticate
+from ..auth import InvalidTeamToken, authenticate, role_for
 from ..library import BookLibrary, LibraryConflict, LibraryNotFound
 from ..import_sessions import ImportSessions
 from ..storage import QueueStore
@@ -16,6 +16,13 @@ def require_member(request: Request, x_api_key: str | None = Header(default=None
         return authenticate(x_api_key, request.app.state.settings)
     except InvalidTeamToken as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+
+def require_admin(request: Request, actor: str = Depends(require_member)) -> str:
+    """Reserved for system/member controls, never for ordinary book editing."""
+    if role_for(actor, request.app.state.settings) != "admin":
+        raise HTTPException(status_code=403, detail="Administrator role required")
+    return actor
 
 
 def get_store(request: Request) -> QueueStore:

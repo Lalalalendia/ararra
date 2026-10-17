@@ -30,11 +30,18 @@ def _read_systemd_credential(name: str, env_name: str, fallback: str) -> str:
 class Settings:
     db_path: Path
     team_tokens: dict[str, str] = field(default_factory=dict, repr=False)
+    # Exactly two global roles: this one explicit admin and all other token holders
+    # (moderators). No implicit admin when left empty.
+    admin_member_id: str = ""
     gemini_api_key: str = field(default="", repr=False)
     gemini_model: str = "gemini-3.8-flash"
     worker_poll_seconds: float = 1.0
     bind: str = "127.0.0.1"
     port: int = 8000
+
+    def __post_init__(self) -> None:
+        if self.admin_member_id and self.admin_member_id not in self.team_tokens:
+            raise ValueError("Configured admin member must exist in team_tokens")
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -51,6 +58,7 @@ class Settings:
         return cls(
             db_path=Path(os.environ.get("CHAPTERA_DB_PATH", "./data/jobs.sqlite3")),
             team_tokens=tokens,
+            admin_member_id=os.environ.get("CHAPTERA_ADMIN_MEMBER_ID", "").strip(),
             gemini_api_key=_read_systemd_credential("gemini_api_key", "CHAPTERA_GEMINI_API_KEY", "").strip(),
             gemini_model=os.environ.get("CHAPTERA_GEMINI_MODEL", "gemini-3.8-flash").strip(),
             worker_poll_seconds=max(0.1, float(os.environ.get("CHAPTERA_WORKER_POLL_SECONDS", "1.0"))),

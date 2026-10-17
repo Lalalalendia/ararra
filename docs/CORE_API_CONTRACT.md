@@ -6,6 +6,10 @@ This is a **server-only contract**. `full_cycle_app` and the Windows executable 
 
 - Python 3.11 and 3.12; headless import without PyQt, Windows runtime or desktop SQLite.
 - `GET /healthz` is the sole public endpoint; all `/v1/*` methods require the team member's `X-API-Key`. Missing or invalid keys return 401. Team members share one workspace.
+- Exactly two **global** team roles: `admin` (one member selected by `CHAPTERA_ADMIN_MEMBER_ID`) and `moderator` (every other valid team token). No book-local role table or permissions. Without explicit admin configuration, no caller gains admin controls.
+- `GET /v1/me` returns only `{"member_id":"...","role":"admin|moderator"}` for any authenticated member.
+- `GET /v1/admin/members` requires an administrator: missing/wrong token -> 401, valid moderator token -> 403, admin token -> `{"members":[{"member_id":"...","role":"..."}]}` without credentials. This endpoint is read-only; token provisioning is still operator-managed.
+
 - `POST /v1/jobs` accepts a single chapter (`chapter_id`, `source_html`), optionally source/target language, scoped glossary, context and protocol. Omitting `transport` preserves **`html_v0`** for existing clients. `atoms_v1` must be selected explicitly.
 - `Idempotency-Key` is scoped to a team member. A second identical request returns the same job; reusing the key with changed input produces 409.
 - `GET /v1/jobs/{id}` and `/events` expose status/output and progress, and `POST /cancel` requests cancellation.

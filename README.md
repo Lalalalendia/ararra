@@ -7,7 +7,7 @@ Server-first, closed-team translation backend based on the existing Chaptera lit
 - Standalone `chaptera_translation_core` package with source-unit segmentation, structural/provenance markers, deterministic completeness checks, request packing, source preparation and HTML finalization from the prior extraction.
 - Async `TranslationCore` abstraction: transport-independent translation provider, glossary/context inputs, status events, cooperative cancellation.
 - `chaptera_server` backend: authenticated REST API, SQLite-backed durable job queue, separate async worker, Gemini `generateContent` REST adapter, finite backoff for 429/5xx, `Retry-After`, event log, idempotency and lease ownership tokens.
-- Every team member has a separate API token but uses one shared workspace/queue. There is no public signup.
+- **ReadEra team roles:** exactly two GLOBAL roles: one explicitly configured administrator and all other authorized members as moderators. Both work in the same book library and translation queue; there are no per-book owner/editor/reviewer/viewer roles. Team tokens remain separate. No public signup.
 - Translation is only marked completed after deterministic QA. Partial or missing segment responses are rejected.
 - Chapter-scoped glossary bindings and version-map overrides (`scope` + `override`), separate required/session/advisory authority, terminology enforcement classes and source-only matching.
 - Verified source-derived chapter context snapshots (schema v3/prompt v6 server policy); stale source/glossary/predecessor snapshots are **ignored with an event**, not silently trusted. Predecessor translation tails are capped and advisory only.
@@ -39,6 +39,8 @@ On Windows activate with `.venv\\Scripts\\activate` instead of the POSIX command
 ```bash
 export CHAPTERA_DB_PATH='./data/jobs.sqlite3'
 export CHAPTERA_TEAM_TOKENS_JSON='{"admin":"generate-a-real-strong-random-token"}'
+# Must name an EXISTING member ID, not a secret; no implicit admin by default.
+export CHAPTERA_ADMIN_MEMBER_ID='admin'
 export CHAPTERA_GEMINI_API_KEY='your-google-api-key'
 export CHAPTERA_GEMINI_MODEL='gemini-3.8-flash'
 ```
@@ -63,6 +65,26 @@ curl -sS -X POST http://127.0.0.1:8000/v1/jobs \\
 ```
 
 Inspect the job with `GET /v1/jobs/{job_id}` or its events with `GET /v1/jobs/{job_id}/events`, using the same `X-API-Key`. List jobs with `GET /v1/jobs`. Cancel with `POST /v1/jobs/{job_id}/cancel`. A cancelled in-flight provider request may continue until its current response arrives; it will not save a translation as completed after the cancel flag is set.
+
+## Two global roles for the ReadEra team
+
+**Administrator** (single explicit `CHAPTERA_ADMIN_MEMBER_ID`, matching a key in
+`CHAPTERA_TEAM_TOKENS_JSON`) can inspect the team roster via
+`GET /v1/admin/members` (member IDs and role labels only; never API keys).
+**Moderator** is every other authenticated team member and receives HTTP 403
+for the admin-only endpoint. `GET /v1/me` reports the caller's member ID
+and role. Without a configured administrator **nobody is implicitly promoted**:
+all members are moderators, including the first member. An unknown admin ID
+fails startup rather than falling back to arbitrary credentials.
+
+The book library, import sessions, glossary, chapter edits, accepted versions,
+and translation queue remain a **shared technical workspace** for both roles.
+The role model deliberately does not introduce per-book assignments. API tokens
+and the administrator identity are managed by the trusted host operator through
+protected environment/systemd deployment configuration; member creation,
+token rotation, and admin transfer are NOT exposed as unreviewed HTTP writes.
+The administrator can manage the credentials through that operational process.
+No RBAC rollout occurs on the VPS until an explicitly reviewed deploy.
 
 ## Import-file preview (new in v0.6)
 
