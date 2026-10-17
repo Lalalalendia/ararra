@@ -6,7 +6,7 @@ accounting. Exactly one configured API key and one worker are supported here.
 """
 from __future__ import annotations
 
-from chaptera_translation_core.api.errors import OperationCancelledError
+from chaptera_translation_core.api.errors import OperationCancelledError, PartialGenerationError
 from chaptera_translation_core.ports import TranslationCancelled
 
 from .gemini_scheduler import ApiNetworkController, ApiRequestScheduler
@@ -104,6 +104,12 @@ class ScheduledGeminiProvider:
             raise
         except DailyProviderQuotaFailure:
             self.network.finish(net_permit, "neutral")
+            raise
+        except PartialGenerationError as exc:
+            # Desktop exposes partial text to the core, where the canonical
+            # source-coverage validator decides whether any part is reusable.
+            self.network.finish(net_permit,
+                                "network_error" if exc.is_network_partial else "neutral")
             raise
         except TransientProviderFailure as exc:
             status = getattr(exc, "status_code", None)
