@@ -1,21 +1,50 @@
 """Book, glossary and chapter endpoints with revision-safe updates."""
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
 from chaptera_translation_core.prompt_policy import GlossaryVersionConflict, scoped_glossary
 
 from ...library import BookLibrary, LibraryConflict, LibraryNotFound
 from ...storage import IdempotencyConflict, QueueStore
-from ..dependencies import get_library, get_store, map_library_error, require_member
-from ..schemas import AcceptTranslation, CreateBook, SaveChapter, SaveGlossary, TranslateBookChapter
+from ..dependencies import get_library, get_store, map_library_error, require_member, require_admin
+from ..schemas import AcceptTranslation, CreateBook, ReassignBookOwner, SaveChapter, SaveGlossary, TranslateBookChapter
 
 router = APIRouter(prefix="/v1/books")
 
 
 @router.post("", status_code=201)
-def create_book(body: CreateBook, actor: str = Depends(require_member),
+def create_book(body: CreateBook, request: Request, actor: str = Depends(require_member),
                 library: BookLibrary = Depends(get_library)):
+    from ...auth import role_for
+    owner = body.owner_member_id or actor
+    settings = request.app.state.settings
+    if role_for(owner, settings) != "moderator":
+        raise HTTPException(status_code=422, detail="Book owner must be an active moderator")
+    if role_for(actor, settings) != "admin" and owner != actor:
+        raise HTTPException(status_code=403, detail="Only administrator can assign another owner")
     try:
-        return library.create_book(body.book_id, body.title)
+        return library.create_book(body.book_id, body.title, owner_member_id=owner, actor_id=actor)
+    except (LibraryNotFound, LibraryConflict, ValueError) as exc:
+        raise map_library_error(exc) from exc
+
+
+@router.get("")
+def list_books(actor: str = Depends(require_member),
+               library: BookLibrary = Depends(get_library)):
+    return {"books": library.list_books()}
+
+
+@router.put("/{book_id}/owner")
+def reassign_book_owner(book_id: str, body: ReassignBookOwner, request: Request,
+                        actor: str = Depends(require_admin),
+                        library: BookLibrary = Depends(get_library)):
+    from ...auth import role_for
+    if role_for(body.owner_member_id, request.app.state.settings) != "moderator":
+        raise HTTPException(status_code=422, detail="Book owner must be an active moderator")
+    try:
+        return library.reassign_book_owner(
+            book_id, new_owner_member_id=body.owner_member_id,
+            expected_owner_revision=body.expected_owner_revision, actor_id=actor,
+        )
     except (LibraryNotFound, LibraryConflict, ValueError) as exc:
         raise map_library_error(exc) from exc
 
