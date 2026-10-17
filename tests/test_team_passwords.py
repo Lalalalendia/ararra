@@ -232,3 +232,30 @@ def test_old_browser_session_schema_migrates_without_logout(tmp_path):
             assert (await actor.get("/v1/books")).status_code == 200
 
     asyncio.run(verify())
+
+
+def test_password_hashing_capacity_is_bounded_and_fails_closed(tmp_path):
+    from chaptera_server import team_passwords
+
+    app, _ = make_app(tmp_path)
+    for _ in range(4):
+        assert team_passwords._ARGON_SLOTS.acquire(blocking=False)
+    try:
+        async def scenario():
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://app.test"
+            ) as c:
+                # Unknown account still runs an Argon2 dummy verification.
+                busy = await c.post("/v1/session/password", json={
+                    "member_id": "unknown", "password": "guess",
+                })
+                assert busy.status_code == 503
+                assert busy.headers["Retry-After"] == "1"
+                # Admin issuance also reserves bounded Argon2 capacity.
+                issue = await c.post("/v1/admin/members/mod/password", headers=ADMIN)
+                assert issue.status_code == 503
+                assert issue.headers["Retry-After"] == "1"
+        asyncio.run(scenario())
+    finally:
+        for _ in range(4):
+            team_passwords._ARGON_SLOTS.release()
