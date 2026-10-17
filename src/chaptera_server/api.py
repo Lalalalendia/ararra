@@ -10,8 +10,8 @@ from .library import BookLibrary
 from .import_sessions import ImportSessions
 from .team_credentials import TeamCredentials
 from .storage import QueueStore
-from .http.routers import books, health, identity, imports, jobs
-from .web_ui.routes import router as ui_router, ASSETS as UI_ASSETS
+from .http.routers import books, health, identity, imports, jobs, ui
+from .http.routers.ui import ASSETS as UI_ASSETS
 
 # Keep historical Python imports of request models working for existing callers.
 from .http.schemas import (  # noqa: F401
@@ -41,7 +41,7 @@ def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
     # Existing /v1 API and the optional React pilot are untouched.
     app.mount("/app-static", StaticFiles(directory=str(UI_ASSETS / "static")),
               name="readera-static")
-    app.include_router(ui_router)
+    app.include_router(ui.router)
     return app
 
 
