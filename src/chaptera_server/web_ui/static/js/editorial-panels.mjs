@@ -110,8 +110,8 @@ export function initEditorialPanels({request,flash,current,reloadChapter,toText}
     event.preventDefault();
     const ctx=current();
     if(!ctx)return;
-    if(ctx.dirty()){
-      flash('Сначала сохраните текущий черновик, затем добавьте замечание.',true);return;
+    if(ctx.dirty()||ctx.outdated()){
+      flash('Сначала сохраните и сверьте черновик с текущими ревизиями, затем добавьте замечание.',true);return;
     }
     const body=noteText.value.trim();
     if(!body)return;
