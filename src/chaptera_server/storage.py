@@ -113,6 +113,16 @@ class QueueStore:
                     created_at REAL NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS ix_job_events ON job_events(job_id, id);
+                -- Private, validated subrequest responses. Entries are job-scoped;
+                -- per-prompt hash checks prevent mixing source/glossary/context.
+                CREATE TABLE IF NOT EXISTS atom_job_checkpoints (
+                    job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+                    request_fingerprint TEXT NOT NULL,
+                    response_text TEXT NOT NULL,
+                    response_sha256 TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    PRIMARY KEY(job_id, request_fingerprint)
+                );
             """)
             # Existing v0.2/v0.3 databases have no provenance column; upgrade in place.
             columns = {row['name'] for row in con.execute('PRAGMA table_info(jobs)')}
