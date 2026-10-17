@@ -43,3 +43,63 @@ jobs:
       - name: Test import decisions, typecheck and bundle web app
         working-directory: web
         run: npm run check
+
+
+  browser:
+    name: ReadEra real Chromium acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install FastAPI and browser test harness
+        run: |
+          python -m pip install -e .
+          npm install --prefix tests/browser --no-audit --no-fund --ignore-scripts
+          google-chrome --version
+      - name: Start disposable local ReadEra instance
+        env:
+          CHAPTERA_DB_PATH: /tmp/readera-e2e.sqlite3
+          CHAPTERA_ADMIN_MEMBER_ID: administrator
+          CHAPTERA_TEAM_TOKENS_JSON: '{"administrator":"test-local-administrator-only","moderator":"test-local-moderator-only"}'
+        run: |
+          python -m uvicorn chaptera_server.api:create_default_app --factory \
+            --host 127.0.0.1 --port 18376 > "$RUNNER_TEMP/readera-e2e.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/readera-e2e.pid"
+          for i in $(seq 1 30); do
+            if curl --silent --fail http://127.0.0.1:18376/healthz > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          tail -80 "$RUNNER_TEMP/readera-e2e.log"
+          exit 1
+      - name: Test Jinja UI in real headless Chrome
+        working-directory: tests/browser
+        env:
+          READ_E2E_BASE_URL: http://127.0.0.1:18376
+          READ_E2E_ADMIN_KEY: test-local-administrator-only
+          READ_E2E_MOD_KEY: test-local-moderator-only
+        run: npm test
+      - name: Upload safe visual evidence (no bearer secrets)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: readera-jinja-browser-screenshots
+          path: tests/browser/artifacts/*.png
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Show server diagnostics on failure
+        if: failure()
+        run: tail -100 "$RUNNER_TEMP/readera-e2e.log" || true
+      - name: Stop disposable server
+        if: always()
+        run: |
+          if test -f "$RUNNER_TEMP/readera-e2e.pid"; then
+            kill "$(cat "$RUNNER_TEMP/readera-e2e.pid")" || true
+          fi
