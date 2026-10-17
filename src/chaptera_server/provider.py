@@ -70,7 +70,7 @@ def _retry_after(raw: str | None) -> float | None:
 
 class GeminiProvider:
     def __init__(self, api_key: str, model: str, *, client: httpx.AsyncClient | None = None,
-                 timeout_seconds: float = 180.0):
+                 timeout_seconds: float = 180.0, max_output_tokens: int | None = None):
         if not api_key:
             raise ValueError("Gemini API key is required")
         if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}", model):
@@ -78,14 +78,20 @@ class GeminiProvider:
         self.api_key = api_key
         self.model = model
         self.client = client
+        if max_output_tokens is not None and max_output_tokens < 1:
+            raise ValueError("max_output_tokens must be positive")
         self.timeout_seconds = timeout_seconds
+        self.max_output_tokens = max_output_tokens
         self.completed_calls = 0
 
     async def generate(self, request: ProviderRequest) -> str:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
+        generation_config = {"temperature": 0.2}
+        if self.max_output_tokens is not None:
+            generation_config["maxOutputTokens"] = self.max_output_tokens
         payload = {
             "contents": [{"role": "user", "parts": [{"text": request.prompt}]}],
-            "generationConfig": {"temperature": 0.2},
+            "generationConfig": generation_config,
         }
         try:
             if self.client is None:
