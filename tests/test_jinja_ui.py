@@ -61,6 +61,10 @@ def test_jinja_pages_render_without_credentials_but_never_expose_team_state(tmp_
             assert status_js.status_code == 200
             assert "ReadEraStatus" in status_js.text
             assert "renderStatus" in status_js.text
+            # The books_platform snapshot originally auto-polled without
+            # auth; only the pure renderer may survive the Jinja migration.
+            assert "fetch(" not in status_js.text
+            assert "data-import-status-url" not in status_js.text
             editor_js = await client.get("/app-static/js/editor.mjs")
             assert editor_js.status_code == 200
             assert "initChapterEditor" in editor_js.text
