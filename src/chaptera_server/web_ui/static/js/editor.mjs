@@ -41,6 +41,12 @@ export function initChapterEditor({request,flash,getBooks}) {
   function canLeave(){
     return !dirty() || window.confirm('У текущей главы есть несохранённые изменения. Отменить их?');
   }
+  function dropUnsaved() {
+    if(dirty()) { edit.value=savedText; adjust(); }
+  }
+  function reset() {
+    dropUnsaved(); chosenBook=''; toc=[]; ++sequence; clearChapter();
+  }
   function adjust() {
     const unsaved=dirty();
     $('editor-unsaved').hidden=!unsaved;
@@ -191,5 +197,5 @@ export function initChapterEditor({request,flash,getBooks}) {
     if(dirty()){event.preventDefault();event.returnValue='';}
   });
   clearChapter();syncNav();
-  return {activate,canLeave};
+  return {activate,canLeave,dropUnsaved,reset};
 }
