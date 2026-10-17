@@ -153,11 +153,11 @@ def inspect_repository(root: Path = ROOT) -> list[str]:
         limit = UI_JS_CEILINGS.get(file.name, UI_JS_DEFAULT_LIMIT)
         if len(source.splitlines()) > limit:
             errors.append(f'{rel}: Jinja UI module exceeds {limit} lines; split by feature')
-        if re.search(r'\\b(?:localStorage|sessionStorage)\\b', source):
+        if re.search(r'\b(?:localStorage|sessionStorage)\b', source):
             errors.append(f'{rel}: browser must not persist team/API keys')
-        if re.search(r'\\bfetch\\s*\\(', source) and file.name != 'readera.mjs':
+        if re.search(r'\bfetch\s*\(', source) and file.name != 'readera.mjs':
             errors.append(f'{rel}: direct fetch belongs to the authenticated ReadEra controller')
-        if re.search(r'\\b(?:VITE_[A-Z_]*(?:KEY|SECRET|TOKEN)|full_cycle_app)\\b', source):
+        if re.search(r'\b(?:VITE_[A-Z_]*(?:KEY|SECRET|TOKEN)|full_cycle_app)\b', source):
             errors.append(f'{rel}: browser cannot depend on legacy Vite keys or Windows app')
     return errors
 
