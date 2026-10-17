@@ -97,6 +97,22 @@
         <div id="editor-info" class="editor-info"></div>
       </aside>
     </div>
+    <section class="ui-card editor-history" id="editor-qa-panel">
+      <div class="ui-section-header">
+        <h2>Качество перевода · терминология</h2>
+        <p>Послепереводная диагностика: результаты привязаны к ревизиям
+           оригинала, принятого перевода и глоссария. Проверка бесплатная и
+           не блокирует принятую редакцию автоматически.</p>
+      </div>
+      <div class="chapter-authoring-actions">
+        <button type="button" class="ui-button ui-button--ghost"
+                id="editor-qa-scan" disabled>Проверить принятую редакцию</button>
+      </div>
+      <p id="editor-qa-summary" class="muted" aria-live="polite">
+        Для текущей главы нет отчёта проверки.
+      </p>
+      <div id="editor-qa-list" class="editor-note-list" aria-live="polite"></div>
+    </section>
     <section class="ui-card editor-history">
       <div class="ui-section-header">
         <h2>История принятых редакций</h2>
