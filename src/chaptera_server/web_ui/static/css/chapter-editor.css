@@ -54,3 +54,17 @@
 .editor-history-preview {border:1px solid #d9e5e8;border-radius:10px;background:#f6fafb;padding:17px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto;}
 #editor-save-draft {margin-right:auto;}
 #editor-rebase-wrap {display:block;}
+
+/* RE-05 visual pass: keep the three editorial surfaces in one desktop workspace.
+ * Long original text, translation, and notes scroll independently. Do not
+ * constrain the mobile reading flow or hide conflict/rebase controls.
+ */
+@media (min-width:1171px) {
+  .editor-columns {align-items:stretch;}
+  .editor-source-col,.editor-ru-col,.editor-notes-col {min-height:0;}
+  .editor-source-text {height:430px;min-height:0;max-height:430px;}
+  .chapter-authoring-form .chapter-authoring-textarea {
+    height:430px;min-height:0;max-height:430px;
+  }
+  .editor-note-list {max-height:340px;}
+}
