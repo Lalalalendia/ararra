@@ -94,8 +94,9 @@ def test_quota_resume_reuses_completed_desktop_atom_packets(tmp_path, monkeypatc
     with new_store._connect() as con:
         n = con.execute("SELECT COUNT(*) FROM atom_job_checkpoints WHERE job_id=?",
                         (job["id"],)).fetchone()[0]
-    assert n == len(second_provider.requests) + 1
-    assert n > 5
+    # Terminal success deletes duplicated checkpoint text in the same commit.
+    assert n == 0
+    assert len(second_provider.requests) > 4
 
 
 def test_checkpoint_lease_fence_integrity_and_request_scope(tmp_path):
@@ -108,6 +109,8 @@ def test_checkpoint_lease_fence_integrity_and_request_scope(tmp_path):
     saved.save(key, "proved response")
     assert saved.load(key) == "proved response"
     assert saved.load(other) is None
+    from_other_model = SQLiteAtomCheckpoint(store, job["id"], token, model_id="another-model")
+    assert from_other_model.load(key) is None
     assert saved.saved_this_run == 1
     assert saved.reused_this_run == 1
     with pytest.raises(AtomCheckpointConflict, match="Conflicting"):
