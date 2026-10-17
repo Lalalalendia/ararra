@@ -2,5 +2,6 @@
 export const routePaths = {
   home: '/',
   books: '/books',
+  import: '/import',
   team: '/team',
 } as const;

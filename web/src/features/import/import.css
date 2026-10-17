@@ -1,0 +1,111 @@
+/* ReadEra source-import wizard; no global form or token styles. */
+.import-title { display:flex; justify-content:space-between; gap:24px; align-items:flex-start; }
+.import-title h1 { margin:8px 0; }
+.import-title p { margin-top:0; }
+.import-text-link { color:#00587d; font-weight:650; white-space:nowrap; }
+.import-steps { padding:0; margin:24px 0; list-style:none; display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+.import-steps li { display:flex; align-items:center; gap:10px; padding:12px 14px; color:#71838a; background:#f2f6f7; border:1px solid #e4ebed; border-radius:10px; font-size:14px; }
+.import-steps li span { display:grid; place-items:center; width:28px; height:28px; border:1px solid #becfd4; border-radius:50%; font-weight:700; }
+.import-steps li.is-current { background:#e9f4f7; color:#004c68; border-color:#8dbdce; font-weight:700; }
+.import-steps li.is-current span,.import-steps li.is-done span { background:#00587d; color:white; border-color:#00587d; }
+.import-steps li.is-done { color:#345d6b; }
+.import-panel { padding:20px 24px; margin:18px 0; background:#fff; border:1px solid #dce5e8; border-radius:13px; }
+.import-panel h2 { margin:4px 0 10px; font-size:21px; }
+.import-panel h3 { font-size:17px; }
+.import-panel p { line-height:1.55; color:#4a6370; }
+.import-panel button,.import-actions button,.import-resume button {
+  border:1px solid #00587d; border-radius:9px; padding:10px 15px;
+  background:#00587d; color:#fff; font:inherit; font-weight:650; cursor:pointer;
+}
+.import-panel button:disabled,.import-actions button:disabled,.import-resume button:disabled { opacity:.55; cursor:not-allowed; }
+.import-panel button.import-secondary,.import-actions button.import-secondary,.import-resume button.import-secondary {
+  color:#15485f; border-color:#b9cfd7; background:#fff;
+}
+.import-panel input:not([type='checkbox']):not([type='radio']):not([type='file']),
+.import-panel select,.import-panel textarea,.import-resume input {
+  display:block; width:100%; min-width:0; padding:10px 12px;
+  border-radius:8px; border:1px solid #bdd0d6; color:#203a45;
+  background:white; font:inherit;
+}
+.import-panel label:not(.import-choice):not(.import-drop) {
+  display:block; font-weight:650; font-size:13px; color:#36515f;
+}
+.import-panel label:not(.import-choice):not(.import-drop) input,
+.import-panel label:not(.import-choice):not(.import-drop) select { margin-top:6px; }
+.import-login { max-width:650px; }
+.import-login button { margin-top:14px; }
+.import-identity,.import-stage-meta { display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; align-items:center; padding:10px 14px; border:1px solid #dce7ea; border-radius:9px; background:#f5f9fa; font-size:13px; }
+.import-identity button { padding:5px 12px; border-radius:8px; cursor:pointer; }
+.import-message { margin:12px 0; border:1px solid #9dbdcc; color:#204d60; background:#eaf5f8; border-radius:9px; padding:12px; line-height:1.45; }
+.import-upload { min-height:260px; }
+.import-drop { display:block; padding:28px; border:2px dashed #9fc3d2; border-radius:12px; margin:18px 0; background:#f7fbfc; text-align:center; cursor:pointer; color:#00587d; font-weight:700; }
+.import-drop input { display:block; margin:12px auto 0; max-width:100%; }
+.import-resume { display:flex; flex-wrap:wrap; align-items:end; gap:10px; padding-top:22px; margin-top:30px; border-top:1px solid #dde8eb; }
+.import-resume label { flex:1 1 350px; }
+.import-stage-meta { margin-top:14px; }
+.import-stage-meta code { overflow-wrap:anywhere; }
+.import-screen { display:grid; gap:8px; }
+.import-fieldset { border:1px solid #dce6e9; border-radius:11px; padding:14px 17px; margin:22px 0 12px; }
+.import-fieldset legend { padding:0 6px; font-size:14px; font-weight:750; color:#204a60; }
+.import-choice { display:flex; align-items:start; gap:10px; font-size:14px; padding:5px 0; font-weight:450; color:#304b57; cursor:pointer; }
+.import-choice input { margin-top:3px; accent-color:#00587d; }
+.import-grid-fields { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:14px; }
+.import-grid-fields label:last-of-type { grid-column:span 2; }
+.import-book-select { margin-top:14px; }
+.import-help { font-size:12px; color:#627985; font-weight:450; line-height:1.5; }
+.import-owner { grid-column:span 2; margin:7px 0; }
+.import-warnings { border:1px solid #f0d9a7; background:#fffaf0; color:#745119; border-radius:10px; padding:14px 17px; margin-top:18px; font-size:14px; }
+.import-warnings ul,.import-alert ul { margin:7px 0 0; padding-left:23px; }
+.import-warnings li,.import-alert li { padding:3px 0; }
+.import-prefix textarea { max-height:200px; overflow:auto; resize:vertical; margin:10px 0; font-size:12px; }
+.import-prefix p { font-size:13px; }
+.import-table-heading { display:flex; justify-content:space-between; gap:12px; }
+.import-table-scroll { overflow:auto; border:1px solid #dbe5e9; border-radius:9px; }
+.import-table { border-collapse:collapse; width:100%; min-width:970px; font-size:13px; }
+.import-table th { background:#f3f8fa; text-align:left; color:#557080; font-size:12px; }
+.import-table th,.import-table td { padding:10px; border-bottom:1px solid #e7eef0; vertical-align:top; }
+.import-table tr:last-child td { border-bottom:0; }
+.import-table input { min-width:70px; }
+.import-table td:nth-child(4) input { width:110px; }
+.import-table td:nth-child(5) input { width:80px; }
+.import-table td:nth-child(6) input { width:190px; }
+.import-number span,.import-chapter-title small { display:block; font-size:11px; color:#69828c; margin-top:4px; }
+.import-chapter-title { max-width:260px; }
+.import-chapter-title strong { display:block; max-width:220px; overflow-wrap:anywhere; }
+.import-chapter-title p { margin:5px 0; font-size:12px; line-height:1.3; max-height:35px; overflow:hidden; }
+.import-revision { display:flex; flex-direction:column; gap:8px; }
+.import-revision button { padding:6px; font-size:12px; }
+.import-muted { color:#81949b; }
+.import-actions { display:flex; align-items:center; justify-content:flex-end; gap:12px; margin:15px 0; }
+.import-alert { padding:15px; border:1px solid #e2afab; border-radius:10px; background:#fff5f4; color:#863934; line-height:1.55; }
+.import-review-columns { display:grid; grid-template-columns:minmax(0,2fr) minmax(245px,1fr); gap:22px; }
+.import-summary { display:grid; gap:2px; border:1px solid #e0e9ec; border-radius:10px; overflow:hidden; margin:17px 0; }
+.import-summary div { display:grid; grid-template-columns:minmax(100px,1fr) minmax(0,2fr); gap:10px; padding:10px 14px; border-bottom:1px solid #e7edef; font-size:13px; }
+.import-summary div:last-child { border:0; }
+.import-summary dt { color:#718591; }
+.import-summary dd { margin:0; color:#1e3e4f; font-weight:650; overflow-wrap:anywhere; }
+.import-hash { font-family:ui-monospace, monospace; font-size:11px; }
+.import-review-list { max-height:450px; }
+.import-review-list .import-table { min-width:650px; }
+.import-totals { background:#f4fafb; border:1px solid #cfe1e8; border-radius:11px; padding:18px; align-self:start; }
+.import-totals h3 { margin-top:0; }
+.import-totals dl div { display:flex; justify-content:space-between; gap:10px; padding:9px 0; border-bottom:1px solid #dce8eb; }
+.import-totals dt { color:#4f6672; }
+.import-totals dd { font-weight:750; margin:0; }
+.import-atomic { margin:16px 0; padding:11px; border-radius:8px; background:white; }
+.import-atomic p { font-size:12px; margin:5px 0; }
+.import-confirm-check { font-size:13px; margin:15px 0; }
+.import-totals button { width:100%; }
+.import-link-button { display:inline-flex; align-items:center; padding:10px 15px; border-radius:9px; background:#fff; color:#00587d; border:1px solid #00587d; text-decoration:none; font-weight:700; }
+.import-success { border-color:#a5d8c3; background:#f7fcfa; }
+@media (max-width:850px) {
+  .import-review-columns { grid-template-columns:1fr; }
+  .import-grid-fields { grid-template-columns:1fr; }
+  .import-grid-fields label:last-of-type,.import-owner { grid-column:auto; }
+}
+@media (max-width:550px) {
+  .import-title { flex-direction:column; }
+  .import-steps li { flex-direction:column; align-items:center; font-size:12px; text-align:center; padding:10px 5px; }
+  .import-panel { padding:15px; }
+  .import-stage-meta { overflow-wrap:anywhere; }
+}

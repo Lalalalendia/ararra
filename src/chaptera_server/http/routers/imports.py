@@ -69,6 +69,15 @@ def get_stage(stage_id: str, actor: str = Depends(require_member),
         raise _import_error(exc) from exc
 
 
+@router.delete("/stages/{stage_id}")
+def cancel_stage(stage_id: str, actor: str = Depends(require_member),
+                 sessions: ImportSessions = Depends(get_import_sessions)):
+    try:
+        return sessions.cancel(actor, stage_id)
+    except (StageMissing, StageExpired, StageConflict) as exc:
+        raise _import_error(exc) from exc
+
+
 @router.post("/stages/{stage_id}/confirm")
 def confirm_stage(stage_id: str, body: ConfirmBookImport, request: Request,
                   actor: str = Depends(require_member),

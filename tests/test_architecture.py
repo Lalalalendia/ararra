@@ -42,6 +42,7 @@ ROUTE_CONTRACT = {
     ('POST', '/v1/imports/preview'),
     ('POST', '/v1/imports/stages'),
     ('GET', '/v1/imports/stages/{stage_id}'),
+    ('DELETE', '/v1/imports/stages/{stage_id}'),
     ('POST', '/v1/imports/stages/{stage_id}/confirm'),
     ('GET', '/v1/imports/books/{book_id}/unassigned'),
     ('POST', '/v1/jobs'),
