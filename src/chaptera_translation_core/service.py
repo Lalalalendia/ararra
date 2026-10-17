@@ -141,18 +141,28 @@ class TranslationCore:
                     self._emit(chapter.chapter_id, 'context_conflict', f'count={diagnostics.context_conflicts}')
             self._emit(chapter.chapter_id, 'atom_batch',
                        f'{index}/{len(batches)} atoms={len(batch.atoms)} prompt_chars={len(prompt)} payload_chars={len(batch.payload)}')
-            raw = await self.provider.generate(ProviderRequest(
+            request = ProviderRequest(
                 chapter.chapter_id, prompt, batch.payload, len(batch.atoms), 'atoms_v1',
                 lambda usage, part=index: self._emit(chapter.chapter_id, 'gemini_usage',
                     f'batch={part} prompt_tokens={usage.get("promptTokenCount", 0)} '
                     f'output_tokens={usage.get("candidatesTokenCount", 0)} '
                     f'total_tokens={usage.get("totalTokenCount", 0)}'),
-            ))
+            )
+            step = f'atom_packet:{index}'
+            cached = self.checkpoints.load(step, request) if self.checkpoints else None
+            if cached is not None:
+                self._emit(chapter.chapter_id, 'subrequest_reused', step)
+            raw = cached if cached is not None else await self.provider.generate(request)
             self._cancel_check()
             try:
                 part = parse_packet_response(raw, batch.atoms)
             except ValueError as exc:
                 raise TranslationRejected(chapter.chapter_id, 'atom_identity', str(exc)) from exc
+            # Incomplete/uncertain packets still enter the existing repair
+            # workflow, but are not durable billable successes. Only complete
+            # source-owned coverage is safe to replay after a restart.
+            if self.checkpoints and cached is None and not part.missing_atom_ids and not part.invalid_segments:
+                self.checkpoints.save(step, request, raw)
             accepted.append(part)
         try:
             coverage = merge_proven_segments(atoms, accepted)
@@ -170,23 +180,29 @@ class TranslationCore:
                                           f'too many damaged domains: {len(domains)}')
             self._emit(chapter.chapter_id, 'atom_repair',
                        f'round={round_index + 1} domains={len(domains)}')
-            for domain in domains:
+            for domain_index, domain in enumerate(domains, start=1):
                 self._cancel_check()
                 payload = packets_for_atoms(domain)[0].payload
                 prompt, _ = compose_prompt(chapter, marked_source, source,
                                            atom_payload=payload, repair=True)
-                raw = await self.provider.generate(ProviderRequest(
+                request = ProviderRequest(
                     chapter.chapter_id, prompt, payload, len(domain), 'atoms_v1',
                     lambda usage: self._emit(chapter.chapter_id, 'gemini_repair_usage',
                         f'prompt_tokens={usage.get("promptTokenCount", 0)} '
-                        f'output_tokens={usage.get("candidatesTokenCount", 0)} '
-                        f'total_tokens={usage.get("totalTokenCount", 0)}'),
-                ))
+                        f'output_tokens={usage.get("totalTokenCount", 0)}'),
+                )
+                step = f'atom_repair:{round_index + 1}:{domain_index}'
+                cached = self.checkpoints.load(step, request) if self.checkpoints else None
+                if cached is not None:
+                    self._emit(chapter.chapter_id, 'subrequest_reused', step)
+                raw = cached if cached is not None else await self.provider.generate(request)
                 self._cancel_check()
                 try:
                     part = parse_packet_response(raw, domain)
                 except ValueError as exc:
                     raise TranslationRejected(chapter.chapter_id, 'atom_identity', str(exc)) from exc
+                if self.checkpoints and cached is None and not part.missing_atom_ids and not part.invalid_segments:
+                    self.checkpoints.save(step, request, raw)
                 coverage = apply_proven_repair(coverage, part)
         self._emit(chapter.chapter_id, 'validating')
         plan = build_render_plan(marked_source, coverage)
