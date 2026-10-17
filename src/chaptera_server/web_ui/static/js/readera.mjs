@@ -8,6 +8,7 @@ import {
 } from './import-model.mjs';
 import {initChapterEditor} from './editor.mjs';
 import {createLibraryView} from './library-view.mjs';
+import {createBookExportView} from './book-export-view.mjs';
 import {renderDailyQuota,renderJobs} from './jobs-view.mjs';
 
 const $ = id => document.getElementById(id);
@@ -50,7 +51,7 @@ function busyDuring(work) {
   busy = true;
   return Promise.resolve().then(work).finally(() => {busy=false;});
 }
-async function request(path, {method='GET', body, headers={}, ...rest}={}) {
+async function request(path, {method='GET', body, headers={}, responseType='json', ...rest}={}) {
   if (!apiKey) throw new Error('Сначала выполните вход в команду.');
   const response=await fetch(path,{
     ...rest, method, body, cache:'no-store', credentials:'omit',
@@ -70,7 +71,7 @@ async function request(path, {method='GET', body, headers={}, ...rest}={}) {
     if (response.status===413) throw new Error('Превышен разрешённый размер или квота загрузок.');
     throw new Error('Ошибка '+response.status+': '+(detail||'запрос отклонён'));
   }
-  return response.json();
+  return responseType==='raw' ? response : response.json();
 }
 function currentPage() {
   const page=location.pathname.slice('/app/'.length);
@@ -195,9 +196,15 @@ async function chooseBookOwner(book, candidates) {
   return selection;
 }
 
+const exportView=createBookExportView({
+  dialog:$('book-export-dialog'),title:$('book-export-title'),help:$('book-export-help'),
+  last:$('book-export-last'),status:$('book-export-status'),check:$('book-export-preview'),
+  txt:$('book-export-txt'),html:$('book-export-html'),request,
+  showError:e=>flash(e.message,true),notify:m=>flash(m),
+});
 const libraryView=createLibraryView({
   body:$('book-list'),filter:$('book-filter'),ownerFilter:$('book-owner-filter'),
-  empty:$('books-empty'),request,
+  empty:$('books-empty'),request,openExport:book=>exportView.open(book),
   currentMember:()=>identity?.member_id || '',
   canReassign:()=>identity?.role==='admin',
   activeModerators:()=>members.filter(m=>m.role==='moderator' && m.status==='active'),
