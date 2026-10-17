@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from ...auth import InvalidTeamToken, authenticate, role_for
 from ...team_sessions import COOKIE_NAME, CSRF_HEADER, TeamSessions
 from ...team_login_throttle import BrowserLoginThrottled
-from ...team_passwords import PasswordRejected, PasswordVersionConflict
+from ...team_passwords import PasswordRejected, PasswordVersionConflict, PasswordBusy
 
 router = APIRouter()
 _PRIVATE = {
@@ -122,6 +122,9 @@ def login_password(body: BrowserPasswordLogin, request: Request) -> Response:
             credentials=request.app.state.team_credentials,
             settings=request.app.state.settings,
         )
+    except PasswordBusy as exc:
+        raise HTTPException(status_code=503, detail="Сервер проверяет другие пароли",
+                            headers={**_PRIVATE, "Retry-After": "1"}) from exc
     except PasswordRejected as exc:
         throttle.failure(peer, member_id=body.member_id)
         raise HTTPException(status_code=401, detail="Неверные данные входа",
@@ -169,6 +172,9 @@ def change_password(body: BrowserPasswordChange, request: Request) -> Response:
             member_id=member, current_password=body.current_password,
             new_password=body.new_password,
         )
+    except PasswordBusy as exc:
+        raise HTTPException(status_code=503, detail="Сервер проверяет другие пароли",
+                            headers={**_PRIVATE, "Retry-After": "1"}) from exc
     except PasswordRejected as exc:
         throttle.failure(peer, member_id=member)
         raise HTTPException(status_code=401, detail="Неверный текущий пароль",
