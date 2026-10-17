@@ -274,7 +274,7 @@ export function initChapterEditor({request,flash,getBooks}) {
       bookId:chosenBook,chapterId:chosenChapter,
       sourceRevision:chapter.source_revision,
       acceptedRevision:chapter.accepted_revision,
-      draftRevision,dirty,
+      draftRevision,dirty:()=>dirty()||draftStale(),
     }:null,
     reloadChapter:()=>readChapter(chosenChapter),
   });
