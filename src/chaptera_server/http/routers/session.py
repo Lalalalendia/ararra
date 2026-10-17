@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from ...auth import InvalidTeamToken, authenticate, role_for
 from ...team_sessions import COOKIE_NAME, CSRF_HEADER, TeamSessions
+from ...team_login_throttle import BrowserLoginThrottled
 
 router = APIRouter()
 _PRIVATE = {
@@ -47,12 +48,25 @@ def _payload(request: Request, member: str, token: str) -> dict[str, str]:
 def login(body: BrowserLogin, request: Request) -> Response:
     if request.headers.get("Sec-Fetch-Site", "").lower() == "cross-site":
         raise HTTPException(status_code=403, detail="Cross-site login forbidden")
+    peer = request.client.host if request.client is not None else None
+    throttle = request.app.state.team_login_throttle
+    try:
+        throttle.begin(peer)
+    except BrowserLoginThrottled as exc:
+        raise HTTPException(
+            status_code=429, detail="Слишком много попыток входа",
+            headers={**_PRIVATE, "Retry-After": str(exc.retry_after)},
+        ) from exc
     try:
         member = authenticate(
             body.api_key, request.app.state.settings, request.app.state.team_credentials
         )
     except InvalidTeamToken as exc:
-        raise HTTPException(status_code=401, detail="Неверный ключ участника") from exc
+        throttle.failure(peer)
+        raise HTTPException(
+            status_code=401, detail="Неверный ключ участника", headers=_PRIVATE
+        ) from exc
+    throttle.success(peer)
     settings = request.app.state.settings
     token = request.app.state.team_sessions.issue(
         member_id=member, team_key=body.api_key,

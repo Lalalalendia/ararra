@@ -12,6 +12,7 @@ from .editorial import EditorialStore
 from .chapter_qa import ChapterQaStore
 from .team_credentials import TeamCredentials
 from .team_sessions import TeamSessions
+from .team_login_throttle import BrowserLoginThrottle
 from .storage import QueueStore
 from .http.routers import books, health, identity, imports, jobs, quota, ui, editorial, session
 from .http.routers.ui import ASSETS as UI_ASSETS
@@ -37,6 +38,7 @@ def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
     app.state.chapter_qa = ChapterQaStore(repo)
     app.state.team_credentials = TeamCredentials(repo)
     app.state.team_sessions = TeamSessions(repo)
+    app.state.team_login_throttle = BrowserLoginThrottle(repo)
 
     app.include_router(health.router)
     app.include_router(identity.router)
