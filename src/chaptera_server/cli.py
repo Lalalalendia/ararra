@@ -57,7 +57,7 @@ def main() -> None:
     if args.command == "serve":
         import uvicorn
         from .api import create_app
-        uvicorn.run(create_app(settings), host=settings.bind, port=settings.port, log_level="info")
+        uvicorn.run(create_app(settings), host=settings.bind, port=settings.port, log_level="info", proxy_headers=False)
     else:
         if not settings.gemini_api_key:
             parser.error("CHAPTERA_GEMINI_API_KEY is required for worker")
