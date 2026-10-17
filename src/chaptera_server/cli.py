@@ -48,9 +48,27 @@ async def _run_worker(settings: Settings) -> None:
     await worker.run_forever(poll_seconds=settings.worker_poll_seconds, stop=stop)
 
 
+
+async def _run_source_worker(settings: Settings) -> None:
+    """Dedicated crawler process: no Gemini key, no book-library writes."""
+    from .source_job_store import SourceJobStore
+    from .source_job_worker import SourceCollectionWorker
+    from .source_site_http import PublicHtmlFetcher
+
+    loop = asyncio.get_running_loop()
+    stop = asyncio.Event()
+    for signum in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(signum, stop.set)
+        except NotImplementedError:
+            pass
+    jobs = SourceJobStore(QueueStore(settings.db_path))
+    crawler = SourceCollectionWorker(jobs, PublicHtmlFetcher())
+    await crawler.run_forever(poll_seconds=settings.worker_poll_seconds, stop=stop)
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Chaptera team translation backend")
-    parser.add_argument("command", choices=["serve", "worker"])
+    parser.add_argument("command", choices=["serve", "worker", "source-worker"])
     args = parser.parse_args()
     settings = Settings.from_env()
     logging.basicConfig(level=logging.INFO)
@@ -58,6 +76,11 @@ def main() -> None:
         import uvicorn
         from .api import create_app
         uvicorn.run(create_app(settings), host=settings.bind, port=settings.port, log_level="info", proxy_headers=False)
+    elif args.command == "source-worker":
+        try:
+            asyncio.run(_run_source_worker(settings))
+        except KeyboardInterrupt:
+            pass
     else:
         if not settings.gemini_api_key:
             parser.error("CHAPTERA_GEMINI_API_KEY is required for worker")
