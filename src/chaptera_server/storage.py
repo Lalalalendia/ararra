@@ -90,6 +90,7 @@ class QueueStore:
                     attempts INTEGER NOT NULL DEFAULT 0,
                     max_attempts INTEGER NOT NULL DEFAULT 3,
                     quota_partial_waits INTEGER NOT NULL DEFAULT 0,
+                    transient_streak INTEGER NOT NULL DEFAULT 0,
                     run_after REAL NOT NULL,
                     lease_until REAL,
                     lease_owner TEXT,
@@ -130,6 +131,8 @@ class QueueStore:
                 con.execute('ALTER TABLE jobs ADD COLUMN provenance_json TEXT')
             if 'quota_partial_waits' not in columns:
                 con.execute('ALTER TABLE jobs ADD COLUMN quota_partial_waits INTEGER NOT NULL DEFAULT 0')
+            if 'transient_streak' not in columns:
+                con.execute('ALTER TABLE jobs ADD COLUMN transient_streak INTEGER NOT NULL DEFAULT 0')
 
     @staticmethod
     def _public(row: sqlite3.Row | dict[str, Any], *, include_result: bool = False) -> dict[str, Any]:
@@ -307,6 +310,51 @@ class QueueStore:
             return self.fail(job_id, lease_owner, message)
         return self._finish(job_id, lease_owner, "retry_wait", message=message,
                             run_after=time.time() + max(0.0, delay_seconds))
+
+    def defer_desktop_transient(self, job_id: str, lease_owner: str, *,
+                                kind: str, initial_delay_seconds: float) -> bool:
+        """Desktop non-countable retry, transactionally fenced to a job lease.
+
+        Keep a bounded persistent streak to avoid spin after a 503/429 storm;
+        do not decrement daily Gemini reservations, which were already sent.
+        """
+        if kind not in {"TEMPORARY_LIMIT", "PROVIDER_UNAVAILABLE", "NETWORK"}:
+            raise ValueError("Only desktop non-countable transient kinds permitted")
+        if not 0 <= initial_delay_seconds <= 3600:
+            raise ValueError("Invalid retry delay")
+        now = time.time()
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            row = con.execute("""
+                SELECT attempts, transient_streak, cancel_requested FROM jobs
+                WHERE id=? AND status='running' AND lease_owner=?
+            """, (job_id, lease_owner)).fetchone()
+            if row is None:
+                con.execute("COMMIT")
+                return False
+            streak = min(10000, int(row["transient_streak"]) + 1)
+            # Desktop transient errors are not part of the finite failure budget,
+            # but repeated outages must back off instead of hot-looping.
+            backoff = min(300.0, float(2 ** min(streak + 1, 8)))
+            delay = max(float(initial_delay_seconds), backoff)
+            cancelled = bool(row["cancel_requested"])
+            state = "cancelled" if cancelled else "retry_wait"
+            safe_note = f"Gemini transient {kind}; retry backoff {int(delay)}s"
+            con.execute("""
+                UPDATE jobs SET status=?, run_after=?, attempts=?, transient_streak=?,
+                    last_error=?, lease_owner=NULL, lease_until=NULL, updated_at=?
+                WHERE id=? AND status='running' AND lease_owner=?
+            """, (
+                state, now if cancelled else now + delay,
+                int(row["attempts"]) if cancelled else max(0, int(row["attempts"]) - 1),
+                streak, "" if cancelled else safe_note, now, job_id, lease_owner,
+            ))
+            if cancelled:
+                con.execute("DELETE FROM atom_job_checkpoints WHERE job_id=?", (job_id,))
+            self._event(con, job_id, "cancelled" if cancelled else "transient_wait",
+                        "" if cancelled else safe_note, now)
+            con.execute("COMMIT")
+        return True
 
     def defer_for_daily_quota(self, job_id: str, lease_owner: str, *,
                               reset_at: float, made_calls: bool) -> bool:

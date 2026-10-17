@@ -10,6 +10,11 @@ from chaptera_translation_core import (
 )
 
 from .provider import ProviderFailure, TransientProviderFailure, DailyProviderQuotaFailure
+from .gemini_error_bridge import (
+    NON_COUNTABLE_TRANSIENT, FATAL_WORKER_CONFIG,
+    desktop_error_type, desktop_transient_delay,
+)
+from chaptera_translation_core.api.errors import ErrorType
 from .quota import DailyQuotaExhausted, pacific_window
 from .atom_checkpoints import SQLiteAtomCheckpoint, AtomCheckpointConflict
 from chaptera_translation_core.prompt_policy import GlossaryVersionConflict
@@ -28,6 +33,7 @@ class TranslationWorker:
         self.provider = provider
         self.lease_seconds = lease_seconds
         self.heartbeat_seconds = heartbeat_seconds
+        self._fatal_provider_error: str | None = None
 
     def _model_identity(self) -> str:
         # Resolve only the non-secret model name through the RPD/scheduler
@@ -51,6 +57,10 @@ class TranslationWorker:
                     return
 
     async def run_once(self) -> bool:
+        # Desktop ErrorAnalyzer aborts the worker for a broken shared key/model
+        # or request configuration. One project/key: do not burn other queued jobs.
+        if self._fatal_provider_error is not None:
+            return False
         claim = self.store.claim_next(lease_seconds=self.lease_seconds)
         if claim is None:
             return False
@@ -138,14 +148,38 @@ class TranslationWorker:
                 jid, token, reset_at=reset, made_calls=partial_work,
             )
         except TransientProviderFailure as exc:
-            retry_in = max(min(300.0, 2 ** min(job["attempts"], 8)), exc.retry_after_seconds or 0.0)
-            self.store.retry(jid, token, str(exc), delay_seconds=retry_in)
+            kind = desktop_error_type(exc)
+            if kind in NON_COUNTABLE_TRANSIENT:
+                self.store.defer_desktop_transient(
+                    jid, token, kind=kind.name,
+                    initial_delay_seconds=desktop_transient_delay(exc, kind),
+                )
+            elif kind == ErrorType.API_ERROR and job["attempts"] >= min(job["max_attempts"], 2):
+                # Desktop FAILURE_RULES.API_ERROR allows at most two countable
+                # tries, regardless of a larger generic queue max_attempts.
+                self.store.fail(jid, token, str(exc))
+            else:
+                # Unknown HTTP outcome or malformed successful response: finite
+                # API_ERROR path as in desktop ErrorAnalyzer, never infinite retry.
+                self.store.retry(jid, token, str(exc), delay_seconds=3.0)
+        except ProviderFailure as exc:
+            kind = desktop_error_type(exc)
+            if kind in FATAL_WORKER_CONFIG:
+                # Desktop ABORT_WORKER for shared credential/model/request config.
+                self.store.record_event(jid, token, "provider_config_blocked",
+                                        f"kind={kind.name}")
+                self.store.fail(jid, token, str(exc))
+                self._fatal_provider_error = kind.name
+            elif kind == ErrorType.API_ERROR and job["attempts"] < min(job["max_attempts"], 2):
+                self.store.retry(jid, token, str(exc), delay_seconds=3.0)
+            else:
+                self.store.fail(jid, token, str(exc))
         except ContextPrepassUnserviceable as exc:
             self.store.record_event(jid, token, 'context_unserviceable', str(exc))
             self.store.fail(jid, token, str(exc))
         except ContextPrepassRejected as exc:
             self.store.retry(jid, token, str(exc), delay_seconds=3.0)
-        except (ProviderFailure, TranslationRejected, GlossaryVersionConflict,
+        except (TranslationRejected, GlossaryVersionConflict,
                 StaleBookJob, LibraryNotFound, AtomCheckpointConflict) as exc:
             self.store.fail(jid, token, str(exc))
         except Exception as exc:
@@ -159,6 +193,9 @@ class TranslationWorker:
     async def run_forever(self, *, poll_seconds: float = 1.0, stop: asyncio.Event | None = None) -> None:
         shutdown = stop or asyncio.Event()
         while not shutdown.is_set():
+            if self._fatal_provider_error is not None:
+                logger.error("Gemini worker halted: %s", self._fatal_provider_error)
+                return
             did_work = await self.run_once()
             if not did_work:
                 try:
