@@ -126,7 +126,7 @@ def test_managed_long_chapter_translates_with_complete_windowed_context(tmp_path
     from chaptera_server.library import BookLibrary
     store = QueueStore(tmp_path / 'long.sqlite3')
     lib = BookLibrary(store)
-    lib.create_book('long', 'Long chapter test')
+    lib.create_book('long', 'Long chapter test', owner_member_id='test-moderator')
     source = '<p>' + ('世界。' * 17000) + '</p>'
     lib.put_chapter('long', 'c1', chapter_index=1, chapter_path='1.xhtml',
                     source_html=source, expected_revision=0)
