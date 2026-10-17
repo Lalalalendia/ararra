@@ -51,6 +51,10 @@ def test_jinja_pages_render_without_credentials_but_never_expose_team_state(tmp_
             assert "sessionStorage" not in js.text
             library_js = await client.get("/app-static/js/library-view.mjs")
             assert library_js.status_code == 200
+            jobs_view = await client.get("/app-static/js/jobs-view.mjs")
+            assert jobs_view.status_code == 200
+            assert "renderDailyQuota" in jobs_view.text
+            assert "fetch(" not in jobs_view.text
             assert "createLibraryView" in library_js.text
             assert "innerHTML" not in library_js.text
             assert "localStorage" not in library_js.text
@@ -110,6 +114,7 @@ def test_bundled_resource_files_exist_in_source_tree():
         "src/chaptera_server/web_ui/static/js/import-model.mjs",
         "src/chaptera_server/web_ui/static/js/readera.mjs",
         "src/chaptera_server/web_ui/static/js/library-view.mjs",
+        "src/chaptera_server/web_ui/static/js/jobs-view.mjs",
         "src/chaptera_server/web_ui/static/css/chapter-editor.css",
         "src/chaptera_server/web_ui/static/js/editor.mjs",
     )
