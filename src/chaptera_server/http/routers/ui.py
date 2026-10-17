@@ -16,7 +16,7 @@ from fastapi.templating import Jinja2Templates
 ASSETS = Path(__file__).resolve().parents[2] / "web_ui"
 TEMPLATES = Jinja2Templates(directory=str(ASSETS / "templates"))
 router = APIRouter(prefix="/app", include_in_schema=False)
-_ALLOWED = {"", "overview", "books", "import", "team", "jobs"}
+_ALLOWED = {"", "overview", "books", "import", "team", "jobs", "editor"}
 
 _PRIVATE_HTML_HEADERS = {
     "Cache-Control": "private, no-store",
