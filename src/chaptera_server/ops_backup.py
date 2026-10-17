@@ -8,6 +8,7 @@ and must be copied to encrypted off-host storage by the operator.
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -57,7 +58,7 @@ def _read_only(database: Path) -> sqlite3.Connection:
 
 
 def _healthy(path: Path) -> None:
-    with _read_only(path) as con:
+    with closing(_read_only(path)) as con:
         if [row[0] for row in con.execute("PRAGMA integrity_check")] != ["ok"]:
             raise BackupRejected("SQLite integrity_check failed")
         con.execute("PRAGMA foreign_keys=ON")
@@ -110,8 +111,8 @@ def snapshot(database: str | Path, directory: str | Path) -> Path:
     unfinished_manifest = None
     published = False
     try:
-        with _read_only(source.resolve(strict=True)) as source_db:
-            with sqlite3.connect(str(incomplete), timeout=15) as destination_db:
+        with closing(_read_only(source.resolve(strict=True))) as source_db:
+            with closing(sqlite3.connect(str(incomplete), timeout=15)) as destination_db:
                 source_db.backup(destination_db, pages=128, sleep=0.05)
         _healthy(incomplete)
         digest, size = _sha_and_size(incomplete)
@@ -139,6 +140,8 @@ def snapshot(database: str | Path, directory: str | Path) -> Path:
         raise
     finally:
         incomplete.unlink(missing_ok=True)
+        (folder / (incomplete.name + '-wal')).unlink(missing_ok=True)
+        (folder / (incomplete.name + '-shm')).unlink(missing_ok=True)
         if unfinished_manifest is not None:
             unfinished_manifest.unlink(missing_ok=True)
 
@@ -216,6 +219,8 @@ def restore(manifest_path: str | Path, destination: str | Path) -> Path:
         return target
     finally:
         incomplete.unlink(missing_ok=True)
+        (folder / (incomplete.name + '-wal')).unlink(missing_ok=True)
+        (folder / (incomplete.name + '-shm')).unlink(missing_ok=True)
 
 
 def main(argv: list[str] | None = None) -> int:
