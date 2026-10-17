@@ -157,6 +157,25 @@ try{
   await page.locator('#editor-text').fill('Глава 12. Первая\n\nРусский литературный перевод.');
   await page.locator('#editor-save-draft').click();
   await page.locator('#editor-draft-rev').getByText('rev 3').waitFor();
+  // Canva editor reference: three simultaneously visible desktop columns.
+  // Enforce bounded reading panes rather than an unbounded chapter-height form.
+  const editorGeometry=await page.evaluate(()=>{
+    const selectors=['.editor-source-col','.editor-ru-col','.editor-notes-col'];
+    return {
+      columns:selectors.map(s=>{
+        const r=document.querySelector(s).getBoundingClientRect();
+        return {left:r.left,right:r.right,top:r.top};
+      }),
+      source:document.querySelector('#editor-source').getBoundingClientRect().height,
+      draft:document.querySelector('#editor-text').getBoundingClientRect().height,
+    };
+  });
+  assert.ok(editorGeometry.columns[0].right<=editorGeometry.columns[1].left,
+    'desktop: source and translation remain side by side');
+  assert.ok(editorGeometry.columns[1].right<=editorGeometry.columns[2].left,
+    'desktop: notes remain in a third column');
+  assert.ok(editorGeometry.source<=450 && editorGeometry.draft<=450,
+    'desktop: long original and draft have bounded reading panes');
   await screenshot(page,'07-editor-durable-draft.png');
   await page.reload();
   await login(page,issued);
