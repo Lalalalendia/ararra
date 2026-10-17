@@ -3,6 +3,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import hashlib
+from datetime import datetime, timezone
+from types import SimpleNamespace
+
+import chaptera_server.storage as storage
+import chaptera_server.quota as quota
+from chaptera_server.quota import DailyQuotaLedger, QuotaControlledProvider, pacific_window
 
 from chaptera_server.context_prepass import (
     CONTEXT_WINDOW_VISIBLE_CHARS, MAX_CONTEXT_WINDOWS,
@@ -214,4 +221,102 @@ def test_cancellation_stops_new_context_window_requests(tmp_path):
     assert store.get_job(job['id'])['status'] == 'cancelled'
     assert len(provider.context_prompts) == 1
     assert not provider.translation_calls
+    assert lib.context_for_chapter('book', 'one')['snapshot'] is None
+
+
+def test_one_rpd_per_day_preserves_every_valid_context_window(tmp_path, monkeypatch):
+    """The owner can translate a long chapter over many quota reset days."""
+    clock = [datetime(2026, 10, 17, 12, tzinfo=timezone.utc).timestamp()]
+    monkeypatch.setattr(storage, 'time', SimpleNamespace(time=lambda: clock[0]))
+    monkeypatch.setattr(quota, 'time', SimpleNamespace(time=lambda: clock[0]))
+    source = '<p>' + ('世界。' * 7100) + '</p>'
+    store, library, job = _create(tmp_path, source)
+    remote = WindowProvider()
+    days_waiting = 0
+
+    for day in range(8):
+        restarted = QueueStore(store.db_path)
+        provider = QuotaControlledProvider(remote, DailyQuotaLedger(
+            restarted, 'owner-google-project', 'same-gemini-model', 1,
+        ))
+        assert asyncio.run(TranslationWorker(restarted, provider).run_once())
+        state = restarted.get_job(job['id'])
+        if state['status'] == 'completed':
+            assert state['translated_html'] == source.replace('世界', 'Мир')
+            break
+        assert state['status'] == 'retry_wait'
+        assert state['attempts'] == 0
+        with restarted._connect() as con:
+            row = con.execute(
+                'SELECT quota_partial_waits FROM jobs WHERE id=?', (job['id'],)
+            ).fetchone()
+            assert row['quota_partial_waits'] == 0
+        days_waiting += 1
+        clock[0] = pacific_window(clock[0])[1] + 1
+    else:
+        raise AssertionError('Multi-day chapter never completed')
+
+    assert days_waiting >= 2
+    assert len(remote.context_prompts) == 2
+    assert remote.translation_calls == 1
+    events = store.events(job['id'])
+    assert any(e['stage'] == 'context_window_checkpoint_saved' for e in events)
+    assert any(e['stage'] == 'context_window_checkpoint_hit' for e in events)
+    with store._connect() as con:
+        # Duplicate private model text is dropped on terminal completion.
+        assert con.execute(
+            'SELECT COUNT(*) FROM atom_job_checkpoints WHERE job_id=?', (job['id'],)
+        ).fetchone()[0] == 0
+
+
+def test_valid_context_window_not_regenerated_after_bad_second_window(
+    tmp_path, monkeypatch,
+):
+    clock = [1000.0]
+    monkeypatch.setattr(storage, 'time', SimpleNamespace(time=lambda: clock[0]))
+    source = '<p>' + ('世界。王雪！' * 3500) + '</p>'
+    store, lib, job = _create(tmp_path, source)
+    first = WindowProvider(fail_window=2)
+    assert asyncio.run(TranslationWorker(store, first).run_once())
+    assert store.get_job(job['id'])['status'] == 'retry_wait'
+    assert lib.context_for_chapter('book', 'one')['snapshot'] is None
+    with store._connect() as con:
+        assert con.execute(
+            'SELECT COUNT(*) FROM atom_job_checkpoints WHERE job_id=?', (job['id'],)
+        ).fetchone()[0] == 1
+
+    clock[0] += 4
+    second = WindowProvider()
+    assert asyncio.run(TranslationWorker(QueueStore(store.db_path), second).run_once())
+    assert store.get_job(job['id'])['status'] == 'completed'
+    assert len(first.context_prompts) == 2
+    assert len(second.context_prompts) == 1
+    assert second.translation_calls == 1
+    assert lib.context_for_chapter('book', 'one')['status'] == 'current'
+    assert any(e['stage'] == 'context_window_checkpoint_hit' for e in store.events(job['id']))
+
+
+def test_tampered_but_rehashed_context_cache_cannot_bypass_validation(
+    tmp_path, monkeypatch,
+):
+    clock = [1000.0]
+    monkeypatch.setattr(storage, 'time', SimpleNamespace(time=lambda: clock[0]))
+    source = '<p>' + ('世界。王雪！' * 3500) + '</p>'
+    store, lib, job = _create(tmp_path, source)
+    assert asyncio.run(TranslationWorker(store, WindowProvider(fail_window=2)).run_once())
+    # Deliberately recompute checksum: integrity and semantic validation
+    # are independent protections against forged context.
+    bad = '{"c0":{"summary":"forged"}}'
+    with store._connect() as con:
+        con.execute(
+            '''UPDATE atom_job_checkpoints SET response_text=?, response_sha256=?
+               WHERE job_id=?''',
+            (bad, hashlib.sha256(bad.encode()).hexdigest(), job['id']),
+        )
+    clock[0] += 4
+    resumed = WindowProvider()
+    assert asyncio.run(TranslationWorker(QueueStore(store.db_path), resumed).run_once())
+    assert store.get_job(job['id'])['status'] == 'retry_wait'
+    assert resumed.context_prompts == []
+    assert resumed.translation_calls == 0
     assert lib.context_for_chapter('book', 'one')['snapshot'] is None
