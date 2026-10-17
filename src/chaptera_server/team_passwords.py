@@ -11,6 +11,7 @@ import re
 import secrets
 import sqlite3
 import time
+from threading import BoundedSemaphore
 
 from argon2 import PasswordHasher, Type
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
@@ -22,7 +23,13 @@ from .team_credentials import MemberConflict, MemberMissing, TeamCredentials
 _HASHER = PasswordHasher(time_cost=2, memory_cost=19 * 1024, parallelism=1,
                          hash_len=32, salt_len=16, type=Type.ID)
 _DUMMY_HASH = _HASHER.hash("unknown-readera-member-dummy-password")
+# On the shared-memory VPS, cap simultaneous 19-MiB Argon2 allocations.
+_ARGON_SLOTS = BoundedSemaphore(4)
 _VALID_MEMBER = re.compile(r"[A-Za-z][A-Za-z0-9._-]{0,63}\Z")
+
+
+class PasswordBusy(RuntimeError):
+    """Bounded Argon2 worker capacity reached; client may retry."""
 
 
 class PasswordRejected(ValueError):
@@ -40,11 +47,25 @@ def _new_password_valid(password: str) -> None:
         raise ValueError("Password contains control characters")
 
 
-def _verified(encoded: str, password: str) -> bool:
+def _hashed(password: str) -> str:
+    if not _ARGON_SLOTS.acquire(blocking=False):
+        raise PasswordBusy("Password verifier is busy")
     try:
-        return bool(_HASHER.verify(encoded, password))
-    except (VerifyMismatchError, VerificationError, InvalidHashError):
-        return False
+        return _HASHER.hash(password)
+    finally:
+        _ARGON_SLOTS.release()
+
+
+def _verified(encoded: str, password: str) -> bool:
+    if not _ARGON_SLOTS.acquire(blocking=False):
+        raise PasswordBusy("Password verifier is busy")
+    try:
+        try:
+            return bool(_HASHER.verify(encoded, password))
+        except (VerifyMismatchError, VerificationError, InvalidHashError):
+            return False
+    finally:
+        _ARGON_SLOTS.release()
 
 
 class TeamPasswords:
@@ -73,7 +94,7 @@ class TeamPasswords:
         if not _VALID_MEMBER.fullmatch(member_id) or member_id == settings.admin_member_id:
             raise MemberConflict("Only registered moderators can receive passwords")
         temporary = "rp_" + secrets.token_urlsafe(24)
-        encoded = _HASHER.hash(temporary)
+        encoded = _hashed(temporary)
         now = time.time()
         with self.store._connect() as con:
             con.execute("BEGIN IMMEDIATE")
@@ -175,7 +196,7 @@ class TeamPasswords:
         _new_password_valid(new_password)
         if hmac.compare_digest(current_password, new_password):
             raise ValueError("The new password must differ from the previous password")
-        encoded = _HASHER.hash(new_password)
+        encoded = _hashed(new_password)
         now = time.time()
         with self.store._connect() as con:
             con.execute("BEGIN IMMEDIATE")
