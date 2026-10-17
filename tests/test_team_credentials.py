@@ -77,6 +77,12 @@ def test_admin_issues_one_time_access_code_and_revocation_survives_restart(tmp_p
             assert (await client.post("/v1/admin/members", headers=ADMIN,
                                       json={"member_id": "maria"})).status_code == 409
 
+            # The newly issued moderator owns the created book: admin must
+            # reassign it before disabling that account (no orphaned books).
+            transferred = await client.put("/v1/books/shared/owner", headers=ADMIN, json={
+                "owner_member_id": "mod", "expected_owner_revision": 0,
+            })
+            assert transferred.status_code == 200, transferred.text
             disabled = await client.post("/v1/admin/members/maria/disable", headers=ADMIN)
             assert disabled.status_code == 200, disabled.text
             assert disabled.json()["status"] == "disabled"
