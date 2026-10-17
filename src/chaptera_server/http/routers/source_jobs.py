@@ -65,6 +65,26 @@ def begin_job(
         raise _errors(exc) from exc
 
 
+@router.get("")
+def recent_jobs(
+    request: Request, limit: int = Query(default=20, ge=1, le=50),
+    actor: str = Depends(require_member),
+) -> dict:
+    """Restore previous source collections without a copied UUID."""
+    return {"jobs":request.app.state.source_job_store.list_recent(actor,limit=limit)}
+
+
+@router.delete("/{job_id}")
+def delete_finished_job(
+    job_id: str, request: Request, actor: str = Depends(require_member),
+) -> dict:
+    """Only explicitly purge complete/partial/cancelled crawler checkpoints."""
+    try:
+        return request.app.state.source_job_store.delete_finished(actor,job_id)
+    except (SourceJobMissing,SourceJobConflict) as exc:
+        raise _errors(exc) from exc
+
+
 @router.get("/{job_id}")
 def read_job(job_id: str,request: Request,actor: str = Depends(require_member)) -> dict:
     try:
