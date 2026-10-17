@@ -154,6 +154,10 @@ class TranslationWorker:
                     jid, token, kind=kind.name,
                     initial_delay_seconds=desktop_transient_delay(exc, kind),
                 )
+            elif kind == ErrorType.API_ERROR and job["attempts"] >= min(job["max_attempts"], 2):
+                # Desktop FAILURE_RULES.API_ERROR allows at most two countable
+                # tries, regardless of a larger generic queue max_attempts.
+                self.store.fail(jid, token, str(exc))
             else:
                 # Unknown HTTP outcome or malformed successful response: finite
                 # API_ERROR path as in desktop ErrorAnalyzer, never infinite retry.
