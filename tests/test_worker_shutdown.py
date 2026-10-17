@@ -72,7 +72,7 @@ def test_cli_registers_sigterm_and_sigint_for_cooperative_shutdown(tmp_path, mon
         monkeypatch.setattr("chaptera_server.cli.QueueStore", lambda path: object())
         monkeypatch.setattr(
             "chaptera_server.cli.GeminiProvider",
-            lambda api_key, model: object(),
+            lambda api_key, model, **options: object(),
         )
 
         class ObservedWorker:
