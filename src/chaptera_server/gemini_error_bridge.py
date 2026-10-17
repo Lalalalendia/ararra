@@ -56,9 +56,11 @@ def _as_desktop_exception(exc: ProviderFailure) -> Exception:
         return ApiKeyAuthenticationError("Gemini credential rejected", http_status=401)
     if exc.status_code == 404:
         return ModelNotFoundError("Gemini model not found")
-    if exc.status_code == 400:
-        return ProviderRequestError("Gemini request configuration rejected", http_status=400)
-    if exc.finish_reason in {"SAFETY", "PROHIBITED_CONTENT"}:
+    if exc.status_code is not None and 400 <= exc.status_code < 500:
+        return ProviderRequestError(
+            "Gemini request or access policy rejected", http_status=exc.status_code,
+        )
+    if exc.finish_reason in {"SAFETY", "PROHIBITED_CONTENT", "SPII", "RECITATION"}:
         return ContentFilterError("Gemini content filter stopped this response")
     return exc
 
