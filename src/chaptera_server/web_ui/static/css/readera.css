@@ -101,7 +101,7 @@ textarea.ui-input {resize:vertical;}
 #import-summary p {padding:7px 0;border-bottom:1px solid #e3ecef;overflow-wrap:anywhere;}
 .chapter-import-history .ui-section-header {margin-bottom:16px;}
 @media (max-width:880px) {
- .shell {grid-template-columns:1fr;}
+ .shell {grid-template-columns:minmax(0,1fr);}
  .sidebar {min-height:auto;padding:18px;}
  .sidebar-title,.sidebar-bottom {display:none;}
  .sidebar-nav {display:flex;flex-wrap:wrap;}
@@ -152,7 +152,7 @@ textarea.ui-input {resize:vertical;}
 /* Compact mobile navigation: one scrollable, keyboard-reachable row replaces
  * the three-line nav that occupied most of the first phone viewport. */
 @media (max-width:540px) {
-  .sidebar {padding:12px 12px 8px;gap:7px;}
+  .sidebar {padding:12px 12px 8px;gap:7px;min-width:0;}
   .sidebar .brand {margin:0 4px 2px;}
   .sidebar-nav {
     display:flex;
