@@ -94,7 +94,12 @@ def packets_for_atoms(atoms: Iterable[SourceAtom]) -> list[AtomPacket]:
 
 def parse_packet_response(raw: str, atoms: tuple[SourceAtom, ...]) -> CoverageMap:
     coverage = reconcile_coverage_response(raw, list(atoms), default_job_id='j0', enforce_render_domain_contract=True)
-    dangerous = {'unknown_atom_id', 'overlapping_coverage_later_segment_rejected', 'non_contiguous_coverage'}
+    # Desktop regression test_later_overlapping_cover_does_not_erase_first_proven_segment:
+    # source-owned reconciler keeps the FIRST valid claim and rejects only a later
+    # overlap. The missing atom remains a repair debt; rejecting this WHOLE
+    # response here discards proven paid work and diverges from the desktop.
+    # Unknown IDs and noncontiguous covers still fail closed before checkpoint.
+    dangerous = {'unknown_atom_id', 'non_contiguous_coverage'}
     if any(item.get('reason') in dangerous for item in coverage.invalid_segments):
         raise ValueError('Atom response contains unknown, duplicate or non-contiguous identity')
     if not coverage.missing_atom_ids and any(item.get('reason') == 'malformed_lines' for item in coverage.invalid_segments):
