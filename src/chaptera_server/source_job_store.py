@@ -71,6 +71,8 @@ class SourceJobStore:
                 );
                 CREATE INDEX IF NOT EXISTS ix_source_collect_job_claim
                     ON source_collect_jobs(status,lease_expires_at,created_at);
+                CREATE INDEX IF NOT EXISTS ix_source_collect_job_actor_recent
+                    ON source_collect_jobs(actor_id,updated_at DESC);
                 CREATE TABLE IF NOT EXISTS source_collect_items (
                     job_id TEXT NOT NULL REFERENCES source_collect_jobs(id) ON DELETE CASCADE,
                     item_index INTEGER NOT NULL,
@@ -215,6 +217,58 @@ class SourceJobStore:
     def get(self, actor: str, job_id: str) -> dict:
         with self.store._connect() as con:
             return self._public(con,self._owned(con,actor,job_id))
+
+    def list_recent(self, actor: str, *, limit: int = 20) -> list[dict]:
+        """Actor-only recent job index; never disclose stored source prose."""
+        if type(limit) is not int or not 1 <= limit <= 50:
+            raise ValueError("Recent source job limit must be 1..50")
+        with self.store._connect() as con:
+            rows = con.execute(
+                "SELECT * FROM source_collect_jobs WHERE actor_id=? "
+                "ORDER BY updated_at DESC,id DESC LIMIT ?",
+                (actor,limit),
+            ).fetchall()
+            return [self._public(con,row) for row in rows]
+
+    def delete_finished(self, actor: str, job_id: str) -> dict:
+        """Explicitly purge ONLY a terminal crawler job, never its imports.
+
+        A concurrent worker cannot commit into a deleted job: all state
+        transitions and the delete share a SQLite BEGIN IMMEDIATE gate.
+        """
+        with self.store._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            row = self._owned(con,actor,job_id)
+            if row["status"] in ("queued","running"):
+                raise SourceJobConflict("Cancel the running collection before deleting it")
+            if row["status"] not in ("complete","partial","cancelled"):
+                raise SourceJobConflict("Collection is not deletable")
+            count = con.execute(
+                "SELECT COUNT(*) FROM source_collect_items WHERE job_id=?",
+                (job_id,),
+            ).fetchone()[0]
+            bytes_freed = con.execute(
+                "SELECT COALESCE(SUM(bytes),0) FROM source_collect_items WHERE job_id=?",
+                (job_id,),
+            ).fetchone()[0]
+            con.execute(
+                "DELETE FROM source_collect_jobs WHERE id=? AND actor_id=?",
+                (job_id,actor),
+            )
+            # SQLite foreign keys are enabled by QueueStore._connect(); the
+            # source_collect_items rows cascade. Staged/imported chapter data
+            # belong to different tables and are untouched.
+            left = con.execute(
+                "SELECT COUNT(*) FROM source_collect_items WHERE job_id=?",
+                (job_id,),
+            ).fetchone()[0]
+            if left:
+                raise SourceJobConflict("Crawler checkpoints were not deleted")
+            return {
+                "deleted":True,"job_id":job_id,
+                "deleted_checkpoints":count,"freed_source_bytes":bytes_freed,
+                "library_unchanged":True,
+            }
 
     def claim(self, *, lease_seconds: float = 180.0) -> dict | None:
         if lease_seconds < 30:
