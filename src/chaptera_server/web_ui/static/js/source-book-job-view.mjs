@@ -1,4 +1,5 @@
 import {verifySha256} from './book-export-view.mjs';
+import {createSourceJobHistoryView} from './source-job-history-view.mjs';
 /* Durable source collection UI, isolated from the 20-chapter quick import.
  * No credentials, job content or tokens are stored in the browser.
  */
@@ -21,6 +22,10 @@ export function createSourceJobView({request,flash,onStage,getCatalog}) {
   let current=null;
   let busy=false;
   let txtReceipt=null;
+  const history=createSourceJobHistoryView({
+    request,flash,onOpen:jobId=>load(jobId),
+    onDelete:jobId=>{if(current?.job_id===jobId)reset();},
+  });
   function invalidateTxt(){
     txtReceipt=null;
     downloadTxt.disabled=true;
@@ -96,7 +101,8 @@ export function createSourceJobView({request,flash,onStage,getCatalog}) {
           }),
         });
         render(job);
-        flash('Задание сохранено. Скопируйте ID; source-worker продолжит сбор на сервере.');
+        void history.refresh();
+        flash('Задание сохранено на сервере. Его можно открыть через «Мои сборки».');
       }catch(err){flash(err.message,true);}
       finally{setBusy(false);}
     })();
