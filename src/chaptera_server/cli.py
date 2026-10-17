@@ -9,6 +9,7 @@ import signal
 from .config import Settings
 from .provider import GeminiProvider
 from .quota import DailyQuotaLedger, QuotaControlledProvider
+from .scheduled_provider import ScheduledGeminiProvider
 from .storage import QueueStore
 from .worker import TranslationWorker
 
@@ -30,6 +31,13 @@ async def _run_worker(settings: Settings) -> None:
             settings.gemini_model, settings.gemini_requests_per_day,
         )
         provider = QuotaControlledProvider(provider, ledger)
+    # Desktop ordering: RPM/RPS/TPM -> network gate -> SQLite RPD -> Gemini.
+    # One worker/key by default, with one shared scheduler across its chapters.
+    provider = ScheduledGeminiProvider(
+        provider, rpm_limit=settings.gemini_rpm,
+        tpm_limit=settings.gemini_tpm,
+        reserved_output_tokens=settings.gemini_reserved_output_tokens,
+    )
     worker = TranslationWorker(store, provider)
     await worker.run_forever(poll_seconds=settings.worker_poll_seconds, stop=stop)
 
