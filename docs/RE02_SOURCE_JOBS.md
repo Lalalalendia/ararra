@@ -30,6 +30,43 @@ Reference implementation principles: uploaded `book_crawler.zip` modules `chapte
 - `POST /v1/source-books/jobs/{id}/cancel`: revoke pending/current work.
 - `POST /v1/source-books/jobs/{id}/stage`: verified contiguous 1..20 chapter range to existing import stage; deterministic idempotency key and provenance receipts.
 
+## Full original TXT assembly (RE-02-WEB-SOURCE-03)
+
+`GET /v1/source-books/jobs/{job_id}/assembly` is an actor-authenticated
+**read-only completeness report** for the exact selected job manifest. It
+reports ordered first/last chapter, selected and verified counts, pending,
+failed and damaged checkpoints, up to 50 structured failure reasons, source
+catalog/selection digests and a content SHA-256 receipt when fully ready.
+Neither original prose nor Russian translations are included in the report.
+
+`GET /v1/source-books/jobs/{job_id}/export.txt?expected_manifest_sha256=<sha>&expected_content_sha256=<sha>`
+requires **both receipts** from a fresh report. It recomputes each saved
+chapter's ordinal, source ID/URL, SHA-256, UTF-8 byte count, and duplicate
+body detection using a consistent SQLite read snapshot. A forged `complete`
+flag alone never enables download; any missing/failed/damaged/duplicate
+chapter yields HTTP 409 and **no TXT**. A changed content hash after preview
+also yields 409. An actor cannot inspect/download another actor's job.
+
+The file contains the **original source**, in ascending selected ordinal,
+with one `Глава N. Название` heading per chapter. Line endings are normalized
+to LF, text is UTF-8, and chapter body is otherwise preserved. A seekable
+temporary file holds the fully checked output before streaming; the server
+does not buffer the whole novel as a single Python bytes object. The
+response has no-store/nosniff, source-scope, manifest and content SHA-256
+headers. The browser recomputes SHA-256 before triggering a file download.
+
+Memory/disk cap: **64 MiB per assembled TXT** (less than the existing
+256-MiB durable source job budget). Larger source collections remain in
+SQLite and need a future explicitly chunked export, not a silently
+truncated full-book TXT.
+
+**Scope boundary:** `ready=true` proves all chapters of the selected
+contiguous *observed catalog manifest*, not all chapters ever published
+on the source site. An incomplete or paginated catalog must not be called
+a complete novel. This feature never marks any chapter accepted, translated
+or published. The existing moderator confirmation is still necessary to
+import chapter source into ReadEra's managed library.
+
 ## Operational / release gates
 
 - Run **one** source-worker initially alongside the standard Gemini worker; they use different queues. `CHAPTERA_GEMINI_API_KEY` is **not required** for the crawler worker. Start via `chaptera-server source-worker` in an explicitly managed unit/service.

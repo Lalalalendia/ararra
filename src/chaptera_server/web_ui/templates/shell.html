@@ -231,6 +231,18 @@
                   </div>
                   <button id="source-job-stage" type="button"
                           class="ui-button ui-button--primary">Проверить и импортировать выбранные главы</button>
+                  <div class="ui-section-header">
+                    <h4>Единый TXT исходника</h4>
+                    <p>Экспорт доступен только после проверки всех глав выбранного диапазона.
+                      Это оригинал, не принятый русский перевод и не доказательство полноты сайта.</p>
+                  </div>
+                  <button id="source-job-check-txt" type="button"
+                          class="ui-button ui-button--ghost">Проверить полноту TXT</button>
+                  <button id="source-job-download-txt" type="button"
+                          class="ui-button ui-button--primary" disabled>Скачать проверенный TXT</button>
+                  <p id="source-job-txt-status" role="status" aria-live="polite">
+                    Проверка полного исходника ещё не выполнена.</p>
+
                   <button id="source-job-retry" type="button"
                           class="ui-button ui-button--ghost">Повторить неудачные главы</button>
                   <button id="source-job-cancel" type="button"
