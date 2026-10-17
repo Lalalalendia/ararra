@@ -115,10 +115,12 @@ class VerifiedBookExport:
     def __init__(self, store: QueueStore):
         self.store = store
 
-    def _snapshot(self, book_id: str) -> tuple[str, list[dict], bool]:
+    def _snapshot(self, book_id: str) -> tuple[str, int, list[dict], bool]:
         with self.store._connect() as con:
             con.execute("BEGIN")
-            book = con.execute("SELECT title FROM books WHERE id=?", (book_id,)).fetchone()
+            book = con.execute(
+                "SELECT title,glossary_revision FROM books WHERE id=?", (book_id,)
+            ).fetchone()
             if book is None:
                 raise LibraryNotFound("Book not found")
             title = str(book["title"])
@@ -134,18 +136,19 @@ class VerifiedBookExport:
             """, (book_id,))
             for row in cursor:
                 candidate = dict(row)
-                total_bytes += len(str(candidate["accepted_html"] or "").encode("utf-8"))
+                total_bytes += (len(str(candidate["accepted_html"] or "").encode("utf-8"))
+                                + len(str(candidate["source_html"] or "").encode("utf-8")))
                 if total_bytes > MAX_SOURCE_BYTES or len(rows) >= MAX_EXPORT_CHAPTERS:
                     over_limit = True
                     break
                 rows.append(candidate)
             con.execute("COMMIT")
-        return title, rows, over_limit
+        return title, int(book["glossary_revision"]), rows, over_limit
 
     def inspect(self, book_id: str, expected_last_chapter: int) -> tuple[dict, list[tuple[int, str, str]]]:
         if not 1 <= expected_last_chapter <= MAX_EXPORT_CHAPTERS:
             raise ValueError("Declared last chapter must be between 1 and 2000")
-        title, rows, over_limit = self._snapshot(book_id)
+        title, glossary_revision, rows, over_limit = self._snapshot(book_id)
         issues: list[dict] = []
         if over_limit:
             issues.append({"code": "export_size_or_count_limit"})
@@ -187,7 +190,7 @@ class VerifiedBookExport:
         manifest_bytes = json.dumps(
             {"schema": "readera-accepted-export-v1", "book_id": book_id,
              "title": title, "expected_last_chapter": expected_last_chapter,
-             "chapters": manifest},
+             "glossary_revision": glossary_revision, "chapters": manifest},
             ensure_ascii=False, sort_keys=True, separators=(",", ":"),
         ).encode("utf-8")
         preview = {
