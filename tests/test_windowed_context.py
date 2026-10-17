@@ -56,7 +56,7 @@ class WindowProvider:
 def _create(tmp_path, source):
     store = QueueStore(tmp_path / 'windows.sqlite3')
     lib = BookLibrary(store)
-    lib.create_book('book', 'Book')
+    lib.create_book('book', 'Book', owner_member_id='test-moderator')
     lib.put_chapter('book', 'one', chapter_index=1, chapter_path='one.xhtml',
                     source_html=source, expected_revision=0)
     spec = lib.new_job('book', 'one', source_language='Chinese', target_language='Russian',
