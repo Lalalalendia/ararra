@@ -7,6 +7,7 @@ from chaptera_translation_core.prompt_policy import GlossaryVersionConflict
 
 from ..auth import InvalidTeamToken, authenticate
 from ..library import BookLibrary, LibraryConflict, LibraryNotFound
+from ..import_sessions import ImportSessions
 from ..storage import QueueStore
 
 
@@ -19,6 +20,10 @@ def require_member(request: Request, x_api_key: str | None = Header(default=None
 
 def get_store(request: Request) -> QueueStore:
     return request.app.state.store
+
+
+def get_import_sessions(request: Request) -> ImportSessions:
+    return request.app.state.import_sessions
 
 
 def get_library(request: Request) -> BookLibrary:
