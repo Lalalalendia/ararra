@@ -2,6 +2,7 @@
  * Screenshots omit login and one-time secret fields.
  */
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {mkdirSync, readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {chromium} from 'playwright';
@@ -142,11 +143,12 @@ try{
     await route.fulfill({status:201,contentType:'application/json',
       body:JSON.stringify(durableJob)});
   });
+  let sourceJobFinished=false;
   await page.route(getJobPattern,async route=>{
     assert.equal(route.request().method(),'GET');
     await route.fulfill({status:200,contentType:'application/json',
-      body:JSON.stringify({...durableJob,status:'running',
-        completed:1,pending:1})});
+      body:JSON.stringify({...durableJob,status:sourceJobFinished?'complete':'running',
+        completed:sourceJobFinished?2:1,pending:sourceJobFinished?0:1})});
   });
   await page.locator('#source-job-create').click();
   await page.locator('#source-job-id').waitFor({state:'visible'});
@@ -155,6 +157,50 @@ try{
   await page.locator('#source-job-refresh').click();
   await page.getByText('готово 1/2',{exact:false}).waitFor();
   assert.equal(await page.locator('#import-map').isVisible(),false);
+  // A partial job is never a downloadable TXT, even if some chapters exist.
+  const txtBytes=Buffer.from('Глава 1. First\\n\\nText 1.\\n\\nГлава 2. Second\\n\\nText 2.\\n','utf8');
+  const txtSha=createHash('sha256').update(txtBytes).digest('hex');
+  const assemblyPattern='**/v1/source-books/jobs/job-browser-123/assembly';
+  const downloadPattern='**/v1/source-books/jobs/job-browser-123/export.txt*';
+  await page.route(assemblyPattern,async route=>{
+    await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
+      ready:sourceJobFinished,scope:'selected_catalog_range_only',
+      source:'royalroad',manifest_sha256:sourceCatalogReply.catalog_sha256,
+      content_sha256:sourceJobFinished?txtSha:null,
+      content_bytes:sourceJobFinished?txtBytes.length:null,
+      selected_count:2,verified_count:sourceJobFinished?2:1,
+      missing_count:sourceJobFinished?0:1,failed_count:0,damaged_count:0,
+      issue_count:sourceJobFinished?0:2,
+      issues:sourceJobFinished?[]:[{ordinal:2,code:'missing'}],
+      start_ordinal:1,end_ordinal:2,
+    })});
+  });
+  await page.locator('#source-job-check-txt').click();
+  await page.getByText('TXT заблокирован:',{exact:false}).waitFor();
+  assert.equal(await page.locator('#source-job-download-txt').isDisabled(),true);
+  sourceJobFinished=true;
+  await page.locator('#source-job-refresh').click();
+  await page.getByText('готово 2/2',{exact:false}).waitFor();
+  await page.locator('#source-job-check-txt').click();
+  await page.getByText('Готово: 2/2',{exact:false}).waitFor();
+  await page.route(downloadPattern,async route=>{
+    const req=new URL(route.request().url());
+    assert.equal(req.searchParams.get('expected_content_sha256'),txtSha);
+    assert.equal(req.searchParams.get('expected_manifest_sha256'),sourceCatalogReply.catalog_sha256);
+    await route.fulfill({status:200,body:txtBytes,contentType:'text/plain;charset=utf-8',
+      headers:{
+        'X-ReadEra-Manifest-SHA256':sourceCatalogReply.catalog_sha256,
+        'X-ReadEra-Content-SHA256':txtSha,
+        'X-ReadEra-Source-Scope':'selected_catalog_range_only',
+      }});
+  });
+  const fileEvent=page.waitForEvent('download');
+  await page.locator('#source-job-download-txt').click();
+  const sourceTxtDownload=await fileEvent;
+  assert.equal(sourceTxtDownload.suggestedFilename(),'readera-original-royalroad-1-2.txt');
+  assert.deepEqual(readFileSync(await sourceTxtDownload.path()),txtBytes);
+  await page.unroute(assemblyPattern);
+  await page.unroute(downloadPattern);
   await page.unroute(createJobPattern);
   await page.unroute(getJobPattern);
   await page.unroute(catalogPattern);
