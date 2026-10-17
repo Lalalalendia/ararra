@@ -56,7 +56,7 @@ class ContextAwareProvider:
 def setup_library(tmp_path, *, book_id='book1'):
     store = QueueStore(tmp_path / 'team.sqlite3')
     lib = BookLibrary(store)
-    lib.create_book(book_id, 'Тестовый роман')
+    lib.create_book(book_id, 'Тестовый роман', owner_member_id='alice')
     lib.put_chapter(book_id, 'c1', chapter_index=1, chapter_path='chapters/1.xhtml',
                     source_html=SOURCE1, expected_revision=0)
     lib.put_chapter(book_id, 'c2', chapter_index=2, chapter_path='chapters/2.xhtml',
