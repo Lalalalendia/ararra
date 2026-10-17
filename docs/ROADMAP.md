@@ -37,7 +37,8 @@ Completed server-only slice: desktop chapter-context snapshot/validation policy 
 ### M3. Web interface and import/export
 
 - **v0.6 delivered (Step 1/2):** frozen v0.5 API compatibility tests + `POST /v1/imports/preview`. Supports TXT, HTML, EPUB, DOCX and offline Rulate account metadata JSON catalogs; guarded parsers with no writes, explicit numbering, missing-prefix warnings and no fabricated text. Details in `docs/CORE_API_CONTRACT.md`.
-- **Next — Step 3:** persistent staged imports, revision-aware confirmation of selected chapters, duplicate/conflict decisions, title/number/path overrides and atomic SQLite storage. Never automatically overwrite existing sources/accepted translations.
+- **RE-02 first delivery:** persistent SQLite stages (bounded, per-actor, expiring), immutable full source capture, explicit create/replace/skip mapping, title/number/path overrides, atomic confirmation, optimistic conflict checks, preserved unassigned preface and protected source revision history. Preview remains read-only. See `docs/CORE_API_CONTRACT.md`.
+- **Follow-up RE-02:** metadata-only Rulate JSON external URL/id persistence, upload-session browser UI, longer-lived import status UI. Metadata-only uploads are **still preview-only**; no fabricated source text.
 - **Then — Steps 4-10:** closed-team browser UI, book index and chapter list, translation submission and progress, human editor and export, end-to-end user acceptance tests.
 
 - Books, chapter TOC, EPUB/HTML/TXT upload, chapter selection, per-chapter progress.

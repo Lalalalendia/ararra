@@ -5,6 +5,7 @@ from fastapi import FastAPI
 
 from .config import Settings
 from .library import BookLibrary
+from .import_sessions import ImportSessions
 from .storage import QueueStore
 from .http.routers import books, health, imports, jobs
 
@@ -24,6 +25,7 @@ def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.store = repo
     app.state.library = BookLibrary(repo)
+    app.state.import_sessions = ImportSessions(repo)
 
     app.include_router(health.router)
     app.include_router(books.router)

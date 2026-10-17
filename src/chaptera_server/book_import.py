@@ -1,8 +1,8 @@
-"""Safe, read-only book import inspection for the Chaptera team API.
+"""Safe book import parsing and read-only preview for the Chaptera team API.
 
-No database writes, outbound requests, file extraction or execution. This is the
-first half of the import workflow; an explicit selection/revision-aware commit
-must be implemented before any uploaded chapters can become canonical sources.
+No database writes, outbound requests, file extraction or execution. Staging
+uses the exact same parsed candidates as preview; only explicit confirmation
+may persist selected source chapters.
 """
 from __future__ import annotations
 
@@ -353,8 +353,12 @@ def _catalog(raw: bytes) -> dict:
             'warnings': ['Metadata only: no source or translated chapter text is present. Nothing has been stored.']}
 
 
-def preview_book_import(filename: str, data: bytes) -> dict:
-    """Parse without persistent mutations and return safe outline + bounded samples."""
+def parse_book_import(filename: str, data: bytes) -> tuple[dict, list[Candidate], str]:
+    """Return preview, complete parsed candidates and unassigned HTML prefix.
+
+    Never expose full HTML in the public preview. The staging layer owns
+    persistence and confirmation after parsing successfully.
+    """
     filename = _filename(filename)
     if not data:
         raise ImportFormatError('Uploaded file is empty')
@@ -363,7 +367,7 @@ def preview_book_import(filename: str, data: bytes) -> dict:
     suffix = '.' + filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
     fallback_title = filename[:-(len(suffix))] if suffix else filename
     if suffix == '.json':
-        return _catalog(data)
+        return _catalog(data), [], ''
     if suffix == '.txt':
         title, (candidates, prefix) = fallback_title, _from_lines(_decode(data), fallback_title, filename)
     elif suffix in {'.html', '.htm', '.xhtml'}:
@@ -396,8 +400,13 @@ def preview_book_import(filename: str, data: bytes) -> dict:
         warnings.append('Some chapters have no explicit number: sequence numbers are suggestions only')
     if _text(prefix):
         warnings.append('Text before the first chapter heading is unassigned and needs review')
-    return {'kind': 'book', 'format': suffix.lstrip('.'), 'filename': filename,
-            'title': title[:500], 'chapter_count': len(output), 'chapters': output,
-            'unassigned_prefix_characters': len(_text(prefix)),
-            'unassigned_prefix_sample': _text(prefix)[:180], 'warnings': warnings,
-            'stored': False}
+    return ({'kind': 'book', 'format': suffix.lstrip('.'), 'filename': filename,
+             'title': title[:500], 'chapter_count': len(output), 'chapters': output,
+             'unassigned_prefix_characters': len(_text(prefix)),
+             'unassigned_prefix_sample': _text(prefix)[:180], 'warnings': warnings,
+             'stored': False}, candidates, prefix)
+
+
+def preview_book_import(filename: str, data: bytes) -> dict:
+    """Preserve the existing v0.6 read-only preview contract without DB writes."""
+    return parse_book_import(filename, data)[0]

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from typing import Any, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 GlossaryAuthority = Literal[
     "READY", "READY_WITH_WARNINGS", "EMPTY_EXPECTED", "UNAVAILABLE", "DISABLED"
@@ -58,3 +58,21 @@ class SubmitChapter(BaseModel):
     predecessor: dict[str, Any] | None = None
     style_instructions: str = Field(default="", max_length=10_000)
     transport: Transport = "html_v0"
+
+class ImportChapterDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    sequence: int = Field(ge=1, le=2000)
+    action: Literal["create", "replace", "skip"]
+    chapter_id: str | None = Field(default=None, max_length=255)
+    chapter_index: int | None = Field(default=None, ge=1)
+    chapter_path: str | None = Field(default=None, max_length=1024)
+    expected_revision: int | None = Field(default=None, ge=0)
+
+
+class ConfirmBookImport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    book_id: str = Field(min_length=1, max_length=128)
+    book_mode: Literal["create", "existing"]
+    title: str | None = Field(default=None, max_length=500)
+    prefix_policy: Literal["reject", "preserve", "discard"] = "reject"
+    chapters: list[ImportChapterDecision] = Field(min_length=1, max_length=2000)

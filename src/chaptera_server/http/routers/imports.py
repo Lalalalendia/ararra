@@ -1,20 +1,88 @@
-"""Book import inspection; no database mutation in preview."""
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+"""Safe read-only preview plus explicitly confirmed, revision-safe team imports."""
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 
 from ...book_import import ImportFormatError, MAX_UPLOAD_BYTES, preview_book_import
-from ..dependencies import require_member
+from ...import_sessions import (
+    ImportSessions, StageConflict, StageExpired, StageMissing, StageTooLarge,
+)
+from ...library import LibraryConflict, LibraryNotFound
+from ..dependencies import get_import_sessions, require_member
+from ..schemas import ConfirmBookImport
 
 router = APIRouter(prefix="/v1/imports", dependencies=[Depends(require_member)])
 
 
-@router.post("/preview")
-async def inspect_upload(file: UploadFile = File(...)):
+async def _upload_bytes(file: UploadFile) -> bytes:
     try:
         content = await file.read(MAX_UPLOAD_BYTES + 1)
         if len(content) > MAX_UPLOAD_BYTES:
             raise HTTPException(status_code=413, detail="File exceeds 12 MiB limit")
-        return preview_book_import(file.filename or "", content)
-    except ImportFormatError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return content
     finally:
         await file.close()
+
+
+def _import_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, (StageMissing, LibraryNotFound)):
+        return HTTPException(status_code=404, detail=exc.args[0])
+    if isinstance(exc, StageExpired):
+        return HTTPException(status_code=410, detail=str(exc))
+    if isinstance(exc, StageTooLarge):
+        return HTTPException(status_code=413, detail=str(exc))
+    if isinstance(exc, (StageConflict, LibraryConflict)):
+        return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, ImportFormatError):
+        return HTTPException(status_code=422, detail=str(exc))
+    return HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/preview")
+async def inspect_upload(file: UploadFile = File(...)):
+    content = await _upload_bytes(file)
+    try:
+        return preview_book_import(file.filename or "", content)
+    except ImportFormatError as exc:
+        raise _import_error(exc) from exc
+
+
+@router.post("/stages", status_code=201)
+async def stage_upload(file: UploadFile = File(...),
+                       actor: str = Depends(require_member),
+                       sessions: ImportSessions = Depends(get_import_sessions),
+                       idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
+    content = await _upload_bytes(file)
+    try:
+        return sessions.stage(actor, file.filename or "", content, idempotency_key=idempotency_key)
+    except (ImportFormatError, StageConflict, StageTooLarge, ValueError) as exc:
+        raise _import_error(exc) from exc
+
+
+@router.get("/stages/{stage_id}")
+def get_stage(stage_id: str, actor: str = Depends(require_member),
+              sessions: ImportSessions = Depends(get_import_sessions)):
+    try:
+        return sessions.get(actor, stage_id)
+    except (StageMissing, StageExpired) as exc:
+        raise _import_error(exc) from exc
+
+
+@router.post("/stages/{stage_id}/confirm")
+def confirm_stage(stage_id: str, body: ConfirmBookImport,
+                  actor: str = Depends(require_member),
+                  sessions: ImportSessions = Depends(get_import_sessions)):
+    try:
+        return sessions.confirm(actor, stage_id, body.model_dump())
+    except (StageMissing, StageExpired, StageConflict, LibraryConflict,
+            LibraryNotFound, ValueError) as exc:
+        raise _import_error(exc) from exc
+
+
+@router.get("/books/{book_id}/unassigned")
+def get_unassigned(book_id: str, actor: str = Depends(require_member),
+                   sessions: ImportSessions = Depends(get_import_sessions)):
+    try:
+        return {"book_id": book_id, "prefixes": sessions.prefixes(book_id)}
+    except LibraryNotFound as exc:
+        raise _import_error(exc) from exc
