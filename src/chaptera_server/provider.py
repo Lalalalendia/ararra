@@ -12,7 +12,11 @@ from chaptera_translation_core.ports import ProviderRequest
 
 
 class ProviderFailure(RuntimeError):
-    pass
+    def __init__(self, message: str, *, status_code: int | None = None,
+                 finish_reason: str | None = None):
+        super().__init__(message)
+        self.status_code = status_code
+        self.finish_reason = finish_reason
 
 
 class TransientProviderFailure(ProviderFailure):
@@ -111,7 +115,10 @@ class GeminiProvider:
             )
         if not (200 <= response.status_code < 300):
             # Do not leak response bodies, API keys, prompt text or paid chapters to logs.
-            raise ProviderFailure(f"Gemini request failed (HTTP {response.status_code})")
+            raise ProviderFailure(
+                f"Gemini request failed (HTTP {response.status_code})",
+                status_code=response.status_code,
+            )
         try:
             data: dict[str, Any] = response.json()
         except (ValueError, TypeError) as exc:
@@ -122,7 +129,12 @@ class GeminiProvider:
         first = candidates[0]
         reason = first.get("finishReason")
         if reason and reason not in {"STOP", "MAX_TOKENS"}:
-            raise ProviderFailure(f"Gemini response stopped ({reason})")
+            raise ProviderFailure(
+                f"Gemini response stopped ({reason})" if reason in
+                {"SAFETY", "PROHIBITED_CONTENT", "RECITATION", "SPII", "OTHER"}
+                else "Gemini response stopped (unrecognized finish reason)",
+                finish_reason=reason if reason in {"SAFETY", "PROHIBITED_CONTENT"} else None,
+            )
         if reason == "MAX_TOKENS":
             raise TransientProviderFailure("Gemini response was truncated at token limit")
         parts = (first.get("content") or {}).get("parts") or []
