@@ -21,6 +21,8 @@ jobs:
       - run: chaptera-smoke --transport atoms_v1
 
   web:
+    # Keep this stable job name for protected main required-check compatibility.
+    # The legacy React/Vite workspace is gone; this tests the deployed Jinja UI.
     name: Web boundaries and production build
     runs-on: ubuntu-latest
     steps:
@@ -28,13 +30,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Test web architecture without npm dependencies
-        working-directory: web
-        run: node --test scripts/architecture.test.mjs
-      - name: Install web dependencies
-        working-directory: web
-        run: npm install --no-audit --no-fund
-      - name: Validate books_platform/Jinja vanilla front-end
+      - name: Validate Jinja2 / vanilla JavaScript without Vite or npm install
         run: |
           node --check src/chaptera_server/web_ui/static/js/readera.mjs
           node --check src/chaptera_server/web_ui/static/js/library-view.mjs
@@ -43,10 +39,6 @@ jobs:
           node --check src/chaptera_server/web_ui/static/js/editor.mjs
           node --check src/chaptera_server/web_ui/static/js/editorial-panels.mjs
           node --test src/chaptera_server/web_ui/static/js/import-model.test.mjs
-      - name: Test import decisions, typecheck and bundle web app
-        working-directory: web
-        run: npm run check
-
 
   browser:
     name: ReadEra real Chromium acceptance
