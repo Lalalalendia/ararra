@@ -146,3 +146,59 @@ Operational acceptance is tracked in
 [ararra #56](https://github.com/Lalalalendia/ararra/issues/56). Passing
 cryptographic tests and rootless VPS smoke is not a substitute for a tested,
 encrypted off-host copy and a witnessed real-host recovery.
+
+## RE-08-OFFHOST-S3-01 — encrypted off-host S3 storage
+
+The optional S3 transport accepts **only** encrypted `.rbe` bundles from
+`chaptera_server.ops_backup_crypto seal`. It does not accept plaintext
+SQLite, snapshot manifests, API credentials or the master recovery key.
+Install only for the operator CLI:
+
+`python -m pip install 'chaptera-server-translator[offsite-s3]'`.
+
+Credentials are resolved by boto3 from the normal IAM/profile/role chain,
+never passed as command-line arguments. Restrict the IAM principal to the
+private bucket and vault prefix, with no delete permission. Configure an
+independently managed retention/immutability policy on the S3 bucket.
+
+```bash
+python -m chaptera_server.ops_backup_s3 \
+  --bucket PRIVATE_BUCKET --vault readera-vault-01 --region us-east-1 \
+  push --archive /private/sealed/readera-...sqlite3.rbe
+
+python -m chaptera_server.ops_backup_s3 \
+  --bucket PRIVATE_BUCKET --vault readera-vault-01 --region us-east-1 \
+  check --name readera-...sqlite3.rbe
+
+python -m chaptera_server.ops_backup_s3 \
+  --bucket PRIVATE_BUCKET --vault readera-vault-01 --region us-east-1 \
+  pull --name readera-...sqlite3.rbe --directory /private/downloads
+
+python -m chaptera_server.ops_backup_crypto unseal \
+  --archive /private/downloads/readera-...sqlite3.rbe \
+  --key-file /independent-secret-store/readera-recovery.key \
+  --destination /private/offline-recovery/jobs.sqlite3
+```
+
+For an operator-approved non-AWS provider, add
+`--endpoint https://s3.example.org`. Custom endpoints must be HTTPS with
+no embedded credentials, query, path or fragment. Vendor region identifiers
+such as `ru-central1` are allowed; raw HTTP is never allowed by the CLI.
+
+Uploads use a fixed `readera-backup-v1/<vault>/<bundle>` object namespace;
+they use `If-None-Match: *` on single PUT and multipart completion to
+**refuse overwriting** existing recovery points. Large bundles use bounded
+8-MiB multipart parts, up to 80 GiB. The client verifies every upload
+through remote HEAD and a full remote GET/SHA-256 readback; ETags are never
+used as SHA-256. Downloads are checked against remote size/SHA-256 and
+published only to a NEW private local file. The remote metadata digest is
+not a cryptographic signature; **only AES-256-GCM authentication with the
+independently recovered key** proves authenticity of the restored SQLite.
+
+No bucket, retention policy, credentials, off-host account, automatic
+backup schedule or deletion job is created by merging this code. ReadEra's
+API, worker and UI never call the S3 transport. To accept operational
+recovery, separately recover the key from a secret store, download with a
+different host/identity, unseal, verify restored books/jobs/authorization,
+and record a redacted proof under
+[issue #56](https://github.com/Lalalalendia/ararra/issues/56).
