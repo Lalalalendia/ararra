@@ -6,6 +6,7 @@ requests and never writes to BookLibrary or bypasses the staged import gate.
 from __future__ import annotations
 
 import hashlib
+import html
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
@@ -54,6 +55,25 @@ class CollectedBook:
     @property
     def complete(self) -> bool:
         return not self.failures and len(self.chapters) == len(self.requested)
+
+    def as_import_html(self) -> bytes:
+        """Generate markup with explicit heading nodes for existing ImportSessions.
+
+        A body line that resembles a chapter heading remains a <p>, so the
+        HTML importer cannot accidentally split a chapter mid-paragraph.
+        """
+        if not self.complete:
+            raise ValueError("Partial collection cannot be staged as a complete selection")
+        blocks = ["<html><body>"]
+        for item in self.chapters:
+            blocks.append("<h1>Глава " + str(item.ordinal) + ". " +
+                          html.escape(item.title) + "</h1>")
+            for paragraph in item.body.split("\n\n"):
+                if paragraph.strip():
+                    escaped_lines = [html.escape(line) for line in paragraph.split("\n")]
+                    blocks.append("<p>" + "<br/>".join(escaped_lines) + "</p>")
+        blocks.append("</body></html>")
+        return "\n".join(blocks).encode("utf-8")
 
     def as_txt(self) -> bytes:
         if not self.complete:
