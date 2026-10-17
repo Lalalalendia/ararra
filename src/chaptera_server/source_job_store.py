@@ -24,6 +24,7 @@ MAX_JOB_CHAPTERS = 2000
 MAX_ACTIVE_JOBS_PER_ACTOR = 3
 MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 MAX_ITEM_BYTES = 1 * 1024 * 1024
+MAX_JOB_BYTES = 256 * 1024 * 1024
 MAX_MANUAL_RETRIES = 3
 
 
@@ -139,6 +140,10 @@ class SourceJobStore:
             "catalog_sha256": row["catalog_sha256"],
             "manifest_sha256": row["manifest_sha256"],
             "total": len(chapters), "completed": passed, "failed": failed,
+            "source_bytes": sum(item["bytes"] for item in con.execute(
+                "SELECT bytes FROM source_collect_items WHERE job_id=? AND status='ok'",
+                (row["id"],),
+            ).fetchall()),
             "pending": len(chapters)-passed-failed,
             "selected_start": chapters[0]["ordinal"],
             "selected_end": chapters[-1]["ordinal"],
@@ -288,6 +293,15 @@ class SourceJobStore:
                 ).fetchone()
                 if duplicate:
                     error = f"Duplicate body of chapter {duplicate['ordinal']}"
+                    body = None
+            if body is not None:
+                used_bytes = con.execute(
+                    "SELECT COALESCE(SUM(bytes),0) FROM source_collect_items "
+                    "WHERE job_id=? AND status='ok'",
+                    (job_id,),
+                ).fetchone()[0]
+                if used_bytes + len(body.encode("utf-8")) > MAX_JOB_BYTES:
+                    error = "Collection exceeds 256 MiB verified-source budget"
                     body = None
             status = "ok" if body is not None else "failed"
             con.execute(
