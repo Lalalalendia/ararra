@@ -32,7 +32,7 @@ def test_med_rejects_untrusted_urls():
 
 
 def test_conflicting_chapter_numbers_never_silently_deduplicated():
-    bad = CATALOG.replace("2 - Second", "1 - Second")
+    bad = CATALOG.replace("2 - Second", "1 - Second").replace("/2-second", "/1-second")
     with pytest.raises(IngestError):
         catalog_from_html("royalroad", URL, bad)
 
