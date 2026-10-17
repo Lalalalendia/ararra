@@ -133,7 +133,8 @@ class GeminiProvider:
                 f"Gemini response stopped ({reason})" if reason in
                 {"SAFETY", "PROHIBITED_CONTENT", "RECITATION", "SPII", "OTHER"}
                 else "Gemini response stopped (unrecognized finish reason)",
-                finish_reason=reason if reason in {"SAFETY", "PROHIBITED_CONTENT"} else None,
+                finish_reason=reason if reason in
+                {"SAFETY", "PROHIBITED_CONTENT", "RECITATION", "SPII"} else None,
             )
         if reason == "MAX_TOKENS":
             raise TransientProviderFailure("Gemini response was truncated at token limit")
