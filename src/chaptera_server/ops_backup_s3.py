@@ -149,7 +149,7 @@ class S3BackupTransport:
                             PartNumber=part_number, Body=block, ContentLength=len(block),
                         )
                         parts.append({"PartNumber": part_number, "ETag": result["ETag"]})
-                if not parts or sum(p["PartNumber"] > 0 for p in parts) != len(parts):
+                if not parts or len(parts) > _MAX_PARTS:
                     raise OffhostRejected("Multipart transfer contained no valid parts")
                 self.client.complete_multipart_upload(
                     Bucket=self.bucket, Key=key, UploadId=upload_id,
@@ -159,9 +159,12 @@ class S3BackupTransport:
             finally:
                 if not completed:
                     # Never delete a completed recovery point even after failure.
-                    self.client.abort_multipart_upload(
-                        Bucket=self.bucket, Key=key, UploadId=upload_id
-                    )
+                    try:
+                        self.client.abort_multipart_upload(
+                            Bucket=self.bucket, Key=key, UploadId=upload_id
+                        )
+                    except Exception:
+                        pass
         # Archive can change while being read by boto3: recheck locally before
         # remotely attesting it. A failed assertion is NOT success.
         after_sha, after_size = _sha_and_size(path)
@@ -223,7 +226,7 @@ def _validate_endpoint(endpoint: str | None) -> str | None:
 
 
 def _client(region: str, endpoint: str | None):
-    if not re.fullmatch(r"[a-z]{2}(?:-gov)?-[a-z-]+-\d\Z", region):
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,31}\Z", region):
         raise OffhostRejected("Explicit AWS-compatible region required")
     validated = _validate_endpoint(endpoint)
     try:
