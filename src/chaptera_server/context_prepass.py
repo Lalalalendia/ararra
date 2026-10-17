@@ -164,7 +164,8 @@ def _merge_windows(rows: list[dict], *, source_text: str) -> tuple[dict, list[di
 
 
 async def generate_chapter_context(provider, inputs: ContextInputs, *, on_event: ContextEvent | None = None,
-                                   is_cancelled: Callable[[], bool] | None = None) -> dict:
+                                   is_cancelled: Callable[[], bool] | None = None,
+                                   checkpoints=None) -> dict:
     source_text = BeautifulSoup(inputs.source_html, 'html.parser').get_text(' ', strip=True)
     windows = source_windows(source_text)
     glossary = scoped_glossary(inputs.glossary, inputs.glossary_versions,
@@ -206,11 +207,19 @@ async def generate_chapter_context(provider, inputs: ContextInputs, *, on_event:
                          f'window={window}/{total} prompt_tokens={usage.get("promptTokenCount", 0)} '
                          f'output_tokens={usage.get("candidatesTokenCount", 0)} '
                          f'total_tokens={usage.get("totalTokenCount", 0)}')
-        raw = await provider.generate(ProviderRequest(
+        request = ProviderRequest(
             chapter_id=f'context:{inputs.book_id}:{inputs.chapter_id}:w{index}of{total}',
             prompt=prompt, source_html_with_markers='', unit_count=0,
             on_usage=capture_usage,
-        ))
+        )
+        step = f'context_window:{index}'
+        cached = checkpoints.load(step, request) if checkpoints else None
+        if cached is not None:
+            if on_event is not None:
+                on_event('subrequest_reused', f'context_window={index}/{total}')
+            raw = cached
+        else:
+            raw = await provider.generate(request)
         if is_cancelled is not None and is_cancelled():
             raise TranslationCancelled('Cancelled during context window request')
         parsed = _decode_context(raw)
@@ -218,6 +227,10 @@ async def generate_chapter_context(provider, inputs: ContextInputs, *, on_event:
         if missing or len(valid) != 1:
             raise ContextPrepassRejected(f'Context window {index}/{total} failed identity validation')
         entry = valid[0]
+        if checkpoints and cached is None:
+            # Save only after provider output passes the exact window identity
+            # validator; incomplete/malformed replies never enter the ledger.
+            checkpoints.save(step, request, raw)
         # Only text in THIS window, or a genuine immediate predecessor for the
         # first window, can establish aliases and source-name identity.
         evidence = fragment
