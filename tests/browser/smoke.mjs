@@ -23,6 +23,11 @@ async function api(path,key=modKey,method='GET',body) {
   return {status:response.status,data:await response.json()};
 }
 async function login(page,key){
+  await page.waitForFunction(()=>document.body?.dataset.authReady==='1');
+  if(await page.locator('#authenticated').isVisible()){
+    await page.locator('#logout').click();
+    await page.locator('#login-form').waitFor({state:'visible'});
+  }
   await page.locator('#login-form [name="api_key"]').fill(key);
   await page.locator('#login-form button[type="submit"]').click();
   await page.locator('#authenticated').waitFor({state:'visible'});
@@ -73,7 +78,7 @@ try{
   assert.match(await page.locator('#members-list').innerText(),/writer/);
   await screenshot(page,'02-team-desktop.png');
   await page.locator('#logout').click();
-  assert.equal(await page.locator('#authenticated').isVisible(),false);
+  await page.locator('#authenticated').waitFor({state:'hidden'});
   await login(page,issued);
   assert.match(await page.locator('#identity-label').innerText(),/writer/);
   await choose(page,'team');
@@ -220,7 +225,8 @@ try{
     'desktop: long original and draft have bounded reading panes');
   await screenshot(page,'07-editor-durable-draft.png');
   await page.reload();
-  await login(page,issued);
+  await page.waitForFunction(()=>document.body?.dataset.authReady==='1');
+  assert.equal(await page.locator('#authenticated').isVisible(),true);
   // Draft and notes are separate authenticated API reads. A revision badge
   // can hydrate before the textarea and notes; wait on the actual durable
   // text and the specific sanitized note instead of racing empty containers.
@@ -336,7 +342,8 @@ try{
   await page.locator('#import-upload').waitFor({state:'visible'});
   assert.equal((await api('/v1/books/browser-novel',issued)).status,200);
   await page.reload();
-  assert.equal(await page.locator('#login-form').isVisible(),true);
+  await page.waitForFunction(()=>document.body?.dataset.authReady==='1');
+  assert.equal(await page.locator('#authenticated').isVisible(),true);
   const stored=await page.evaluate(()=>({
     local:Object.keys(localStorage),session:Object.keys(sessionStorage),
   }));
@@ -371,7 +378,8 @@ try{
   // A direct editor URL after refresh should position the scrollable menu
   // on the active route without storing a session token.
   await mpage.reload();
-  await login(mpage,modKey);
+  await mpage.waitForFunction(()=>document.body?.dataset.authReady==='1');
+  assert.equal(await mpage.locator('#authenticated').isVisible(),true);
   await mpage.locator('#editor-workspace').waitFor({state:'visible'});
   await assertMobileNavigation('mobile direct-route nav');
   await mobile.close();

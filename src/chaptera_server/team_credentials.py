@@ -102,6 +102,25 @@ class TeamCredentials:
             ).fetchone()
             return str(match["member_id"]) if match and match["active"] else None
 
+    def matches_credential_digest(self, member_id: str, digest: str,
+                                  settings: Settings) -> bool:
+        """Reject browser sessions tied to rotated, disabled or changed team keys."""
+        if not digest:
+            return False
+        if member_id == settings.admin_member_id:
+            key = settings.team_tokens.get(member_id)
+            return bool(key) and hmac.compare_digest(self._digest(key), digest)
+        with self.store._connect() as con:
+            row = con.execute(
+                "SELECT token_sha256,active FROM team_access_credentials WHERE member_id=?",
+                (member_id,),
+            ).fetchone()
+        if row is not None:
+            current = str(row["token_sha256"] or "")
+            return bool(row["active"]) and bool(current) and hmac.compare_digest(current, digest)
+        key = settings.team_tokens.get(member_id)
+        return bool(key) and hmac.compare_digest(self._digest(key), digest)
+
     def is_active(self, member_id: str, settings: Settings) -> bool:
         if member_id == settings.admin_member_id and member_id in settings.team_tokens:
             return True

@@ -10,13 +10,15 @@ import {initChapterEditor} from './editor.mjs';
 import {createLibraryView} from './library-view.mjs';
 import {createBookExportView} from './book-export-view.mjs';
 import {renderDailyQuota,renderJobs} from './jobs-view.mjs';
+import {createSessionClient} from './session-client.mjs';
 
 const $ = id => document.getElementById(id);
 const sections = Array.from(document.querySelectorAll('[data-page]'));
 const knownPages = new Set(['overview','books','import','team','jobs','editor']);
 let editor=null;
 let shownPage=null;
-let apiKey = '';
+const auth=createSessionClient();
+const request=auth.request;
 let identity = null;
 let books = [];
 let members = [];
@@ -50,28 +52,6 @@ function busyDuring(work) {
   if (busy) return;
   busy = true;
   return Promise.resolve().then(work).finally(() => {busy=false;});
-}
-async function request(path, {method='GET', body, headers={}, responseType='json', ...rest}={}) {
-  if (!apiKey) throw new Error('Сначала выполните вход в команду.');
-  const response=await fetch(path,{
-    ...rest, method, body, cache:'no-store', credentials:'omit',
-    headers:{'X-API-Key':apiKey,...headers},
-  });
-  if (!response.ok) {
-    let detail='';
-    try {
-      const json=await response.json();
-      detail=typeof json.detail==='string'?shorten(json.detail):'';
-    } catch { /* Untrusted HTTP bodies are deliberately ignored. */ }
-    if (response.status===401) throw new Error('Ключ недействителен или был отключён.');
-    if (response.status===403) throw new Error('Недостаточно прав для этой операции.');
-    if (response.status===404) throw new Error('Запись не найдена или недоступна.');
-    if (response.status===409) throw new Error('Конфликт версий или назначений: '+detail);
-    if (response.status===410) throw new Error('Срок хранения загрузки истёк.');
-    if (response.status===413) throw new Error('Превышен разрешённый размер или квота загрузок.');
-    throw new Error('Ошибка '+response.status+': '+(detail||'запрос отклонён'));
-  }
-  return responseType==='raw' ? response : response.json();
 }
 function currentPage() {
   const page=location.pathname.slice('/app/'.length);
@@ -126,42 +106,40 @@ document.querySelectorAll('[data-page-link]').forEach(link=>link.addEventListene
 }));
 window.addEventListener('popstate',()=>showPage(currentPage()));
 
+async function activateSession(session) {
+  identity={member_id:session.member_id,role:session.role};
+  const catalog=await request('/v1/books');
+  books=catalog.books||[];
+  members=identity.role==='admin'
+    ? (await request('/v1/admin/members')).members : [];
+  $('login-form').hidden=true;$('authenticated').hidden=false;
+  $('identity-label').textContent=identity.member_id+' · '+
+    (identity.role==='admin'?'Администратор':'Модератор');
+  $('identity-label').hidden=false;$('login-form').reset();
+  $('metric-books').textContent=String(books.length);
+  $('metric-role').textContent=identity.role==='admin'?'Администратор':'Модератор';
+  showPage(currentPage());flash('');
+}
 $('login-form').addEventListener('submit',event=>{
   event.preventDefault();
   const form=event.currentTarget;
   void busyDuring(async()=>{
-    const secret=new FormData(form).get('api_key');
-    apiKey=String(secret || '').trim();
-    try {
-      const [me,catalog]=await Promise.all([
-        request('/v1/me'),request('/v1/books'),
-      ]);
-      identity=me; books=catalog.books || [];
-      members=identity.role==='admin'
-        ? (await request('/v1/admin/members')).members : [];
-      $('login-form').hidden=true;
-      $('authenticated').hidden=false;
-      $('identity-label').textContent=identity.member_id+' · '+
-        (identity.role==='admin'?'Администратор':'Модератор');
-      $('identity-label').hidden=false;
-      $('login-form').reset();
-      $('metric-books').textContent=String(books.length);
-      $('metric-role').textContent=identity.role==='admin'?'Администратор':'Модератор';
-      showPage(currentPage());
-      flash('');
-    } catch(e) {
-      apiKey=''; identity=null;
-      flash(e.message,true);
-    }
+    const secret=String(new FormData(form).get('api_key')||'').trim();
+    form.reset();
+    try {await activateSession(await auth.login(secret));}
+    catch(e){auth.clear();identity=null;flash(e.message,true);}
   });
 });
 $('logout').addEventListener('click',()=>{
   if(shownPage==='editor' && editor && !editor.canLeave())return;
-  editor?.reset();
-  apiKey='';identity=null;books=[];members=[];staged=null;rows=[];confirmed=null;
-  clearSecret();$('identity-label').hidden=true;
-  $('authenticated').hidden=true;$('login-form').hidden=false;$('login-form').reset();
-  hideImportSteps();flash('');
+  void busyDuring(async()=>{
+    try {await auth.logout();}
+    catch(e){flash(e.message,true);return;}
+    editor?.reset();identity=null;books=[];members=[];staged=null;rows=[];confirmed=null;
+    clearSecret();$('identity-label').hidden=true;
+    $('authenticated').hidden=true;$('login-form').hidden=false;$('login-form').reset();
+    hideImportSteps();flash('');
+  });
 });
 
 async function chooseBookOwner(book, candidates) {
@@ -616,3 +594,10 @@ $('import-another').addEventListener('click',()=>{hideImportSteps();$('chapters_
 editor=initChapterEditor({request,flash,getBooks:()=>books});
 hideImportSteps();
 showPage(currentPage());
+void busyDuring(async()=>{
+  try {
+    const session=await auth.restore();
+    if(session)await activateSession(session);
+  } catch(e) {flash('Не удалось восстановить вход: '+e.message,true);}
+  finally {document.body.dataset.authReady='1';}
+});
