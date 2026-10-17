@@ -14,6 +14,7 @@ import time
 from .config import Settings
 from .storage import QueueStore
 from .team_credentials import TeamCredentials
+from .team_passwords import TeamPasswords
 
 COOKIE_NAME = "readera_session"
 CSRF_HEADER = "X-ReadEra-CSRF"
@@ -28,6 +29,7 @@ class TeamSessions:
                     token_sha256 TEXT PRIMARY KEY,
                     member_id TEXT NOT NULL,
                     credential_sha256 TEXT NOT NULL,
+                    auth_kind TEXT NOT NULL DEFAULT 'team_key' CHECK(auth_kind IN ('team_key','password')),
                     created_at REAL NOT NULL,
                     expires_at REAL NOT NULL,
                     revoked_at REAL
@@ -35,6 +37,12 @@ class TeamSessions:
                 CREATE INDEX IF NOT EXISTS ix_team_browser_sessions_member
                     ON team_browser_sessions(member_id);
             """)
+            # Existing deployments already have this SQLite table.
+            columns = {col["name"] for col in con.execute("PRAGMA table_info(team_browser_sessions)")}
+            if "auth_kind" not in columns:
+                con.execute(
+                    "ALTER TABLE team_browser_sessions ADD COLUMN auth_kind TEXT NOT NULL DEFAULT 'team_key'"
+                )
 
     @staticmethod
     def _digest(secret: str) -> str:
@@ -49,7 +57,19 @@ class TeamSessions:
         ).hexdigest()
 
     def issue(self, *, member_id: str, team_key: str, ttl_seconds: int) -> str:
-        if not member_id or not team_key or ttl_seconds <= 0:
+        if not team_key:
+            raise ValueError("Invalid team key")
+        return self._issue(member_id, self._digest(team_key), "team_key", ttl_seconds)
+
+    def issue_password(self, *, member_id: str, fingerprint: str,
+                       ttl_seconds: int) -> str:
+        if len(fingerprint) != 64:
+            raise ValueError("Invalid password credential fingerprint")
+        return self._issue(member_id, fingerprint, "password", ttl_seconds)
+
+    def _issue(self, member_id: str, fingerprint: str, kind: str,
+               ttl_seconds: int) -> str:
+        if not member_id or ttl_seconds <= 0 or kind not in {"team_key", "password"}:
             raise ValueError("Invalid browser session arguments")
         raw = "rs_" + secrets.token_urlsafe(32)
         now = time.time()
@@ -61,30 +81,47 @@ class TeamSessions:
             )
             con.execute(
                 """INSERT INTO team_browser_sessions
-                   (token_sha256,member_id,credential_sha256,created_at,expires_at)
-                   VALUES(?,?,?,?,?)""",
-                (self._digest(raw), member_id, self._digest(team_key),
-                 now, now + ttl_seconds),
+                   (token_sha256,member_id,credential_sha256,auth_kind,created_at,expires_at)
+                   VALUES(?,?,?,?,?,?)""",
+                (self._digest(raw), member_id, fingerprint, kind, now, now + ttl_seconds),
             )
         return raw
 
-    def resolve(self, raw: str | None, *, credentials: TeamCredentials,
-                settings: Settings) -> str | None:
+    def resolve_details(self, raw: str | None, *, credentials: TeamCredentials,
+                        settings: Settings, passwords: TeamPasswords | None = None
+                        ) -> tuple[str, str] | None:
         token = str(raw or "")
         if not token.startswith("rs_") or len(token) > 128:
             return None
         with self.store._connect() as con:
             row = con.execute(
-                """SELECT member_id,credential_sha256 FROM team_browser_sessions
+                """SELECT member_id,credential_sha256,auth_kind FROM team_browser_sessions
                    WHERE token_sha256=? AND revoked_at IS NULL AND expires_at>?""",
                 (self._digest(token), time.time()),
             ).fetchone()
         if row is None:
             return None
-        member_id = str(row["member_id"])
-        return member_id if credentials.matches_credential_digest(
-            member_id, str(row["credential_sha256"]), settings
-        ) else None
+        member_id, kind = str(row["member_id"]), str(row["auth_kind"])
+        if kind == "password":
+            fingerprint = passwords.session_fingerprint(
+                member_id, credentials=credentials, settings=settings,
+            ) if passwords is not None else None
+            valid = bool(fingerprint) and hmac.compare_digest(
+                str(fingerprint), str(row["credential_sha256"])
+            )
+        elif kind == "team_key":
+            valid = credentials.matches_credential_digest(
+                member_id, str(row["credential_sha256"]), settings
+            )
+        else:
+            return None
+        return (member_id, kind) if valid else None
+
+    def resolve(self, raw: str | None, *, credentials: TeamCredentials,
+                settings: Settings, passwords: TeamPasswords | None = None) -> str | None:
+        details = self.resolve_details(raw, credentials=credentials, settings=settings,
+                                       passwords=passwords)
+        return details[0] if details else None
 
     def revoke(self, raw: str | None) -> None:
         token = str(raw or "")
