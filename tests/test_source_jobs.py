@@ -222,3 +222,21 @@ def test_api_background_job_stage_handback_and_actor_isolation(tmp_path):
             assert (await client.get("/v1/books/resumed/chapters/ch1",headers=auth)).status_code==200
             assert (await client.post(f"/v1/source-books/jobs/{jid}/cancel",headers=auth)).status_code==409
     asyncio.run(scenario())
+
+
+def test_total_source_budget_blocks_overflow_without_losing_previous_checkpoint(tmp_path,monkeypatch):
+    from chaptera_server import source_job_store as module
+    monkeypatch.setattr(module,"MAX_JOB_BYTES",210)
+    _,jobs=make_store(tmp_path)
+    job=jobs.create("alice","cat1",catalog(),[1,2])
+    first=jobs.claim()
+    state=jobs.finish(first["job_id"],first["lease_token"],body="A"*150)
+    assert state["completed"]==1 and state["source_bytes"]==150
+    second=jobs.claim()
+    state=jobs.finish(second["job_id"],second["lease_token"],body="B"*150)
+    assert state["status"]=="partial"
+    assert state["completed"]==1 and state["failed"]==1
+    assert state["source_bytes"]==150
+    assert "budget" in state["failures"][0]["error"]
+    fragment=jobs.materialize("alice",job["job_id"],[1])
+    assert fragment.complete
