@@ -9,6 +9,7 @@ from chaptera_translation_core import (
 )
 
 from .provider import ProviderFailure, TransientProviderFailure
+from .quota import DailyQuotaExhausted
 from chaptera_translation_core.prompt_policy import GlossaryVersionConflict
 from .storage import QueueStore
 from .library import BookLibrary, LibraryNotFound, StaleBookJob
@@ -41,6 +42,7 @@ class TranslationWorker:
         job, token = claim
         jid = job["id"]
         data = job["input"]
+        calls_before = getattr(self.provider, "sent_calls", 0)
         stop = asyncio.Event()
         heartbeat_task = asyncio.create_task(self._heartbeat(jid, token, stop))
         core = TranslationCore(
@@ -98,6 +100,14 @@ class TranslationWorker:
         except TranslationCancelled:
             self.store.fail(jid, token, "Translation cancelled")
             # The user cancellation flag results in 'cancelled' in _finish.
+        except DailyQuotaExhausted as exc:
+            # A quota pause is NOT one of the finite transient/provider retries.
+            # If the job already sent multiple requests, avoid an unbounded
+            # paid replay every day without durable sub-request checkpoints.
+            sent = getattr(self.provider, "sent_calls", calls_before) > calls_before
+            self.store.defer_for_daily_quota(
+                jid, token, reset_at=exc.reset_at, made_calls=sent,
+            )
         except TransientProviderFailure as exc:
             retry_in = max(min(300.0, 2 ** min(job["attempts"], 8)), exc.retry_after_seconds or 0.0)
             self.store.retry(jid, token, str(exc), delay_seconds=retry_in)
