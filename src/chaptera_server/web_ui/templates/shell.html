@@ -194,10 +194,12 @@
                   <label class="ui-field"><span>Конечная глава</span>
                     <input id="source-end" class="ui-input" type="number" min="1" step="1"></label>
                 </div>
-                <p class="muted">За один запрос — до 20 глав. Для больших книг повторяйте сбор
-                  следующего диапазона в ту же книгу; пропущенные или недоступные главы не будут записаны.</p>
+                <p class="muted">Быстрый импорт — до 20 глав; для диапазона до 2000 глав используйте
+                  отдельный фоновый сбор с контрольными точками. Недоступные главы не принимаются за прочитанные.</p>
                 <button id="source-collect" class="ui-button ui-button--primary"
                         type="button">Скачать выбранные главы</button>
+                <button id="source-job-create" class="ui-button ui-button--ghost"
+                        type="button">Создать фоновое задание на выбранный диапазон</button>
                 <p id="source-result" role="status" aria-live="polite"></p>
                 <div class="table-scroll"><table class="ui-table">
                   <thead><tr><th>№</th><th>Глава</th><th>Идентификатор источника</th></tr></thead>
@@ -205,6 +207,35 @@
                 </table></div>
                 <p class="muted">Первые 80 записей оглавления показаны для проверки.
                   Номера остальных глав можно указать в диапазоне выше.</p>
+              </div>
+              <div id="source-job-panel" class="ui-card" aria-labelledby="source-job-title">
+                <h3 id="source-job-title">Длительный сбор книги</h3>
+                <form id="source-job-resume-form" class="compact-form">
+                  <label class="ui-field"><span>ID задания — сохраните его для восстановления</span>
+                    <input id="source-job-id" class="ui-input" autocomplete="off"
+                           placeholder="ID сохранённого задания" required></label>
+                  <button id="source-job-refresh" type="submit"
+                          class="ui-button ui-button--ghost">Открыть / обновить прогресс</button>
+                </form>
+                <p id="source-job-status" role="status" aria-live="polite">
+                  Фоновое задание ещё не выбрано.</p>
+                <div id="source-job-actions" hidden>
+                  <p class="muted">Готовые исходники сохраняются независимо от браузера.
+                    Сбор выполняет отдельный серверный source-worker.
+                    Подтвердить импорт можно порциями до 20 глав.</p>
+                  <div class="field-grid">
+                    <label class="ui-field"><span>Сохранить в импорт с главы</span>
+                      <input id="source-job-from" class="ui-input" type="number" min="1" step="1"></label>
+                    <label class="ui-field"><span>По главу</span>
+                      <input id="source-job-to" class="ui-input" type="number" min="1" step="1"></label>
+                  </div>
+                  <button id="source-job-stage" type="button"
+                          class="ui-button ui-button--primary">Проверить и импортировать выбранные главы</button>
+                  <button id="source-job-retry" type="button"
+                          class="ui-button ui-button--ghost">Повторить неудачные главы</button>
+                  <button id="source-job-cancel" type="button"
+                          class="ui-button ui-button--ghost">Отменить сбор</button>
+                </div>
               </div>
             </section>
 

@@ -122,6 +122,41 @@ try{
   await page.locator('#source-collect').click();
   await page.getByText('Импорт не создан.',{exact:false}).waitFor();
   assert.equal(await page.locator('#import-map').isVisible(),false);
+  // Checkpoint jobs are actor-owned and resumable. Browser never sees the
+  // stored body or impersonates a completed full-book import.
+  const durableJob={
+    job_id:'job-browser-123',status:'queued',source:'royalroad',
+    catalog_id:sourceCatalogReply.catalog_id,
+    catalog_sha256:sourceCatalogReply.catalog_sha256,
+    total:2,completed:0,failed:0,pending:2,
+    selected_start:1,selected_end:2,
+    manual_retries:0,failures:[],
+  };
+  const createJobPattern='**/v1/source-books/jobs';
+  const getJobPattern='**/v1/source-books/jobs/job-browser-123';
+  await page.route(createJobPattern,async route=>{
+    assert.equal(route.request().method(),'POST');
+    const req=route.request().postDataJSON();
+    assert.equal(req.start_ordinal,1);
+    assert.equal(req.end_ordinal,2);
+    await route.fulfill({status:201,contentType:'application/json',
+      body:JSON.stringify(durableJob)});
+  });
+  await page.route(getJobPattern,async route=>{
+    assert.equal(route.request().method(),'GET');
+    await route.fulfill({status:200,contentType:'application/json',
+      body:JSON.stringify({...durableJob,status:'running',
+        completed:1,pending:1})});
+  });
+  await page.locator('#source-job-create').click();
+  await page.locator('#source-job-id').waitFor({state:'visible'});
+  await page.waitForFunction(()=>document.querySelector('#source-job-id')?.value==='job-browser-123');
+  assert.match(await page.locator('#source-job-status').innerText(),/готово 0\/2/);
+  await page.locator('#source-job-refresh').click();
+  await page.getByText('готово 1/2',{exact:false}).waitFor();
+  assert.equal(await page.locator('#import-map').isVisible(),false);
+  await page.unroute(createJobPattern);
+  await page.unroute(getJobPattern);
   await page.unroute(catalogPattern);
   await page.unroute(collectPattern);
   assert.match(await page.locator('#import-file-state').innerText(),/не выбран/);

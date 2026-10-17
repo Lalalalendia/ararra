@@ -9,6 +9,7 @@ from .config import Settings
 from .library import BookLibrary
 from .import_sessions import ImportSessions
 from .source_site_storage import SourceCatalogStore
+from .source_job_store import SourceJobStore
 from .source_site_http import PublicHtmlFetcher
 from .editorial import EditorialStore
 from .chapter_qa import ChapterQaStore
@@ -17,7 +18,7 @@ from .team_sessions import TeamSessions
 from .team_login_throttle import BrowserLoginThrottle
 from .team_passwords import TeamPasswords
 from .storage import QueueStore
-from .http.routers import books, health, identity, imports, jobs, quota, ui, editorial, session, source_books
+from .http.routers import books, health, identity, imports, jobs, quota, ui, editorial, session, source_books, source_jobs
 from .http.routers.ui import ASSETS as UI_ASSETS
 
 # Keep historical Python imports of request models working for existing callers.
@@ -38,6 +39,7 @@ def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
     app.state.library = BookLibrary(repo)
     app.state.import_sessions = ImportSessions(repo)
     app.state.source_catalog_store = SourceCatalogStore(repo)
+    app.state.source_job_store = SourceJobStore(repo)
     app.state.public_source_fetcher = PublicHtmlFetcher()
     app.state.editorial = EditorialStore(repo)
     app.state.chapter_qa = ChapterQaStore(repo)
@@ -52,6 +54,7 @@ def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
     app.include_router(books.router)
     app.include_router(imports.router)
     app.include_router(source_books.router)
+    app.include_router(source_jobs.router)
     app.include_router(editorial.router)
     app.include_router(jobs.router)
     app.include_router(quota.router)
