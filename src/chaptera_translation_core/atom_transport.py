@@ -176,21 +176,80 @@ def merge_proven_segments(atoms: list[SourceAtom], parts: Iterable[CoverageMap])
 
 
 def repair_domains(coverage: CoverageMap, marked_source: str) -> list[tuple[SourceAtom, ...]]:
-    """Select only source-owned render domains affected by missing/alignment debt."""
+    """Source-owned repair scopes, joining only proven adjacent contamination.
+
+    The original desktop detector reports an adjacent-target contamination
+    *pair* as one completeness debt. Repairing those source domains
+    independently discards the paired context and can reintroduce semantic
+    spillover. Keep normal missing/alignment debts domain-local; join only
+    the explicit neighboring pair, never cross the atom/character packet cap.
+    """
     plan = build_render_plan(marked_source, coverage)
     affected = {atom_id for debt in (*build_missing_debts(coverage), *plan.debts)
                 for atom_id in debt.atom_ids}
     if not affected:
         return []
     lookup = {atom.atom_id: atom for atom in coverage.atoms}
-    return [tuple(lookup[atom_id] for atom_id in covers)
-            for _, covers in expected_render_domain_rows(coverage.atoms)
-            if affected.intersection(covers)]
+    rows = [tuple(lookup[atom_id] for atom_id in covers)
+            for _, covers in expected_render_domain_rows(coverage.atoms)]
+    selected = {index for index, row in enumerate(rows)
+                if affected.intersection(atom.atom_id for atom in row)}
+    # Bounded disjoint sets preserve the source order and coalesce overlapping
+    # contamination pairs. No grouping based on arbitrary model descriptions.
+    parent = {index: index for index in selected}
+
+    def find(index: int) -> int:
+        while parent[index] != index:
+            index = parent[index]
+        return index
+
+    by_id = {atom.atom_id: index for index, row in enumerate(rows) for atom in row}
+    for debt in plan.debts:
+        if debt.reason != 'adjacent_target_contamination_suspected':
+            continue
+        indexes = sorted({by_id[atom_id] for atom_id in debt.atom_ids if atom_id in by_id})
+        if len(indexes) < 2 or indexes != list(range(indexes[0], indexes[-1] + 1)):
+            continue
+        if not set(indexes).issubset(selected):
+            continue
+        participating = {find(index) for index in indexes}
+        merged_indices = [index for index in selected if find(index) in participating]
+        merged_atoms = [atom for index in sorted(merged_indices) for atom in rows[index]]
+        if (len(merged_atoms) > MAX_BATCH_ATOMS or
+                sum(len(atom.source_text) for atom in merged_atoms) > MAX_BATCH_SOURCE_CHARS):
+            # Oversized contamination scopes keep their original bounded
+            # domain-local repairs and must still pass final desktop QA.
+            continue
+        root = min(participating)
+        for index in participating:
+            parent[index] = root
+
+    groups: dict[int, list[SourceAtom]] = {}
+    for index in sorted(selected):
+        groups.setdefault(find(index), []).extend(rows[index])
+    return [tuple(group) for group in groups.values()]
 
 
 def apply_proven_repair(coverage: CoverageMap, repair: CoverageMap) -> CoverageMap:
-    """Only a complete one-domain repair may replace its previous atom scope."""
+    """Replace complete source-owned scopes, including bounded repair pairs.
+
+    Gemini must supply one separate complete segment per original DOM render
+    domain. A cross-domain many-to-one merge, foreign source or partial repair
+    never gains authority to replace existing proven translation.
+    """
     if repair.missing_atom_ids or not repair.segments:
+        return coverage
+    source_by_id = {atom.atom_id: atom for atom in coverage.atoms}
+    if any(
+        atom.atom_id not in source_by_id or
+        source_by_id[atom.atom_id] != atom
+        for atom in repair.atoms
+    ):
+        return coverage
+    expected = {tuple(covers) for _, covers in expected_render_domain_rows(repair.atoms)}
+    delivered = [tuple(segment.covers) for segment in repair.segments]
+    if (len(delivered) != len(expected) or set(delivered) != expected or
+            any(segment.job_id != coverage.job_id for segment in repair.segments)):
         return coverage
     scope = {atom.atom_id for atom in repair.atoms}
     if {atom_id for segment in repair.segments for atom_id in segment.covers} != scope:
