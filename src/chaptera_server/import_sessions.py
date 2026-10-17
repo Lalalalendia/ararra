@@ -274,6 +274,8 @@ class ImportSessions:
                     raise StageConflict("New chapter must use expected_revision=0")
                 if not _meaningful(source["source_html"]):
                     raise StageConflict("Cannot import a chapter without readable text")
+                if len(source["source_html"]) > 2_000_000:
+                    raise StageConflict("Chapter HTML exceeds the canonical 2M character limit")
                 if (chapter_id in used_ids or index in used_indexes or path in used_paths):
                     raise StageConflict("The batch maps more than one chapter to a destination")
                 used_ids.add(chapter_id)
