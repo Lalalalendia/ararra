@@ -1,4 +1,4 @@
-"""Verbatim exception classification from full_cycle_app's ErrorAnalyzer.
+"""Verbatim desktop ErrorAnalyzer exception classification.
 
 Extracted from src/full_cycle_app/translation/gemini/core/worker_helpers/
 error_analyzer.py. Original classification order is significant: provider
