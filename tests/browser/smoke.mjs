@@ -363,21 +363,21 @@ try{
   const ownerDialog=page.locator('#book-owner-dialog');
   await ownerDialog.waitFor({state:'visible'});
   assert.match(await ownerDialog.locator('#book-owner-help').innerText(),/writer/);
-  assert.deepEqual(await ownerDialog.locator('option').allTextContents(),['mod']);
+  assert.deepEqual(await ownerDialog.locator('option').allTextContents(),['moderator']);
   await ownerDialog.getByRole('button',{name:'Отмена'}).click();
   await ownerDialog.waitFor({state:'hidden'});
   assert.equal((await api('/v1/books/browser-novel',adminKey)).data.owner_member_id,'writer');
 
   await openTransfer().click();
   await ownerDialog.waitFor({state:'visible'});
-  await ownerDialog.locator('#book-owner-target').selectOption('mod');
+  await ownerDialog.locator('#book-owner-target').selectOption('moderator');
   await ownerDialog.getByRole('button',{name:'Переназначить'}).click();
   await ownerDialog.waitFor({state:'hidden'});
   await page.waitForFunction(()=>Array.from(document.querySelectorAll('#book-list .library-book-row'))
     .some(r=>r.textContent.includes('Браузерная проверка')
-      && r.querySelectorAll('td')[3]?.textContent==='mod'));
+      && r.querySelectorAll('td')[3]?.textContent==='moderator'));
   const transferred=await api('/v1/books/browser-novel',adminKey);
-  assert.equal(transferred.data.owner_member_id,'mod');
+  assert.equal(transferred.data.owner_member_id,'moderator');
   assert.equal(transferred.data.owner_revision,1);
 
   await openTransfer().click();
