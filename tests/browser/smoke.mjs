@@ -86,6 +86,44 @@ try{
   assert.equal((await api('/v1/admin/members',issued)).status,403);
 
   await choose(page,'import');
+  // Site selection uses the authenticated controller and does not claim a
+  // complete import if even one public chapter cannot be fetched.
+  const sourceCatalogReply={
+    catalog_id:'catalog-browser-1',source:'royalroad',
+    book_url:'https://www.royalroad.com/fiction/142007/aura',
+    catalog_sha256:'a'.repeat(64),expires_at:1900000000,
+    chapter_count:2,first_ordinal:1,last_ordinal:2,catalog_gaps:[],
+    chapters:[
+      {ordinal:1,title:'First',source_id:'60001',url:'https://www.royalroad.com/fiction/142007/aura/chapter/60001/1-first'},
+      {ordinal:2,title:'Second',source_id:'60002',url:'https://www.royalroad.com/fiction/142007/aura/chapter/60002/2-second'},
+    ],
+  };
+  const catalogPattern='**/v1/source-books/catalogs';
+  const collectPattern='**/v1/source-books/catalogs/catalog-browser-1/collect';
+  await page.route(catalogPattern,async route=>{
+    assert.equal(route.request().method(),'POST');
+    await route.fulfill({status:201,contentType:'application/json',
+      body:JSON.stringify(sourceCatalogReply)});
+  });
+  await page.route(collectPattern,async route=>{
+    const body=route.request().postDataJSON();
+    assert.deepEqual(body.ordinals,[1,2]);
+    await route.fulfill({status:201,contentType:'application/json',body:JSON.stringify({
+      status:'partial',stage_id:null,collected_count:1,failed_count:1,
+      failures:[{ordinal:2,error:'blocked: login required'}],
+    })});
+  });
+  await page.locator('#source-site').selectOption('royalroad');
+  await page.locator('#source-book-url').fill(sourceCatalogReply.book_url);
+  await page.locator('#source-discover').click();
+  await page.locator('#source-catalog').waitFor({state:'visible'});
+  assert.equal(await page.locator('#source-rows tr').count(),2);
+  await page.locator('#source-end').fill('2');
+  await page.locator('#source-collect').click();
+  await page.getByText('Импорт не создан.',{exact:false}).waitFor();
+  assert.equal(await page.locator('#import-map').isVisible(),false);
+  await page.unroute(catalogPattern);
+  await page.unroute(collectPattern);
   assert.match(await page.locator('#import-file-state').innerText(),/не выбран/);
   const droppedFile=await page.evaluateHandle(()=>{
     const transfer=new DataTransfer();
