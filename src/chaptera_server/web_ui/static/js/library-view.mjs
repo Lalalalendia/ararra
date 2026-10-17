@@ -19,7 +19,7 @@ export function selectBooks(catalog, query, selection, memberId) {
 
 export function createLibraryView({
   body,filter,ownerFilter,empty,request,openEditor,showError,
-  currentMember,canReassign,activeModerators,chooseOwner,reassignOwner,
+  currentMember,canReassign,activeModerators,chooseOwner,reassignOwner,openExport,
 }) {
   let catalog=[];
 
@@ -42,6 +42,11 @@ export function createLibraryView({
     edit.setAttribute('aria-label','Редактировать книгу '+book.title);
     edit.addEventListener('click',()=>openEditor(book.book_id));
     actions.append(toggle,edit);
+    const exportButton=node('button','Экспорт','ui-button ui-button--ghost');
+    exportButton.type='button';
+    exportButton.setAttribute('aria-label','Экспортировать книгу '+book.title);
+    exportButton.addEventListener('click',()=>openExport(book));
+    actions.append(exportButton);
     if(canReassign()){
       const transfer=node('button','Переназначить','ui-button ui-button--ghost');
       transfer.type='button';
