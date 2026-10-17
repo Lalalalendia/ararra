@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from chaptera_translation_core import (
     ChapterInput, TranslationCore, TranslationCancelled, TranslationRejected,
 )
 
-from .provider import ProviderFailure, TransientProviderFailure
-from .quota import DailyQuotaExhausted
+from .provider import ProviderFailure, TransientProviderFailure, DailyProviderQuotaFailure
+from .quota import DailyQuotaExhausted, pacific_window
 from chaptera_translation_core.prompt_policy import GlossaryVersionConflict
 from .storage import QueueStore
 from .library import BookLibrary, LibraryNotFound, StaleBookJob
@@ -108,6 +109,13 @@ class TranslationWorker:
             self.store.defer_for_daily_quota(
                 jid, token, reset_at=exc.reset_at, made_calls=sent,
             )
+        except DailyProviderQuotaFailure:
+            # Even without an opt-in local limit, Google's explicitly
+            # classified PerDay response must not consume finite retries.
+            # A configured QuotaControlledProvider additionally blocks other
+            # attempts for the same project/model until reset.
+            reset = pacific_window(time.time())[1]
+            self.store.defer_for_daily_quota(jid, token, reset_at=reset, made_calls=True)
         except TransientProviderFailure as exc:
             retry_in = max(min(300.0, 2 ** min(job["attempts"], 8)), exc.retry_after_seconds or 0.0)
             self.store.retry(jid, token, str(exc), delay_seconds=retry_in)
