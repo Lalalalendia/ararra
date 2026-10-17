@@ -32,6 +32,8 @@ ROUTE_CONTRACT = {
     ('POST', '/v1/books'),
     ('GET', '/v1/books'),
     ('GET', '/v1/books/{book_id}'),
+    ('GET', '/v1/books/{book_id}/export/preview'),
+    ('GET', '/v1/books/{book_id}/export'),
     ('PUT', '/v1/books/{book_id}/glossary'),
     ('PUT', '/v1/books/{book_id}/owner'),
     ('PUT', '/v1/books/{book_id}/chapters/{chapter_id}'),
