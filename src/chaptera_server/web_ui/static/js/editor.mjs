@@ -36,6 +36,7 @@ export function initChapterEditor({request,flash,getBooks}) {
   let savedText='',acceptedText='',hasRich=false,busy=false,sequence=0;
   let draftRevision=0,draftSourceRevision=0,draftAcceptedRevision=0;
   let panels;
+  let nextSelection=null;
 
   const edit=$('editor-text');
   const bookChoice=$('editor-book');
@@ -53,7 +54,7 @@ export function initChapterEditor({request,flash,getBooks}) {
     if(dirty()) { edit.value=savedText; adjust(); }
   }
   function reset() {
-    dropUnsaved(); chosenBook=''; toc=[]; ++sequence; clearChapter();
+    dropUnsaved(); nextSelection=null; chosenBook=''; toc=[]; ++sequence; clearChapter();
   }
   function adjust() {
     const unsaved=dirty(),stale=draftStale();
@@ -147,7 +148,7 @@ export function initChapterEditor({request,flash,getBooks}) {
     $('editor-prev').disabled=idx<=0;
     $('editor-next').disabled=idx<0||idx>=toc.length-1;
   }
-  async function readBook(bookId){
+  async function readBook(bookId,requestedChapter=''){
     const ticket=++sequence;
     chosenBook=bookId;clearChapter();
     chapterChoice.replaceChildren(option('','Выберите главу'));
@@ -161,17 +162,30 @@ export function initChapterEditor({request,flash,getBooks}) {
       chapterChoice.append(option(row.chapter_id,
         'Глава '+row.chapter_index+' · '+row.chapter_id+state));
     }
-    if(toc.length)await readChapter(toc[0].chapter_id);
+    if(toc.length){
+      const target=toc.some(row=>row.chapter_id===requestedChapter)
+        ? requestedChapter : toc[0].chapter_id;
+      await readChapter(target);
+    }
     else $('editor-empty').textContent='В книге пока нет глав. Сначала импортируйте оригиналы.';
   }
+  function selectOnActivation(bookId,chapterId=''){
+    nextSelection={bookId,chapterId};
+  }
   async function activate(){
-    const books=getBooks();
+    const available=getBooks();
+    const requested=nextSelection;nextSelection=null;
     const oldChoice=chosenBook;
     bookChoice.replaceChildren(option('','Выберите книгу'));
-    for(const b of books)bookChoice.append(option(b.book_id,b.title+' · '+b.book_id));
-    const target=books.some(b=>b.book_id===oldChoice)?oldChoice:(books[0]?.book_id||'');
+    for(const b of available)bookChoice.append(option(b.book_id,b.title+' · '+b.book_id));
+    const requestedBook=requested && available.some(b=>b.book_id===requested.bookId)
+      ? requested.bookId : '';
+    const target=requestedBook ||
+      (available.some(b=>b.book_id===oldChoice)?oldChoice:(available[0]?.book_id||''));
     bookChoice.value=target;
-    if(target!==chosenBook||!chapter)await readBook(target);
+    const chapterId=requestedBook?requested.chapterId:'';
+    if(target!==chosenBook||!chapter)await readBook(target,chapterId);
+    else if(chapterId && chapterId!==chosenChapter)await readChapter(chapterId);
   }
   async function switchBook(target){
     if(target===chosenBook)return;
@@ -279,5 +293,5 @@ export function initChapterEditor({request,flash,getBooks}) {
     reloadChapter:()=>readChapter(chosenChapter),
   });
   clearChapter();syncNav();
-  return {activate,canLeave,dropUnsaved,reset};
+  return {activate,selectOnActivation,canLeave,dropUnsaved,reset};
 }
