@@ -176,6 +176,7 @@ def test_stale_accepted_revision_and_changed_source_after_preview_fail_closed(tm
     "<p>Текст.</p><a href='https://internal.test'>source link</a>",
     "<p>Текст.</p><span class='qa-note'>Редакторская пометка</span>",
     "<p>Текст. TSEG_12345</p>",
+    "<p>Вставлена служебная https://internal.example/qa ссылка.</p>",
     "<h1>Глава 1</h1>",
 ])
 def test_identifiable_service_artifacts_and_unsafe_html_block_export(tmp_path, payload):
