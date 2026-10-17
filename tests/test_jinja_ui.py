@@ -23,7 +23,7 @@ def test_jinja_pages_render_without_credentials_but_never_expose_team_state(tmp_
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://readera.test"
         ) as client:
-            for path in ["/app", "/app/", "/app/overview", "/app/books", "/app/import", "/app/team", "/app/jobs"]:
+            for path in ["/app", "/app/", "/app/overview", "/app/books", "/app/import", "/app/team", "/app/jobs", "/app/editor"]:
                 response = await client.get(path)
                 assert response.status_code == 200, (path, response.text[:1000])
                 assert "text/html" in response.headers["content-type"]
@@ -56,6 +56,14 @@ def test_jinja_pages_render_without_credentials_but_never_expose_team_state(tmp_
             assert status_js.status_code == 200
             assert "ReadEraStatus" in status_js.text
             assert "renderStatus" in status_js.text
+            editor_js = await client.get("/app-static/js/editor.mjs")
+            assert editor_js.status_code == 200
+            assert "initChapterEditor" in editor_js.text
+            assert ".innerHTML =" not in editor_js.text
+            assert "insertAdjacentHTML(" not in editor_js.text
+            editor_css = await client.get("/app-static/css/chapter-editor.css")
+            assert editor_css.status_code == 200
+            assert "editor-columns" in editor_css.text
 
     asyncio.run(scenario())
 
@@ -76,10 +84,13 @@ def test_bundled_resource_files_exist_in_source_tree():
     root = Path(__file__).resolve().parents[1]
     files = (
         "src/chaptera_server/web_ui/templates/shell.html",
+        "src/chaptera_server/web_ui/templates/partials/chapter_editor.html",
         "src/chaptera_server/web_ui/static/css/books-platform-chapter-import.css",
         "src/chaptera_server/web_ui/static/css/readera.css",
         "src/chaptera_server/web_ui/static/js/import-model.mjs",
         "src/chaptera_server/web_ui/static/js/readera.mjs",
+        "src/chaptera_server/web_ui/static/css/chapter-editor.css",
+        "src/chaptera_server/web_ui/static/js/editor.mjs",
     )
     for item in files:
         assert (root / item).is_file(), item

@@ -7,6 +7,7 @@
   <title>РидЭра — переводческая платформа</title>
   <link rel="stylesheet" href="/app-static/css/readera.css">
   <link rel="stylesheet" href="/app-static/css/books-platform-chapter-import.css">
+  <link rel="stylesheet" href="/app-static/css/chapter-editor.css">
   <script defer src="/app-static/js/books-platform-chapter-status.js"></script>
   <script type="module" src="/app-static/js/readera.mjs"></script>
 </head>
@@ -23,6 +24,7 @@
         <a href="/app/books" data-page-link="books">Библиотека книг</a>
         <a href="/app/import" data-page-link="import">Импорт глав</a>
         <a href="/app/jobs" data-page-link="jobs">Очередь переводов</a>
+        <a href="/app/editor" data-page-link="editor">Редактор</a>
         <a href="/app/team" data-page-link="team">Команда</a>
       </nav>
       <p class="sidebar-bottom">Закрытое рабочее пространство<br>Две роли: администратор и модераторы</p>
@@ -166,6 +168,7 @@
               <button type="button" class="ui-button ui-button--primary" id="import-another">Новая загрузка</button>
             </section>
           </section>
+          {% include "partials/chapter_editor.html" %}
           <section data-page="team" hidden>
             <div class="ui-page-header"><div><p class="kicker">РидЭра / Команда</p><h1>Участники</h1>
               <p>Две глобальные роли: администратор и модератор. Участники работают с общей библиотекой.</p></div></div>

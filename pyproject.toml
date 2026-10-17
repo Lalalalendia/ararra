@@ -33,6 +33,7 @@ include = ["chaptera_translation_core*", "chaptera_server*"]
 chaptera_translation_core = ["py.typed"]
 chaptera_server = [
     "web_ui/templates/*.html",
+    "web_ui/templates/partials/*.html",
     "web_ui/static/css/*.css",
     "web_ui/static/js/*.mjs",
     "web_ui/static/js/*.js",

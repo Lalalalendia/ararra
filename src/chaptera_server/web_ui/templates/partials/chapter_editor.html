@@ -1,0 +1,81 @@
+{# Adapted from books_platform/backend/app/web/templates/books/chapter_form.html.
+   Only text editing, explicit accepted revision and safe source viewer remain.
+   No price, paid toggle, publication, markdown image uploader or deletion. #}
+<section data-page="editor" hidden class="chapter-form-page">
+  <div class="ui-page-header">
+    <div>
+      <p class="kicker">РидЭра / Редактор</p>
+      <h1>Оригинал и перевод</h1>
+      <p>Исходник доступен для чтения. Редактируемый русский текст принимается
+         отдельной ревизией только после подтверждения модератора.</p>
+    </div>
+  </div>
+  <div class="ui-card editor-picker">
+    <label class="ui-field"><span>Книга</span>
+      <select class="ui-input" id="editor-book"><option value="">Выберите книгу</option></select>
+    </label>
+    <label class="ui-field"><span>Глава</span>
+      <select class="ui-input" id="editor-chapter"><option value="">Выберите главу</option></select>
+    </label>
+    <div class="chapter-authoring-nav" aria-label="Навигация по главам">
+      <button type="button" class="ui-button ui-button--ghost" id="editor-prev">← Предыдущая</button>
+      <button type="button" class="ui-button ui-button--ghost" id="editor-next">Следующая →</button>
+    </div>
+  </div>
+  <p class="ui-alert" id="editor-empty">Выберите книгу и главу. Доступные главы загрузятся с сервера.</p>
+  <section id="editor-workspace" hidden>
+    <div class="editor-versions">
+      <span>Исходник <strong id="editor-source-rev">—</strong></span>
+      <span>Принятая редакция <strong id="editor-accepted-rev">—</strong></span>
+      <span id="editor-stale" class="editor-stale" hidden>Принятый перевод устарел относительно исходника</span>
+    </div>
+    <div class="editor-columns">
+      <section class="ui-card chapter-authoring-section editor-source-col">
+        <div class="ui-section-header">
+          <h2>Оригинал (CN / исходный язык)</h2>
+          <p>Полный RAW. Ничего не исправляем и не переводим автоматически.</p>
+        </div>
+        <pre class="editor-source-text" id="editor-source" aria-label="Оригинальный текст главы"></pre>
+      </section>
+      <form class="ui-card chapter-authoring-form editor-ru-col" id="chapter-editor">
+        <div class="ui-section-header">
+          <h2>Перевод (RU)</h2>
+          <p>Редактор переносит обычный текст в HTML-абзацы при принятии.</p>
+        </div>
+        <label class="ui-field chapter-authoring-field chapter-authoring-field--full">
+          <span>Рабочая редакция</span>
+          <textarea class="ui-input chapter-authoring-textarea" id="editor-text"
+                    name="translated_text" rows="24" maxlength="1000000"
+                    spellcheck="true" placeholder="Русский перевод главы..." required></textarea>
+        </label>
+        <p id="editor-unsaved" class="editor-warning" hidden>
+          Есть несохранённые изменения. При переходе на другую главу они будут потеряны.
+        </p>
+        <label id="editor-format-warning" class="editor-warning" hidden>
+          <input type="checkbox" id="editor-format-ack">
+          В исходной редакции есть HTML-форматирование; подтверждаю преобразование в текстовые абзацы.
+        </label>
+        <p class="muted">Принятие создаёт следующую ревизию в SQLite. При изменении
+          оригинала или параллельной правке сервер вернёт конфликт, без потери прежней версии.</p>
+        <div class="chapter-authoring-actions">
+          <button type="button" class="ui-button ui-button--ghost" id="editor-reload">
+            Перезагрузить главу
+          </button>
+          <button type="submit" class="ui-button ui-button--primary" id="editor-accept" disabled>
+            Принять редакцию
+          </button>
+        </div>
+      </form>
+      <aside class="ui-card editor-notes-col">
+        <div class="ui-section-header">
+          <h2>Замечания</h2>
+          <p>Контроль качества и редакционные примечания.</p>
+        </div>
+        <p class="muted">Сохранение заметок отдельным объектом, обсуждения и статусы
+          Draft / Accepted будут подключены следующим этапом. Не помещайте
+          служебные заметки внутрь текста перевода.</p>
+        <div id="editor-info" class="editor-info"></div>
+      </aside>
+    </div>
+  </section>
+</section>

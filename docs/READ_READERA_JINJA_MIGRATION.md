@@ -33,7 +33,7 @@ admin ID задаётся на хосте, без автоматического
 | \`backend/app/web/templates/books/import_chapters.html\` | \`src/chaptera_server/web_ui/templates/shell.html\` | **Адаптация структуры**: \`chapter-import-upload\`, секции файла, пояснения, действия, история загрузок |
 | \`backend/app/web/static/js/chapter-import-status.js\` | \`src/chaptera_server/web_ui/static/js/books-platform-chapter-status.js\` + \`readera.mjs\` | **Перенесён оригинальный DOM renderer**, вызывается для авторизованных данных \`/v1/jobs\`; встроенный анонимный polling не используется |
 | \`backend/app/web/routes/books_chapter_import.py\` | \`src/chaptera_server/http/routers/ui.py\` + существующие \`http/routers/imports.py\` | **Не копировать backend напрямую:** зависим от старого пользователя, YDB, монетизации и очереди импорта |
-| \`backend/app/web/templates/books/chapter_form.html\` | **Отложено до RE-04** — отдельный редактор глав и переводов | Базу форм можно адаптировать позже, но платные главы, публикация и сценовый редактор не нужны |
+| \`backend/app/web/templates/books/chapter_form.html\` | \`src/chaptera_server/web_ui/templates/partials/chapter_editor.html\` + \`static/js/editor.mjs\` | **Переиспользована структура формы главы и навигации** для CN/RU редактора. Цены, публикация, сцены и загрузка изображений сознательно не переносились |
 | \`backend/app/web/static/js/chapter-import-form.js\` | **Не переносить:** переключает поля платных глав | Не соответствует техническому сайту |
 
 В \`readera.css\` определены CSS custom properties исходной темы и отдельно
@@ -52,6 +52,7 @@ admin ID задаётся на хосте, без автоматического
   подтверждение всей партии одним CAS-транзакционным POST. Успех показывает
   квитанцию. \`DELETE /v1/imports/stages/{id}\` явно освобождает слот
   после подтверждения пользователя. Дополнительных платных Gemini вызовов нет.
+- \`/app/editor\`: книга → главы по \`GET /v1/books/{book_id}/chapters\` с ревизиями; оригинал показывается только как текст (никакого \`innerHTML\`), русский текст — черновик в памяти вкладки до явного принятия. Принятие сохраняет следующую историческую редакцию через \`PUT .../accepted-translation\` с \`expected_revision\` и \`expected_source_revision\`. Богатое HTML-форматирование требует отдельного подтверждения при нормализации в текстовые абзацы. Смена главы/выход с несохранёнными изменениями подтверждается. **Пока не готово:** постоянный Draft и хранение заметок/QA; UI не должен изображать эти функции существующими.
 - \`/app/team\`: admin-only список участников, выдача случайных ключей
   модераторам, одноразовое отображение выданного ключа, перевыпуск,
   отключение с явным подтверждением. Нет просмотра секрета повторно.

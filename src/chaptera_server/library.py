@@ -329,6 +329,33 @@ class BookLibrary:
             return self._chapter_dict(con.execute('SELECT * FROM book_chapters WHERE book_id=? AND chapter_id=?',
                                                    (book_id, chapter_id)).fetchone())
 
+    def list_chapters(self, book_id: str) -> list[dict]:
+        """Shared table of contents with revision metadata, not full chapter bodies.
+
+        Clients fetch only the selected chapter's source and accepted text. The
+        order is stable even for irregular imported IDs or duplicate titles.
+        """
+        with self.queue._connect() as con:
+            if con.execute('SELECT 1 FROM books WHERE id=?', (book_id,)).fetchone() is None:
+                raise LibraryNotFound('Book not found')
+            rows = con.execute(
+                """SELECT chapter_id,chapter_index,chapter_path,source_revision,
+                          accepted_revision,accepted_source_revision,accepted_html
+                   FROM book_chapters WHERE book_id=?
+                   ORDER BY chapter_index,chapter_id""", (book_id,)
+            ).fetchall()
+        return [
+            {
+                'chapter_id': row['chapter_id'], 'chapter_index': row['chapter_index'],
+                'chapter_path': row['chapter_path'], 'source_revision': row['source_revision'],
+                'accepted_revision': row['accepted_revision'],
+                'accepted_source_revision': row['accepted_source_revision'],
+                'accepted_current': bool(row['accepted_html'])
+                and row['accepted_source_revision'] == row['source_revision'],
+            }
+            for row in rows
+        ]
+
     def get_chapter(self, book_id: str, chapter_id: str) -> dict:
         with self.queue._connect() as con:
             row = con.execute('SELECT * FROM book_chapters WHERE book_id=? AND chapter_id=?',

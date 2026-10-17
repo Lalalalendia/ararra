@@ -1,0 +1,37 @@
+/* Adapted from books_platform chapter_form.html and chapter-authoring controls.
+ * No paid status, publication schedule, scene studio or heavy Markdown editor.
+ */
+.editor-picker {display:flex;align-items:end;gap:14px;flex-wrap:wrap;}
+.editor-picker > .ui-field {flex:1 1 245px;}
+.chapter-authoring-nav {display:flex;gap:8px;align-items:center;}
+.editor-versions {display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:20px 0 10px;}
+.editor-versions > span {padding:8px 12px;background:#eef6f8;border:1px solid #d1e1e7;border-radius:9px;color:#365b6d;font-size:13px;}
+.editor-versions strong {color:#114b64;}
+.editor-versions .editor-stale {color:#934329;background:#fff3ec;border-color:#ecc4a9;}
+.editor-columns {display:grid;grid-template-columns:minmax(240px,1fr) minmax(290px,1.12fr) minmax(220px,.6fr);gap:14px;}
+.editor-columns > .ui-card {margin:0;min-width:0;display:flex;flex-direction:column;}
+.chapter-authoring-section .ui-section-header,
+.chapter-authoring-form .ui-section-header {margin-bottom:13px;}
+.chapter-authoring-section .ui-section-header p,
+.chapter-authoring-form .ui-section-header p {font-size:12px;}
+.editor-source-text {white-space:pre-wrap;overflow-wrap:anywhere;overflow:auto;font-family:system-ui,-apple-system,sans-serif;font-size:14px;line-height:1.75;color:#24465b;background:#f5f9fa;border-radius:9px;border:1px solid #dce8eb;padding:16px;margin:0;max-height:72vh;min-height:310px;}
+.chapter-authoring-form .chapter-authoring-textarea {font:14px/1.7 system-ui,-apple-system,sans-serif;min-height:310px;max-height:72vh;resize:vertical;margin:8px 0 0;}
+.chapter-authoring-form .ui-field {flex:1;}
+.editor-warning {background:#fff9ec;border:1px solid #ebd5a3;padding:11px 13px;border-radius:9px;color:#77541d;font-size:13px;line-height:1.5;margin:14px 0;}
+.editor-warning input {margin-right:8px;}
+.chapter-authoring-actions {margin-top:15px;display:flex;gap:10px;justify-content:space-between;flex-wrap:wrap;align-items:center;}
+.editor-info p {border-bottom:1px solid #e2edef;padding:8px 0;margin:0;font-size:12px;overflow-wrap:anywhere;}
+.editor-notes-col .ui-section-header {margin-bottom:10px;}
+.editor-notes-col .muted {font-size:13px;}
+#editor-empty {margin:16px 0;}
+@media(max-width:1170px){
+  .editor-columns {grid-template-columns:minmax(250px,1fr) minmax(290px,1fr);}
+  .editor-notes-col {grid-column:1 / -1;}
+}
+@media(max-width:720px){
+  .editor-columns {grid-template-columns:1fr;}
+  .editor-notes-col {grid-column:auto;}
+  .editor-source-text {min-height:160px;max-height:45vh;}
+  .chapter-authoring-form .chapter-authoring-textarea {min-height:280px;max-height:none;}
+  .editor-picker {display:grid;}
+}

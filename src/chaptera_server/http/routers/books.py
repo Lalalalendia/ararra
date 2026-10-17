@@ -95,6 +95,15 @@ def save_chapter(book_id: str, chapter_id: str, body: SaveChapter,
         raise map_library_error(exc) from exc
 
 
+@router.get("/{book_id}/chapters")
+def list_book_chapters(book_id: str, actor: str = Depends(require_member),
+                       library: BookLibrary = Depends(get_library)):
+    try:
+        return {"book_id": book_id, "chapters": library.list_chapters(book_id)}
+    except LibraryNotFound as exc:
+        raise map_library_error(exc) from exc
+
+
 @router.get("/{book_id}/chapters/{chapter_id}")
 def get_chapter(book_id: str, chapter_id: str, actor: str = Depends(require_member),
                 library: BookLibrary = Depends(get_library)):
