@@ -14,12 +14,51 @@ Scope: import the user's existing public-page parsing logic from `Lalalalendia/m
 - `source_collect.py`: explicit source catalog hash and per-chapter selection; bounded body extraction with SHA256 receipts, chronological assembly, duplicate-body detection, failures retained rather than silently omitted.
 - Offline tests with only injected fake HTML fetchers. Importing these modules does **not** open a socket, save any book to the library, publish, enqueue Gemini, or change the original source.
 
-## Remaining activation gates (MUST NOT claim completed)
+## Current integration slice (PR #53)
 
-1. Implement trusted `FetchHtml` using **pinned validated public DNS/IP**, HTTP(S) allowlisted hosts and paths, no redirect to other origins, TLS verification, per-domain limits, bounded streaming response and content-type checks. Reuse *principles* from uploaded `book_crawler/http_transport.py` rather than importing private Books Platform services.
-2. Add authenticated `/v1/source-books/catalog` and `/v1/source-books/collect` to a **separate router**, bounded durable jobs, cancel/resume, explicit per-source permissions, and real browser UI for site URL, metadata, TOC, chapter selection, status and error explanations.
-3. Hand off complete selected chunks to existing `ImportSessions` staging and `confirm`. Keep actor ownership, the two global roles, SHA/expected-revision CAS, explicit create/replace/skip, and accepted history. Large books must be chunked without representing a partial chunk as full book. For the 12 MiB upload / 24 MiB stage limits, explicitly batch with stable book identity and receipts.
-4. Add corpus fixtures for each enabled site and adversarial tests for login HTML, paid chapters, CAPTCHA, pagination, duplicate chapters, chapter renumbering, redirects/rebinding, 429/5xx, non-text response, disconnected worker, crash/retry and source mutation during collection.
-5. Verify current site permission and terms; do not bypass paywalls, access controls or rate restrictions. Test end-to-end source→preview→selected chapters→staging→confirm→translation on owned or otherwise authorized source material.
+- Protected routes: `GET /v1/source-books/sites`, `POST /v1/source-books/catalogs`,
+  `GET /v1/source-books/catalogs/{id}`, `POST /v1/source-books/catalogs/{id}/collect`,
+  and actor-only `GET /v1/source-books/stages/{stage_id}/provenance`.
+- All book URLs and discovered chapter URLs must match explicit MED supported public HTTPS sites. The
+  network layer uses the code principles of the supplied book_crawler pinned-IP transport:
+  addresses resolved and rejected if private/non-global **at connect time**, disabled environment proxies,
+  strict TLS, no redirects, bounded streaming/decompression, content-type check, robots policy,
+  and process-wide per-host pacing. No credential, JS challenge or paywall bypass.
+- Actor-scoped catalog in SQLite has immutable SHA-256 of ordered (ordinal, source_id, URL)
+  and short expiration. Changing the catalog requires another explicit preview.
+- Up to 20 contiguous selected chapters per collection; every chapter must exist in the
+  observed catalog. Partial or duplicate-body replies return an explicit failure receipt
+  but **do not** create an import stage. A successful collection uses escaped `<h1>` headings
+  and `<p>` bodies to prevent false chapter delimiters and is staged with existing
+  `ImportSessions.stage`, which still requires `confirm` from the moderator.
+- URLs, IDs and content digests are recorded in `source_book_stage_receipts`, without
+  duplicating source prose. Stage actor ownership and ordinary source revision CAS stay in force.
+- UI in `/app/import`: public site picker, URL, observed TOC, explicit start/end,
+  partial failure diagnostics, handoff to existing import mapping and confirmation.
 
-This is **one first engineering slice**, not user-complete site import. It should remain draft until the above application wiring is available and CI passes. No live crawling or Gemini billable calls are performed by this PR.
+## Known limitations and follow-ups
+
+1. This remains a Draft **until the exact final head passes Python 3.11/3.12,
+   architecture check, Node and real Chromium**, with manual code/security review.
+   No permanent deployment, no live crawling claim, no paid Gemini operation.
+2. Each collection is synchronous, capped at 20 chapters and has no durable individual-chapter
+   resume on crash. For whole books with thousands of chapters, add a bounded asynchronous
+   worker/checkpoint layer; reuse MED/ZIP durability concepts without its unrelated ORM.
+3. Library metadata and selected source chapter identities are durable, but only the
+   staged and human-confirmed original chapters enter the existing BookLibrary;
+   **the capture does not auto-translate or auto-publish**.
+4. The HTML-only three-site adapters parse the **currently observed page**. They do not
+   guarantee complete cross-page catalog coverage on every site. Explicit TOC gaps are shown.
+   More profiles (including `book_crawler.zip` Rulate/NovelGo/IFreedom/Boovell/
+   RanobeLib/MirNovel, Narou/Fanqie from MED) need independently proven parsers,
+   per-site access/robots checks and corpus fixtures; they are not considered enabled.
+5. SSRF tests include private/mixed DNS, redirect and over-budget bodies, but also add
+   a production-network/TLS certificate integration gate before deployment. On
+   httpx/httpcore transport internals change, the code refuses startup rather
+   than quietly disabling pinned DNS.
+6. Source site access restrictions, publisher rights and robots must be respected.
+   A detected block is a visible failure, not an invitation to change UA or bypass it.
+
+**Supported first slice:** public pages with numbered same-book chapter links on
+Royal Road, WebNovel and UUKanshu. Existing file import remains unchanged.
+
