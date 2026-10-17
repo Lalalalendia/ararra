@@ -24,7 +24,7 @@ RPD = `requests per day`; также существуют `requests per minute` 
 [Gemini token counting](https://ai.google.dev/gemini-api/docs/tokens),
 [Google AI Studio usage/rate limits](https://aistudio.google.com/).
 
-## Настройка только на worker-хосте
+## Настройка worker и read-only API
 
 ```ini
 CHAPTERA_GEMINI_MODEL=gemini-3.8-flash
@@ -98,3 +98,23 @@ CHAPTERA_GEMINI_REQUESTS_PER_DAY=21
 
 **Не запускать автоматический платный тест, пока не пройдены
 RE-01 VPS/HTTPS и добровольное подтверждение бюджета.**
+
+
+## RE-06B-QUOTA-READ-01: безопасное отображение дневной квоты
+
+**Раздельные процессы:** для отображения статуса API должен получить
+те же три несекретных параметра `CHAPTERA_GEMINI_MODEL`,
+`CHAPTERA_GEMINI_QUOTA_PROJECT` и `CHAPTERA_GEMINI_REQUESTS_PER_DAY`,
+что и worker, и использовать ту же SQLite-базу. `CHAPTERA_GEMINI_API_KEY`
+для чтения квоты в API **не нужен** и не должен туда передаваться.
+Если параметры настроены только у worker, API честно вернёт
+`enabled=false`, даже если worker ведёт дневной счётчик.
+Не запрашивать и не угадывать project ID по содержимому базы.
+
+
+- `GET /v1/quota/gemini` требует аутентификацию участника команды и не вызывает Gemini. Ответ не содержит идентификатор Google-проекта или секреты.
+- `enabled=false` означает, что локальный лимит не настроен. Это **не** утверждение о безлимитном тарифе.
+- При `enabled=true` API сообщает модель, день Pacific, зарезервированные попытки (`used`), защитный cap (`limit`), локальный остаток (`remaining`), момент следующей Pacific-полуночи (`reset_at`) и флаг `externally_blocked`.
+- Чтение не резервирует запросы и не создаёт таблицу ledger, если worker ещё ни разу не работал.
+- Вкладка «Очередь переводов» показывает остаток и локальное время сброса. Учёт охватывает только запросы, которые проходили через **эту SQLite-базу**, а не весь расход Google-проекта.
+- Это счётчик попыток, а не оплаченных токенов. RPM/TPM, токенизация и фактические расходы остаются отдельными задачами RE-06B.

@@ -34,6 +34,7 @@ jobs:
         run: |
           node --check src/chaptera_server/web_ui/static/js/readera.mjs
           node --check src/chaptera_server/web_ui/static/js/library-view.mjs
+          node --check src/chaptera_server/web_ui/static/js/jobs-view.mjs
           node --check src/chaptera_server/web_ui/static/js/books-platform-chapter-status.js
           node --check src/chaptera_server/web_ui/static/js/import-model.mjs
           node --check src/chaptera_server/web_ui/static/js/editor.mjs

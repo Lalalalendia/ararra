@@ -28,6 +28,34 @@ def pacific_window(instant: float) -> tuple[str, float]:
     ).timestamp()
 
 
+def read_daily_quota_status(store: QueueStore, project: str, model: str,
+                            limit: int, *, now: float | None = None) -> dict:
+    """Read the local RPD ledger without creating tables or reserving requests.
+
+    This is a *local attempt count*, not the provider's complete project usage
+    or a billable token meter. The caller must not return the project ID.
+    """
+    moment = time.time() if now is None else now
+    day, reset = pacific_window(moment)
+    with store._connect() as con:
+        exists = con.execute("""
+            SELECT 1 FROM sqlite_master
+            WHERE type='table' AND name='gemini_daily_requests'
+        """).fetchone()
+        row = con.execute("""
+            SELECT used, externally_blocked FROM gemini_daily_requests
+            WHERE project=? AND model=? AND pacific_day=?
+        """, (project, model, day)).fetchone() if exists else None
+    used = int(row["used"]) if row else 0
+    blocked = bool(row["externally_blocked"]) if row else False
+    return {
+        "model": model, "pacific_day": day,
+        "used": used, "limit": limit,
+        "remaining": 0 if blocked else max(0, limit - used),
+        "reset_at": reset, "externally_blocked": blocked,
+    }
+
+
 class DailyQuotaExhausted(RuntimeError):
     def __init__(self, reset_at: float):
         super().__init__("Gemini daily request allowance exhausted")
@@ -58,21 +86,9 @@ class DailyQuotaLedger:
             """)
 
     def status(self, *, now: float | None = None) -> dict:
-        moment = time.time() if now is None else now
-        day, reset = pacific_window(moment)
-        with self.store._connect() as con:
-            row = con.execute("""
-                SELECT used, externally_blocked FROM gemini_daily_requests
-                WHERE project=? AND model=? AND pacific_day=?
-            """, (self.project, self.model, day)).fetchone()
-        used = int(row["used"]) if row else 0
-        blocked = bool(row["externally_blocked"]) if row else False
-        return {
-            "model": self.model, "pacific_day": day,
-            "used": used, "limit": self.limit,
-            "remaining": 0 if blocked else max(0, self.limit - used),
-            "reset_at": reset, "externally_blocked": blocked,
-        }
+        return read_daily_quota_status(
+            self.store, self.project, self.model, self.limit, now=now
+        )
 
     def reserve(self, *, now: float | None = None) -> dict:
         """Commit one conservative attempted call in SQLite before network IO."""

@@ -11,7 +11,7 @@ from fastapi.routing import APIRoute
 from chaptera_server.api import create_app
 from chaptera_server.config import Settings
 from chaptera_server.http.dependencies import require_member
-from chaptera_server.http.routers import books, health, identity, imports, jobs, editorial
+from chaptera_server.http.routers import books, health, identity, imports, jobs, editorial, quota
 from chaptera_server.storage import QueueStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,6 +58,7 @@ ROUTE_CONTRACT = {
     ('GET', '/v1/jobs'),
     ('GET', '/v1/jobs/{job_id}'),
     ('GET', '/v1/jobs/{job_id}/events'),
+    ('GET', '/v1/quota/gemini'),
     ('POST', '/v1/jobs/{job_id}/cancel'),
 }
 
@@ -108,7 +109,7 @@ def test_http_paths_and_methods_are_unique_and_stable(tmp_path):
     # the canonical APIRouters instead of version-dependent app internals.
     http_routes = [
         route
-        for owner in (books, health, identity, imports, jobs, editorial)
+        for owner in (books, health, identity, imports, jobs, editorial, quota)
         for route in owner.router.routes
         if isinstance(route, APIRoute)
     ]

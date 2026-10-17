@@ -11,7 +11,7 @@ from .import_sessions import ImportSessions
 from .editorial import EditorialStore
 from .team_credentials import TeamCredentials
 from .storage import QueueStore
-from .http.routers import books, health, identity, imports, jobs, ui, editorial
+from .http.routers import books, health, identity, imports, jobs, quota, ui, editorial
 from .http.routers.ui import ASSETS as UI_ASSETS
 
 # Keep historical Python imports of request models working for existing callers.
@@ -40,6 +40,7 @@ def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
     app.include_router(imports.router)
     app.include_router(editorial.router)
     app.include_router(jobs.router)
+    app.include_router(quota.router)
     # Jinja2 shell + static sources copied/adapted from books_platform.
     # Existing /v1 API and the optional React pilot are untouched.
     app.mount("/app-static", StaticFiles(directory=str(UI_ASSETS / "static")),

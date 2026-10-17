@@ -8,6 +8,7 @@ import {
 } from './import-model.mjs';
 import {initChapterEditor} from './editor.mjs';
 import {createLibraryView} from './library-view.mjs';
+import {renderDailyQuota,renderJobs} from './jobs-view.mjs';
 
 const $ = id => document.getElementById(id);
 const sections = Array.from(document.querySelectorAll('[data-page]'));
@@ -298,30 +299,22 @@ async function modifyMember(memberId,action) {
   });
 }
 async function refreshJobs() {
-  const reply=await request('/v1/jobs?limit=50');
-  const jobs=reply.jobs || [];
-  const root=$('jobs-list');root.replaceChildren();
-  for(const job of jobs) {
-    const item=document.createElement('article');item.className='chapter-import-queue__item';
-    const main=document.createElement('div');main.className='chapter-import-queue__main';
-    text(main,'Задание '+shorten(job.id,80),'strong');
-    text(main,shorten(job.chapter_id,80),'small');
-    const meta=document.createElement('div');meta.className='chapter-import-queue__meta';
-    const label=text(meta,job.status,'span');
-    label.dataset.importStatusLabel='';
-    item.append(main,meta);root.append(item);
-    // Reuse the ported books_platform renderer on already authorized job JSON.
-    // No second polling loop or unauthenticated fetch of /v1/jobs.
-    if(window.ReadEraStatus) {
-      window.ReadEraStatus.renderStatus(item, {
-        status:job.status==='completed'?'succeeded':job.status,
-        status_label:job.status, progress:{current:0,total:0},
-        result:{}, preview:{}, error_message:'',
-      });
-    }
-  }
-  $('metric-jobs').textContent=String(jobs.filter(j=>['queued','retry_wait','running'].includes(j.status)).length);
-  if (!jobs.length) text(root,'Заданий пока нет.','p');
+  const [jobsResult,quotaResult]=await Promise.allSettled([
+    request('/v1/jobs?limit=50'),
+    request('/v1/quota/gemini'),
+  ]);
+  if(jobsResult.status!=='fulfilled') throw jobsResult.reason;
+  renderDailyQuota($('gemini-quota-status'),
+    quotaResult.status==='fulfilled' ? quotaResult.value : null);
+  const jobs=jobsResult.value.jobs || [];
+  renderJobs($('jobs-list'),jobs,{
+    text,shorten,
+    renderStatus:window.ReadEraStatus
+      ? (item,status)=>window.ReadEraStatus.renderStatus(item,status)
+      : null,
+  });
+  $('metric-jobs').textContent=String(
+    jobs.filter(j=>['queued','retry_wait','running'].includes(j.status)).length);
 }
 $('jobs-refresh').addEventListener('click',()=>void refreshJobs().catch(e=>flash(e.message,true)));
 
