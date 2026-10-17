@@ -66,9 +66,18 @@
               <p>Все книги доступны администрации и модераторам; ответственный за книгу — учётное поле, не дополнительная роль.</p>
             </div><a class="ui-button ui-button--primary" href="/app/import" data-page-link="import">+ Импортировать</a></div>
             <div class="ui-card">
-              <label class="ui-field"><span>Поиск по названию, ID или ответственному</span>
-                <input id="book-filter" class="ui-input" type="search" placeholder="Найти книгу">
-              </label>
+              <div class="field-grid">
+                <label class="ui-field"><span>Поиск по названию, ID или ответственному</span>
+                  <input id="book-filter" class="ui-input" type="search" placeholder="Найти книгу">
+                </label>
+                <label class="ui-field"><span>Список книг</span>
+                  <select id="book-owner-filter" class="ui-input">
+                    <option value="all">Все книги</option>
+                    <option value="mine">Мои книги</option>
+                    <option value="unassigned">Без ответственного</option>
+                  </select>
+                </label>
+              </div>
               <div class="table-scroll"><table class="ui-table">
                 <thead><tr><th>Название / ID</th><th>Глав</th><th>Актуально принято</th><th>Ответственный</th><th>Действия</th></tr></thead>
                 <tbody id="book-list"></tbody>
