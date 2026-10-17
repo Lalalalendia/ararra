@@ -72,8 +72,14 @@ Inspect the job with `GET /v1/jobs/{job_id}` or its events with `GET /v1/jobs/{j
 `CHAPTERA_TEAM_TOKENS_JSON`) can inspect the team roster via
 `GET /v1/admin/members` (member IDs and role labels only; never API keys).
 **Moderator** is every other authenticated team member and receives HTTP 403
-for the admin-only endpoint. `GET /v1/me` reports the caller's member ID
-and role. Without a configured administrator **nobody is implicitly promoted**:
+for admin-only endpoints. `GET /v1/me` reports the caller's member ID
+and role. `GET /v1/admin/members` lists active and disabled members without
+revealing bearer tokens. `POST /v1/admin/members` issues a new random
+moderator token once; `POST /v1/admin/members/{member_id}/rotate` replaces a
+token, while `POST /v1/admin/members/{member_id}/disable` revokes it and
+cancels pending jobs. These APIs are available through the `/team` React
+admin screen; an administrator pastes their protected key into memory only,
+not browser storage or server logs. Without a configured administrator **nobody is implicitly promoted**:
 all members are moderators, including the first member. An unknown admin ID
 fails startup rather than falling back to arbitrary credentials.
 
@@ -83,8 +89,15 @@ The role model deliberately does not introduce per-book assignments. API tokens
 and the administrator identity are managed by the trusted host operator through
 protected environment/systemd deployment configuration; member creation,
 token rotation, and admin transfer are NOT exposed as unreviewed HTTP writes.
-The administrator can manage the credentials through that operational process.
-No RBAC rollout occurs on the VPS until an explicitly reviewed deploy.
+The administrator can manage legacy configured credentials through that
+operational process; new moderator credentials are stored as one-way SHA-256
+digests in the same durable SQLite database and are never recoverable via
+the API. Existing static moderator secrets are immediately invalidated when
+rotated or disabled through the admin API. The administrator credential remains
+host/operator-managed and cannot be replaced via HTTP.
+Moderator invitation delivery is manual via a secure channel, not email. If
+book ownership tracking is enabled, reassign books before disabling the owner.
+No RBAC or admin UI rollout occurs on the VPS until an explicitly reviewed deploy.
 
 ## Import-file preview (new in v0.6)
 
