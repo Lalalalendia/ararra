@@ -92,6 +92,19 @@ function showPage(page, push=false) {
     if (selected) link.setAttribute('aria-current','page');
     else link.removeAttribute('aria-current');
   });
+  // Direct links to /app/editor (and browser back/forward) must reveal the
+  // active section within the narrow horizontally scrollable mobile nav.
+  const nav=document.querySelector('.sidebar-nav');
+  if(nav && window.matchMedia('(max-width: 540px)').matches){
+    const active=nav.querySelector('a[aria-current="page"]');
+    if(active){
+      const frame=nav.getBoundingClientRect();
+      const rect=active.getBoundingClientRect();
+      if(rect.left<frame.left+4 || rect.right>frame.right-4){
+        nav.scrollLeft+=rect.left-frame.left-4;
+      }
+    }
+  }
   clearSecret();
   if (!identity) return true;
   if (page==='editor' && editor) void editor.activate().catch(e=>flash(e.message,true));
