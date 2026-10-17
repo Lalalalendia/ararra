@@ -14,13 +14,14 @@ from typing import Callable, Iterable
 from .ports import (
     ChapterInput, ChapterResult, ProviderRequest, TranslationProvider,
     TranslationEvent, TranslationEventHandler, TranslationCancelled,
-    TranslationRejected,
+    TranslationRejected, AtomCheckpoint,
 )
 from .prompt_policy import compose_prompt
 from .atom_transport import (
     MAX_REPAIR_ROUNDS, MAX_REPAIR_DOMAINS_PER_ROUND,
     prepare_source_atoms, packets_for_atoms, parse_packet_response,
     merge_proven_segments, repair_domains, apply_proven_repair, atom_provenance,
+    atom_checkpoint_key,
 )
 from .core.translation_units import build_render_plan, expected_render_domain_covers
 from .core.worker_helpers.translation_completeness import (
@@ -45,10 +46,12 @@ class TranslationCore:
     """
 
     def __init__(self, provider: TranslationProvider, *, on_event: TranslationEventHandler | None = None,
-                 is_cancelled: Callable[[], bool] | None = None):
+                 is_cancelled: Callable[[], bool] | None = None,
+                 atom_checkpoint: AtomCheckpoint | None = None):
         self.provider = provider
         self.on_event = on_event
         self.is_cancelled = is_cancelled
+        self.atom_checkpoint = atom_checkpoint
 
     def _emit(self, chapter_id: str, stage: str, detail: str = '') -> None:
         if self.on_event is not None:
@@ -112,6 +115,39 @@ class TranslationCore:
             unit_count=len(units),
         )
 
+    async def _proven_atom_request(self, chapter_id: str, prompt: str,
+                                  payload: str, atoms: tuple, role: str,
+                                  on_usage):
+        """Reuse exact source-owned atom requests after re-validating their reply.
+
+        Desktop reconciliation and repair algorithms remain the authority;
+        the server's SQLite port only caches a proved raw response.
+        """
+        key = atom_checkpoint_key(prompt, payload, role)
+        cached = self.atom_checkpoint.load(key) if self.atom_checkpoint else None
+        reused = cached is not None
+        if reused:
+            self._emit(chapter_id, 'atom_checkpoint_hit', f'role={role}')
+            raw = cached
+        else:
+            raw = await self.provider.generate(ProviderRequest(
+                chapter_id, prompt, payload, len(atoms), 'atoms_v1',
+                on_usage, request_role=role, is_cancelled=self.is_cancelled,
+            ))
+        self._cancel_check()
+        try:
+            result = parse_packet_response(raw, atoms)
+        except ValueError as exc:
+            raise TranslationRejected(
+                chapter_id, 'atom_checkpoint' if reused else 'atom_identity', str(exc),
+            ) from exc
+        # Partial but proven source segments can be repaired by the existing
+        # debt loop. Store only packets with at least one valid segment.
+        if self.atom_checkpoint and not reused and result.segments:
+            self.atom_checkpoint.save(key, raw)
+            self._emit(chapter_id, 'atom_checkpoint_saved', f'role={role}')
+        return result
+
     async def _translate_atoms(self, chapter: ChapterInput, source: str, marked_source: str,
                                units: list[dict]) -> ChapterResult:
         # Source owned identity and DOM are prepared ONCE; the provider only supplies text.
@@ -134,19 +170,14 @@ class TranslationCore:
                     self._emit(chapter.chapter_id, 'context_conflict', f'count={diagnostics.context_conflicts}')
             self._emit(chapter.chapter_id, 'atom_batch',
                        f'{index}/{len(batches)} atoms={len(batch.atoms)} prompt_chars={len(prompt)} payload_chars={len(batch.payload)}')
-            raw = await self.provider.generate(ProviderRequest(
-                chapter.chapter_id, prompt, batch.payload, len(batch.atoms), 'atoms_v1',
-                lambda usage, part=index: self._emit(chapter.chapter_id, 'gemini_usage',
-                    f'batch={part} prompt_tokens={usage.get("promptTokenCount", 0)} '
+            part = await self._proven_atom_request(
+                chapter.chapter_id, prompt, batch.payload, batch.atoms,
+                'translation',
+                lambda usage, number=index: self._emit(chapter.chapter_id, 'gemini_usage',
+                    f'batch={number} prompt_tokens={usage.get("promptTokenCount", 0)} '
                     f'output_tokens={usage.get("candidatesTokenCount", 0)} '
                     f'total_tokens={usage.get("totalTokenCount", 0)}'),
-                request_role='translation', is_cancelled=self.is_cancelled,
-            ))
-            self._cancel_check()
-            try:
-                part = parse_packet_response(raw, batch.atoms)
-            except ValueError as exc:
-                raise TranslationRejected(chapter.chapter_id, 'atom_identity', str(exc)) from exc
+            )
             accepted.append(part)
         try:
             coverage = merge_proven_segments(atoms, accepted)
@@ -169,19 +200,13 @@ class TranslationCore:
                 payload = packets_for_atoms(domain)[0].payload
                 prompt, _ = compose_prompt(chapter, marked_source, source,
                                            atom_payload=payload, repair=True)
-                raw = await self.provider.generate(ProviderRequest(
-                    chapter.chapter_id, prompt, payload, len(domain), 'atoms_v1',
+                part = await self._proven_atom_request(
+                    chapter.chapter_id, prompt, payload, domain, 'targeted_repair',
                     lambda usage: self._emit(chapter.chapter_id, 'gemini_repair_usage',
                         f'prompt_tokens={usage.get("promptTokenCount", 0)} '
                         f'output_tokens={usage.get("candidatesTokenCount", 0)} '
                         f'total_tokens={usage.get("totalTokenCount", 0)}'),
-                    request_role='targeted_repair', is_cancelled=self.is_cancelled,
-                ))
-                self._cancel_check()
-                try:
-                    part = parse_packet_response(raw, domain)
-                except ValueError as exc:
-                    raise TranslationRejected(chapter.chapter_id, 'atom_identity', str(exc)) from exc
+                )
                 coverage = apply_proven_repair(coverage, part)
         self._emit(chapter.chapter_id, 'validating')
         plan = build_render_plan(marked_source, coverage)
