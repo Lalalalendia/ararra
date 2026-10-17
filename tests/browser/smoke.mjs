@@ -111,6 +111,43 @@ try{
   await page.locator('#book-list').getByText('Браузерная проверка').waitFor();
   assert.match(await page.locator('#book-list').innerText(),/writer/);
   await screenshot(page,'06-library-desktop.png');await fit(page,'books desktop');
+
+  // Bookplatform-derived editor: safe original view, RU accepted revisions,
+  // never replacing source or losing another editor's accepted revision.
+  await choose(page,'editor');
+  await page.locator('#editor-workspace').waitFor({state:'visible',timeout:15000});
+  assert.equal(await page.locator('#editor-book').inputValue(),'browser-novel');
+  assert.equal(await page.locator('#editor-chapter').inputValue(),'12');
+  assert.match(await page.locator('#editor-source').innerText(),/Первое предложение/);
+  assert.equal(await page.locator('#editor-accept').isEnabled(),false);
+  await screenshot(page,'07-editor-empty-ru.png');
+  await page.locator('#editor-text').fill('Глава 12. Первая\n\nРусский литературный перевод.');
+  assert.equal(await page.locator('#editor-accept').isEnabled(),true);
+  await page.locator('#editor-accept').click();
+  await page.locator('#editor-accepted-rev').getByText('rev 1').waitFor();
+  const translation=await api('/v1/books/browser-novel/chapters/12',issued);
+  assert.equal(translation.data.accepted_revision,1);
+  assert.equal(translation.data.accepted_current,true);
+  assert.match(translation.data.accepted_html,/Русский литературный перевод/);
+  assert.equal(await page.locator('#editor-accept').isEnabled(),false);
+  await screenshot(page,'08-editor-accepted.png');
+
+  await page.locator('#editor-text').fill('Вторая редакция модератора.');
+  const elsewhere=await api('/v1/books/browser-novel/chapters/12/accepted-translation',
+    issued,'PUT',{translated_html:'<p>Редакция другого редактора.</p>',
+      expected_revision:1,expected_source_revision:1});
+  assert.equal(elsewhere.status,200);
+  await page.locator('#editor-accept').click();
+  await page.locator('#flash').getByText(/Конфликт версий/).waitFor({timeout:15000});
+  assert.equal(await page.locator('#editor-unsaved').isVisible(),true);
+  assert.equal((await api('/v1/books/browser-novel/chapters/12',issued)).data.accepted_revision,2);
+  await screenshot(page,'09-editor-conflict.png');
+  page.once('dialog',d=>void d.accept());
+  await page.locator('#editor-reload').click();
+  await page.locator('#editor-accepted-rev').getByText('rev 2').waitFor();
+  assert.match(await page.locator('#editor-text').inputValue(),/Редакция другого редактора/);
+  await fit(page,'editor desktop');
+
   await choose(page,'jobs');
   await page.locator('#jobs-refresh').click();
   await screenshot(page,'07-jobs-desktop.png');
@@ -160,7 +197,12 @@ try{
   await mpage.locator('#book-list').getByText('Браузерная проверка').waitFor();
   await fit(mpage,'books mobile');await screenshot(mpage,'09-library-mobile.png');
   await choose(mpage,'import');await fit(mpage,'import mobile');
-  await screenshot(mpage,'10-import-mobile.png');await mobile.close();
+  await screenshot(mpage,'10-import-mobile.png');
+  await choose(mpage,'editor');
+  await mpage.locator('#editor-workspace').waitFor({state:'visible'});
+  await fit(mpage,'editor mobile');
+  await screenshot(mpage,'11-editor-mobile.png');
+  await mobile.close();
 
   // Book ownership prevents disabling an account until explicit reassignment.
   await page.goto(origin+'/app/team');await login(page,adminKey);
