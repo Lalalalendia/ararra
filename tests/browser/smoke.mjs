@@ -94,6 +94,8 @@ try{
     book_url:'https://www.royalroad.com/fiction/142007/aura',
     catalog_sha256:'a'.repeat(64),expires_at:1900000000,
     chapter_count:2,first_ordinal:1,last_ordinal:2,catalog_gaps:[],
+    toc_page_count:2,declared_chapter_count:2,
+    coverage_state:'declared_count_matched',scope:'observed_public_html_only',
     chapters:[
       {ordinal:1,title:'First',source_id:'60001',url:'https://www.royalroad.com/fiction/142007/aura/chapter/60001/1-first'},
       {ordinal:2,title:'Second',source_id:'60002',url:'https://www.royalroad.com/fiction/142007/aura/chapter/60002/2-second'},
@@ -119,6 +121,8 @@ try{
   await page.locator('#source-discover').click();
   await page.locator('#source-catalog').waitFor({state:'visible'});
   assert.equal(await page.locator('#source-rows tr').count(),2);
+  assert.match(await page.locator('#source-summary').innerText(),/Просмотрено страниц оглавления: 2/);
+  assert.match(await page.locator('#source-summary').innerText(),/Счётчик сайта: 2/);
   await page.locator('#source-end').fill('2');
   await page.locator('#source-collect').click();
   await page.getByText('Импорт не создан.',{exact:false}).waitFor();
