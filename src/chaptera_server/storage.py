@@ -258,6 +258,11 @@ class QueueStore:
                                       WHERE r.job_id=jobs.id AND r.phase='finalize_only'
                                       AND r.finalize_failures<3
                                   ) THEN 'retry_wait'
+                                  WHEN EXISTS (
+                                      SELECT 1 FROM atom_recovery_state AS r
+                                      WHERE r.job_id=jobs.id AND r.phase='finalize_only'
+                                      AND r.finalize_failures>=3
+                                  ) THEN 'failed'
                                   WHEN attempts>=max_attempts THEN 'failed'
                                   ELSE 'retry_wait' END,
                     attempts = CASE WHEN cancel_requested=0 AND EXISTS (
