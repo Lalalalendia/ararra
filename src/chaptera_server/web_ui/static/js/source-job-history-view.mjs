@@ -39,7 +39,13 @@ export function createSourceJobHistoryView({request,flash,onOpen,onDelete}) {
       const time=Number.isFinite(job.updated_at)
         ?new Date(job.updated_at*1000).toLocaleString('ru-RU'):'без даты';
       const source=String(job.source||'источник');
-      option.textContent=source+' · '+job.selected_start+'–'+job.selected_end+
+      let book='книга';
+      try {
+        const path=new URL(job.book_url).pathname.split('/').filter(Boolean);
+        book=decodeURIComponent(path.at(-1)||'книга').replace(/[-_]+/g,' ').slice(0,60);
+      }catch{/* Only server-verified public book URLs are expected. */}
+      option.title=String(job.book_url||'');
+      option.textContent=source+' · '+book+' · '+job.selected_start+'–'+job.selected_end+
         ' · '+(stateNames[job.status]||job.status)+' · '+job.completed+'/'+job.total+
         ' · '+time;
       picker.append(option);
