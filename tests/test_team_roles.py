@@ -77,8 +77,8 @@ def test_api_reports_only_two_global_roles_and_admin_roster_is_private(tmp_path)
             response = await c.get("/v1/admin/members", headers=ADMIN)
             assert response.status_code == 200
             assert response.json() == {"members": [
-                {"member_id": "alice", "role": "admin"},
-                {"member_id": "mod", "role": "moderator"},
+                {"member_id": "alice", "role": "admin", "status": "active", "credential_source": "configuration"},
+                {"member_id": "mod", "role": "moderator", "status": "active", "credential_source": "configuration"},
             ]}
             assert "a-secret" not in response.text
             assert "m-secret" not in response.text

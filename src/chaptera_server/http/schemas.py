@@ -83,3 +83,8 @@ class ConfirmBookImport(BaseModel):
     owner_member_id: str | None = Field(default=None, max_length=128)
     prefix_policy: Literal["reject", "preserve", "discard"] = "reject"
     chapters: list[ImportChapterDecision] = Field(min_length=1, max_length=2000)
+
+
+class InviteModerator(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    member_id: str = Field(min_length=1, max_length=64)

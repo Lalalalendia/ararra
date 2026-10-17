@@ -8,7 +8,21 @@ This is a **server-only contract**. `full_cycle_app` and the Windows executable 
 - `GET /healthz` is the sole public endpoint; all `/v1/*` methods require the team member's `X-API-Key`. Missing or invalid keys return 401. Team members share one workspace.
 - Exactly two **global** team roles: `admin` (one member selected by `CHAPTERA_ADMIN_MEMBER_ID`) and `moderator` (every other valid team token). No book-local role table or permissions. Without explicit admin configuration, no caller gains admin controls.
 - `GET /v1/me` returns only `{"member_id":"...","role":"admin|moderator"}` for any authenticated member.
-- `GET /v1/admin/members` requires an administrator: missing/wrong token -> 401, valid moderator token -> 403, admin token -> `{"members":[{"member_id":"...","role":"..."}]}` without credentials. This endpoint is read-only; token provisioning is still operator-managed.
+- \`GET /v1/admin/members\`: administrator-only. Returns \`{members:[{member_id,role,status,credential_source}]}\`, never a token/digest. Existing static credentials remain supported; managed overrides show \`credential_source=managed\`.
+- \`POST /v1/admin/members\` with \`{"member_id":"editor2"}\`: admin-only, **201** one-time \`access_token\` for a NEW moderator. The role cannot be supplied or elevated.
+- \`POST /v1/admin/members/{member_id}/rotate\`: admin-only, **200** one-time replacement \`access_token\`, immediately invalidating prior static OR managed token. A previously disabled moderator is reactivated only by rotation.
+- \`POST /v1/admin/members/{member_id}/disable\`: admin-only, **200** status disabled. Invalidates all currently known moderator credentials, cancels queued/retry jobs and signals running jobs to stop. **409** if the moderator still owns any books after the separate ownership schema is introduced: reassign those books first.
+- Error statuses: 401 invalid/missing token, 403 moderator trying an admin action, 404 unknown moderator, 409 duplicate ID/admin credential operation/book ownership conflict, 422 invalid member ID. All admin and token-issuance replies set \`Cache-Control: no-store, private\`.
+
+### Moderator access security invariants (RE-03-MEMBER-MGMT)
+
+- The **single administrator's** ID and bearer key remain solely in the protected \`team_tokens_json\` systemd credential/config, selected explicitly via \`CHAPTERA_ADMIN_MEMBER_ID\`. No implicit admin and **no HTTP endpoint** for changing/admin promotion.
+- Only **moderators** may be issued/rotated/disabled over authenticated admin API. New tokens have >=256 random bits (\`secrets.token_urlsafe(32)\`); SQLite stores **only SHA-256 digests**, never the bearer secret. The issue/rotation response displays the token once; subsequent GET/list/reload cannot recover it.
+- Static configured moderator keys remain compatible until an admin rotates or disables that member. At that point a DB override rejects the old static key immediately, including without a process restart. Existing administrator key is exempt from DB overrides.
+- Moderator credentials persist across API restarts in the same SQLite database (back it up). Revocation and job cancellation are committed in one SQLite transaction, with audit events that contain only member IDs/actions, **no token bytes**. An already-running provider request may have been billed before cancellation is observed; do not promise network-level abort.
+- UI at \`/team\` requires manual administrator key entry **per browser tab**. Secret stays in React component memory, never browser storage or URL. HTTP calls go through \`web/src/shared/api/team.ts\`; Vite proxies \`/v1\` for local development. Browser is not a substitute for HTTPS or a locked-down VPN/tunnel in deployment.
+- Sending invitations by email, public signup, account password reset, cookie sessions, one-time magic links, rotating the administrator credential, and production deployment are **not** part of this package.
+
 
 - `POST /v1/jobs` accepts a single chapter (`chapter_id`, `source_html`), optionally source/target language, scoped glossary, context and protocol. Omitting `transport` preserves **`html_v0`** for existing clients. `atoms_v1` must be selected explicitly.
 - `Idempotency-Key` is scoped to a team member. A second identical request returns the same job; reusing the key with changed input produces 409.
