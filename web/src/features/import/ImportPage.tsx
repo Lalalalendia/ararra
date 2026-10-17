@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent, type FormEvent } from 'react';
+import { useState, type ChangeEvent, type DragEvent, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { Panel } from '../../shared/ui/Panel';
 import { routePaths } from '../../routes/paths';
@@ -73,8 +73,7 @@ export function ImportPage() {
     } finally { setWorking(false); }
   }
 
-  function fileChanged(event: ChangeEvent<HTMLInputElement>) {
-    const candidate = event.target.files?.[0] ?? null;
+  function chooseFile(candidate: File | null) {
     setFile(candidate); setUploadKey(candidate ? crypto.randomUUID() : '');
     setMessage('');
     if (!candidate) return;
@@ -84,6 +83,15 @@ export function ImportPage() {
     } else if (!candidate.size || candidate.size > MAX_IMPORT_BYTES) {
       setMessage('Файл пуст или превышает лимит 12 МиБ.');
     }
+  }
+
+  function fileChanged(event: ChangeEvent<HTMLInputElement>) {
+    chooseFile(event.target.files?.[0] ?? null);
+  }
+  function dropFile(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    if (working) return;
+    chooseFile(event.dataTransfer.files[0] ?? null);
   }
 
   function showStage(snapshot: StageSnapshot) {
@@ -113,6 +121,17 @@ export function ImportPage() {
       const opened = await importApi.stage(key, file, uploadKey);
       const detailed = await importApi.stageDetails(key, opened.stage_id);
       showStage(detailed);
+    } catch (error) { setMessage(explain(error)); }
+    finally { setWorking(false); }
+  }
+
+  async function abortStage() {
+    if (!stage || receipt) { resetStage(); return; }
+    setWorking(true); setMessage('');
+    try {
+      await importApi.cancelStage(key, stage.stage_id);
+      resetStage();
+      setMessage('Временная загрузка отменена, место освобождено.');
     } catch (error) { setMessage(explain(error)); }
     finally { setWorking(false); }
   }
@@ -224,8 +243,8 @@ export function ImportPage() {
       <h2>Выберите файл</h2>
       <p>TXT, HTML/XHTML, EPUB, DOCX · до 12 МиБ. JSON-каталоги Rulate
         не содержат исходного текста и не могут создавать главы.</p>
-      <label className="import-drop">
-        <span>Выбрать исходный файл</span>
+      <label className="import-drop" onDragOver={event => event.preventDefault()} onDrop={dropFile}>
+        <span>Перетащите файл сюда или выберите с компьютера</span>
         <input type="file" disabled={working}
           accept=".txt,.html,.htm,.xhtml,.epub,.docx" onChange={fileChanged} />
       </label>
@@ -252,7 +271,7 @@ export function ImportPage() {
       books={books} moderators={moderators} busy={working || verifying !== null}
       verifying={verifying} errors={errors}
       onTarget={changeTarget} onRows={changeRows} onVerify={verifyReplacement}
-      onNext={review} onBack={resetStage}/>}
+      onNext={review} onBack={() => { void abortStage(); }}/>}
     {identity && stage && step === 3 && <ImportReview
       stage={stage} rows={rows} target={target} receipt={receipt}
       errors={errors} busy={working} onBack={() => { setErrors([]); setStep(2); }}
