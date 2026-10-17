@@ -26,12 +26,16 @@ def require_member(request: Request, x_api_key: str | None = Header(default=None
             raise HTTPException(status_code=401, detail=str(exc)) from exc
 
     token = request.cookies.get(COOKIE_NAME, "")
-    actor = request.app.state.team_sessions.resolve(
+    details = request.app.state.team_sessions.resolve_details(
         token, credentials=request.app.state.team_credentials,
+        passwords=request.app.state.team_passwords,
         settings=request.app.state.settings,
     )
-    if actor is None:
+    if details is None:
         raise HTTPException(status_code=401, detail="Valid team authentication required")
+    actor, kind = details
+    if kind == "password" and request.app.state.team_passwords.requires_change(actor):
+        raise HTTPException(status_code=403, detail="Password change required")
     if request.method.upper() not in {"GET", "HEAD", "OPTIONS"}:
         proof = request.headers.get(CSRF_HEADER, "")
         if not proof or not hmac.compare_digest(proof, TeamSessions.csrf_token(token)):

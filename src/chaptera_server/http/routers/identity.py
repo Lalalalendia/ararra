@@ -76,6 +76,20 @@ def rotate_moderator(member_id: str, request: Request, response: Response,
         raise _failed(exc) from exc
 
 
+@router.post("/v1/admin/members/{member_id}/password")
+def issue_temporary_password(member_id: str, request: Request, response: Response,
+                             actor: str = Depends(require_member),
+                             admin_actor: str = Depends(require_admin)):
+    _private(response)
+    try:
+        return request.app.state.team_passwords.issue_temporary(
+            actor_id=admin_actor, member_id=member_id,
+            settings=request.app.state.settings,
+        )
+    except (MemberMissing, MemberConflict, ValueError) as exc:
+        raise _failed(exc) from exc
+
+
 @router.post("/v1/admin/members/{member_id}/disable")
 def disable_moderator(member_id: str, request: Request, response: Response,
                       actor: str = Depends(require_member),
