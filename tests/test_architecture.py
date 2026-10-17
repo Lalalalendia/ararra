@@ -35,6 +35,7 @@ ROUTE_CONTRACT = {
     ('PUT', '/v1/books/{book_id}/glossary'),
     ('PUT', '/v1/books/{book_id}/owner'),
     ('PUT', '/v1/books/{book_id}/chapters/{chapter_id}'),
+    ('GET', '/v1/books/{book_id}/chapters'),
     ('GET', '/v1/books/{book_id}/chapters/{chapter_id}'),
     ('PUT', '/v1/books/{book_id}/chapters/{chapter_id}/accepted-translation'),
     ('GET', '/v1/books/{book_id}/chapters/{chapter_id}/context'),
