@@ -195,3 +195,14 @@ def test_sdk_region_supports_s3_compatible_clouds(monkeypatch):
         assert s.meta.region_name == "us-east-1"
         # Cloud-compatible region notation used by many S3 providers.
         assert ops_backup_s3._client("ru-central1", None).meta.region_name == "ru-central1"
+
+
+@mock_aws
+def test_boto3_environment_endpoint_cannot_downgrade_tls(monkeypatch):
+    from chaptera_server import ops_backup_s3
+    monkeypatch.setenv("AWS_ENDPOINT_URL_S3", "http://127.0.0.1:9000")
+    with pytest.raises(OffhostRejected):
+        ops_backup_s3._client("us-east-1", None)
+    monkeypatch.delenv("AWS_ENDPOINT_URL_S3")
+    # No environment override: secure AWS SDK default remains accepted.
+    assert ops_backup_s3._client("us-east-1", None).meta.endpoint_url.startswith("https://")
