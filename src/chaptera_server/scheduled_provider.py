@@ -75,6 +75,10 @@ class ScheduledGeminiProvider:
             token_cost = len(request.prompt.encode("utf-8")) + 512 + self.reserved_output_tokens
         try:
             permit = await self.scheduler.acquire(role, token_cost=token_cost, is_cancelled=cancelled)
+        except ValueError as exc:
+            # No network/RPD use and no pointless retries on a known
+            # oversized request: splitting is a separate engine action.
+            raise ProviderFailure("Gemini request exceeds configured TPM envelope") from exc
         except OperationCancelledError as exc:
             raise TranslationCancelled("Translation cancelled during RPM/TPM wait") from exc
         try:
