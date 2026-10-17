@@ -43,7 +43,7 @@ class TranslationWorker:
         job, token = claim
         jid = job["id"]
         data = job["input"]
-        calls_before = getattr(self.provider, "sent_calls", 0)
+        calls_before = getattr(self.provider, "completed_calls", 0)
         stop = asyncio.Event()
         heartbeat_task = asyncio.create_task(self._heartbeat(jid, token, stop))
         core = TranslationCore(
@@ -105,9 +105,9 @@ class TranslationWorker:
             # A quota pause is NOT one of the finite transient/provider retries.
             # If the job already sent multiple requests, avoid an unbounded
             # paid replay every day without durable sub-request checkpoints.
-            sent = getattr(self.provider, "sent_calls", calls_before) > calls_before
+            partial_work = getattr(self.provider, "completed_calls", calls_before) > calls_before
             self.store.defer_for_daily_quota(
-                jid, token, reset_at=exc.reset_at, made_calls=sent,
+                jid, token, reset_at=exc.reset_at, made_calls=partial_work,
             )
         except DailyProviderQuotaFailure:
             # Even without an opt-in local limit, Google's explicitly
@@ -115,7 +115,10 @@ class TranslationWorker:
             # A configured QuotaControlledProvider additionally blocks other
             # attempts for the same project/model until reset.
             reset = pacific_window(time.time())[1]
-            self.store.defer_for_daily_quota(jid, token, reset_at=reset, made_calls=True)
+            partial_work = getattr(self.provider, "completed_calls", calls_before) > calls_before
+            self.store.defer_for_daily_quota(
+                jid, token, reset_at=reset, made_calls=partial_work,
+            )
         except TransientProviderFailure as exc:
             retry_in = max(min(300.0, 2 ** min(job["attempts"], 8)), exc.retry_after_seconds or 0.0)
             self.store.retry(jid, token, str(exc), delay_seconds=retry_in)
