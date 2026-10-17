@@ -158,7 +158,7 @@ try{
   await page.getByText('готово 1/2',{exact:false}).waitFor();
   assert.equal(await page.locator('#import-map').isVisible(),false);
   // A partial job is never a downloadable TXT, even if some chapters exist.
-  const txtBytes=Buffer.from('Глава 1. First\\n\\nText 1.\\n\\nГлава 2. Second\\n\\nText 2.\\n','utf8');
+  const txtBytes=Buffer.from('Глава 1. First\n\nText 1.\n\nГлава 2. Second\n\nText 2.\n','utf8');
   const txtSha=createHash('sha256').update(txtBytes).digest('hex');
   const assemblyPattern='**/v1/source-books/jobs/job-browser-123/assembly';
   const downloadPattern='**/v1/source-books/jobs/job-browser-123/export.txt*';
