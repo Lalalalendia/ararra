@@ -17,7 +17,7 @@ MAX_TOC_PAGES = 12
 MAX_TOC_CHAPTERS = 2000
 MAX_TOC_PAGE_NUMBER = 999
 
-_DECLARED_ROYAL_ROAD = re.compile(r"^([1-9][0-9,]{0,6})\s+chapters?\s*$",re.I)
+_DECLARED_ROYAL_ROAD = re.compile(r"^\s*([1-9][0-9,]{0,6})\s+chapters?\s*$",re.I)
 _PAGER_SELECTOR = (
     ".pagination a[href], .chapters-pagination a[href], "
     ".chapter-pagination a[href], nav[aria-label='Pagination'] a[href], "
