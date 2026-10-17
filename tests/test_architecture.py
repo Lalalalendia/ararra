@@ -11,7 +11,7 @@ from fastapi.routing import APIRoute
 from chaptera_server.api import create_app
 from chaptera_server.config import Settings
 from chaptera_server.http.dependencies import require_member
-from chaptera_server.http.routers import books, health, identity, imports, jobs, editorial, quota, session, source_books
+from chaptera_server.http.routers import books, health, identity, imports, jobs, editorial, quota, session, source_books, source_jobs
 from chaptera_server.storage import QueueStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -76,6 +76,11 @@ ROUTE_CONTRACT = {
     ('GET', '/v1/source-books/catalogs/{catalog_id}'),
     ('POST', '/v1/source-books/catalogs/{catalog_id}/collect'),
     ('GET', '/v1/source-books/stages/{stage_id}/provenance'),
+    ('POST', '/v1/source-books/jobs'),
+    ('GET', '/v1/source-books/jobs/{job_id}'),
+    ('POST', '/v1/source-books/jobs/{job_id}/retry'),
+    ('POST', '/v1/source-books/jobs/{job_id}/cancel'),
+    ('POST', '/v1/source-books/jobs/{job_id}/stage'),
 }
 
 
@@ -125,7 +130,7 @@ def test_http_paths_and_methods_are_unique_and_stable(tmp_path):
     # the canonical APIRouters instead of version-dependent app internals.
     http_routes = [
         route
-        for owner in (books, health, identity, imports, jobs, editorial, quota, session, source_books)
+        for owner in (books, health, identity, imports, jobs, editorial, quota, session, source_books, source_jobs)
         for route in owner.router.routes
         if isinstance(route, APIRoute)
     ]
