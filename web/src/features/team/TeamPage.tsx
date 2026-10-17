@@ -6,7 +6,7 @@ import './team.css';
 type Pending = { memberId: string; action: 'rotate' | 'disable' };
 
 export function TeamPage() {
-  // In-memory ONLY. Never use localStorage/sessionStorage for bearer secrets.
+  // This bearer credential stays only in React state for the current tab.
   const [adminKey, setAdminKey] = useState('');
   const [connected, setConnected] = useState(false);
   const [members, setMembers] = useState<TeamMember[]>([]);
