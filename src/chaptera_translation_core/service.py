@@ -17,6 +17,8 @@ from .ports import (
     TranslationRejected, AtomCheckpoint,
 )
 from .prompt_policy import compose_prompt
+from .post_translation_context import build_gate_context
+from .translation_gates import run_translation_gates
 from .atom_transport import (
     MAX_REPAIR_ROUNDS, MAX_REPAIR_DOMAINS_PER_ROUND,
     prepare_source_atoms, packets_for_atoms, parse_packet_response,
@@ -61,6 +63,44 @@ class TranslationCore:
     def _cancel_check(self) -> None:
         if self.is_cancelled is not None and self.is_cancelled():
             raise TranslationCancelled('Translation cancelled')
+
+    def _diagnose_terminology(self, chapter: ChapterInput, source_html: str,
+                              translated_html: str, *,
+                              alignment_proven: bool) -> None:
+        """Desktop post-translation checks, OBSERVE ONLY until goldens are green.
+
+        Even a desktop finding with blocking=True must not reject the chapter:
+        it is evidence for editorial review, not an automatic paid Gemini
+        correction. Never put source/target book text or credentials in events.
+        """
+        if not chapter.glossary:
+            return
+        try:
+            findings = run_translation_gates(
+                source_html, translated_html, build_gate_context(chapter),
+                [chapter.chapter_path] if chapter.chapter_path else None,
+                alignment_proven=alignment_proven,
+            )
+        except Exception as exc:
+            # Keep the accepted result available for human review: this
+            # diagnostic-only feature must not cause a regression in the
+            # previously accepted publication/structure checks.
+            self._emit(chapter.chapter_id, 'glossary_qa_unavailable',
+                       'diagnostic_only=1 exception=' + type(exc).__name__)
+            return
+        warning_count = sum(bool(item.get('blocking')) for item in findings)
+        self._emit(chapter.chapter_id, 'glossary_qa_summary',
+                   f'diagnostic_only=1 findings={len(findings)} would_block={warning_count} '
+                   f'alignment_proven={int(alignment_proven)}')
+        for finding in findings[:24]:
+            evidence = finding.get('evidence') or {}
+            slots = [str(x) for x in (evidence.get('target_slot_ids') or [])
+                     if str(x).startswith('TGT_')][:4]
+            self._emit(chapter.chapter_id, 'glossary_qa_finding',
+                       f'code={str(finding.get("code") or "UNKNOWN")[:48]} '
+                       f'severity={str(finding.get("severity") or "warning")[:12]} '
+                       f'would_block={int(bool(finding.get("blocking")))} '
+                       f'target_slots={",".join(slots)}')
 
     async def translate(self, chapter: ChapterInput) -> ChapterResult:
         if not str(chapter.chapter_id).strip():
@@ -108,6 +148,9 @@ class TranslationCore:
         if not cleaned or not cleaned.strip():
             raise TranslationRejected(chapter.chapter_id, 'finalize', 'empty final HTML')
         self._cancel_check()
+        # html_v0 has no source-owned CoverageMap: never claim positional QA
+        # proof from matching HTML node counts alone.
+        self._diagnose_terminology(chapter, source, cleaned, alignment_proven=False)
         self._emit(chapter.chapter_id, 'completed')
         return ChapterResult(
             chapter_id=chapter.chapter_id,
@@ -293,6 +336,9 @@ class TranslationCore:
         if len(proof) != len(atoms):
             raise TranslationRejected(chapter.chapter_id, 'atom_provenance', 'incomplete proof')
         self._cancel_check()
+        # Here the immutable source-owned atom/DOM coverage and provenance
+        # have been fully proven; the source and target slots are safe to QA.
+        self._diagnose_terminology(chapter, source, cleaned, alignment_proven=True)
         self._emit(chapter.chapter_id, 'completed')
         return ChapterResult(
             chapter_id=chapter.chapter_id,
