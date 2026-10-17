@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>РидЭра — переводческая платформа</title>
+  <link rel="stylesheet" href="/app-static/css/readera.css">
+  <link rel="stylesheet" href="/app-static/css/books-platform-chapter-import.css">
+  <script defer src="/app-static/js/books-platform-chapter-status.js"></script>
+  <script type="module" src="/app-static/js/readera.mjs"></script>
+</head>
+<body data-initial-page="{{ active_page }}">
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="/app/overview" data-page-link="overview">
+        <span class="brand-symbol">Р</span>
+        <span>РидЭра<small>Командная платформа перевода</small></span>
+      </a>
+      <p class="sidebar-title">РАБОЧЕЕ ПРОСТРАНСТВО</p>
+      <nav class="sidebar-nav" aria-label="Разделы платформы">
+        <a href="/app/overview" data-page-link="overview">Обзор</a>
+        <a href="/app/books" data-page-link="books">Библиотека книг</a>
+        <a href="/app/import" data-page-link="import">Импорт глав</a>
+        <a href="/app/jobs" data-page-link="jobs">Очередь переводов</a>
+        <a href="/app/team" data-page-link="team">Команда</a>
+      </nav>
+      <p class="sidebar-bottom">Закрытое рабочее пространство<br>Две роли: администратор и модераторы</p>
+    </aside>
+    <div class="workspace">
+      <header class="topbar">
+        <span>Переводы / Рабочий кабинет</span>
+        <span id="identity-label" class="identity-chip" hidden></span>
+      </header>
+      <main class="content">
+        <form id="login-form" class="ui-card login-form" autocomplete="off">
+          <p class="kicker">Авторизация</p>
+          <h1>Доступ к РидЭре</h1>
+          <p>Введите личный ключ участника. Ключ остаётся только в памяти вкладки и не записывается в браузерное хранилище.</p>
+          <label class="ui-field"><span>Ключ администратора или модератора</span>
+            <input class="ui-input" name="api_key" type="password" required autocomplete="off" spellcheck="false">
+          </label>
+          <button class="ui-button ui-button--primary" type="submit">Войти</button>
+        </form>
+        <div id="flash" role="status" class="ui-alert" hidden></div>
+        <section id="authenticated" hidden>
+          <div class="workspace-actions"><button class="ui-button ui-button--ghost" id="logout" type="button">Выйти</button></div>
+          
+          <section data-page="overview" hidden>
+            <div class="ui-page-header"><div>
+              <p class="kicker">РидЭра / Обзор</p><h1>Рабочее пространство</h1>
+              <p>Библиотека, очередь переводов и управление командой в одном месте.</p>
+            </div></div>
+            <div class="metrics">
+              <article class="ui-card"><span>Книги</span><strong id="metric-books">—</strong></article>
+              <article class="ui-card"><span>Задания в очереди</span><strong id="metric-jobs">—</strong></article>
+              <article class="ui-card"><span>Роль</span><strong id="metric-role">—</strong></article>
+            </div>
+            <div class="ui-card"><h2>Следующая операция</h2><p>Загрузите исходник книги, проверьте главы и подтвердите атомарный импорт.</p>
+              <a class="ui-button ui-button--primary" href="/app/import" data-page-link="import">Импортировать книгу</a></div>
+          </section>
+          <section data-page="books" hidden>
+            <div class="ui-page-header"><div><p class="kicker">РидЭра / Библиотека</p><h1>Книги команды</h1>
+              <p>Все книги доступны администрации и модераторам; ответственный за книгу — учётное поле, не дополнительная роль.</p>
+            </div><a class="ui-button ui-button--primary" href="/app/import" data-page-link="import">+ Импортировать</a></div>
+            <div class="ui-card">
+              <label class="ui-field"><span>Поиск по названию, ID или ответственному</span>
+                <input id="book-filter" class="ui-input" type="search" placeholder="Найти книгу">
+              </label>
+              <div class="table-scroll"><table class="ui-table">
+                <thead><tr><th>Название</th><th>ID</th><th>Ответственный</th><th>Ревизия назначения</th></tr></thead>
+                <tbody id="book-list"></tbody>
+              </table></div>
+              <p id="books-empty" class="muted" hidden>Книги не найдены.</p>
+            </div>
+          </section>
+          <section data-page="import" hidden class="chapter-import-create-page">
+            <div class="ui-page-header"><div>
+              <p class="kicker">РидЭра / Импорт</p><h1>Импорт исходных глав</h1>
+              <p>Три шага: файл → сопоставление → проверка и запись. Перевод Gemini здесь не запускается.</p>
+            </div></div>
+            <ol class="steps" id="import-steps">
+              <li data-step="1"><span>1</span>Загрузка</li>
+              <li data-step="2"><span>2</span>Оглавление</li>
+              <li data-step="3"><span>3</span>Подтверждение</li>
+            </ol>
+
+            <!-- Form structure and component class names adapted from
+              books_platform/backend/app/web/templates/books/import_chapters.html -->
+            <form id="import-upload" class="chapter-import-upload" enctype="multipart/form-data">
+              <section class="chapter-import-upload__section">
+                <div class="ui-section-header"><h2>Файл</h2><p>Выберите или перетащите TXT, HTML, EPUB или DOCX (до 12 МиБ).</p></div>
+                <label class="ui-field chapter-import-upload__field">
+                  <span>Файл с главами</span>
+                  <input id="chapters_file" class="ui-input chapter-import-upload__file" name="file"
+                    type="file" accept=".txt,.html,.htm,.xhtml,.epub,.docx" required>
+                </label>
+                <p class="muted">JSON Rulate содержит метаданные, а не исходные тексты глав. Его нельзя импортировать как книгу.</p>
+              </section>
+              <div class="chapter-import-upload__actions">
+                <p>Сначала файл будет проверен; главы не попадут в библиотеку без подтверждения.</p>
+                <button class="ui-button ui-button--primary" type="submit">Показать оглавление</button>
+              </div>
+            </form>
+            <form id="import-resume" class="ui-card compact-form">
+              <label class="ui-field"><span>ID незавершённой загрузки (действителен до 30 минут)</span>
+                <input class="ui-input" name="stage_id" placeholder="ID временной сессии" required autocomplete="off"></label>
+              <button class="ui-button ui-button--ghost" type="submit">Восстановить</button>
+            </form>
+
+            <section id="import-map" hidden>
+              <div class="chapter-import-job-card">
+                <div class="ui-section-header"><h2>Сопоставление глав</h2>
+                  <p id="stage-details">Проверьте выбор перед сохранением.</p></div>
+                <fieldset class="ui-fieldset"><legend>Назначение книги</legend>
+                  <div class="radio-row">
+                    <label><input type="radio" name="book_mode" value="create" checked> Новая книга</label>
+                    <label><input type="radio" name="book_mode" value="existing"> Существующая</label>
+                  </div>
+                  <div class="field-grid">
+                    <label class="ui-field"><span>ID книги</span><input class="ui-input" name="book_id" id="import-book-id" required maxlength="128"></label>
+                    <label class="ui-field" id="import-title-wrap"><span>Название</span><input class="ui-input" name="title" id="import-book-title" maxlength="500"></label>
+                    <label class="ui-field" id="import-owner-wrap"><span>Ответственный модератор</span>
+                      <select class="ui-input" name="owner_member_id" id="import-owner"></select></label>
+                    <label class="ui-field" id="import-existing-wrap" hidden><span>Выберите существующую книгу</span>
+                      <select class="ui-input" id="import-existing"></select></label>
+                  </div>
+                </fieldset>
+                <fieldset id="prefix-fieldset" class="ui-fieldset" hidden><legend>Текст перед первой главой</legend>
+                  <textarea id="prefix-preview" class="ui-input" rows="3" readonly></textarea>
+                  <div class="radio-row"><label><input type="radio" name="prefix_policy" value="preserve"> Сохранить отдельно</label>
+                    <label><input type="radio" name="prefix_policy" value="discard"> Исключить осознанно</label></div>
+                </fieldset>
+                <div id="import-warnings" class="chapter-import-trace-error" hidden></div>
+              </div>
+              <div class="ui-card">
+                <div class="ui-section-header"><h2>Оглавление</h2><p>Дублирующиеся и неопределённые номера нужно назначить вручную.</p></div>
+                <div class="table-scroll"><table class="ui-table import-chapters">
+                  <thead><tr><th>Исходник</th><th>Действие</th><th>ID</th><th>№</th><th>Путь</th><th>Ревизия</th></tr></thead>
+                  <tbody id="chapter-map"></tbody>
+                </table></div>
+              </div>
+              <div class="chapter-import-page__actions">
+                <button class="ui-button ui-button--ghost" type="button" id="import-abort">Отменить загрузку</button>
+                <button class="ui-button ui-button--primary" type="button" id="import-review-button">Проверить перед записью</button>
+              </div>
+              <div class="ui-alert ui-alert--danger" id="import-abort-confirm" hidden>
+                <strong>Удалить временную загрузку?</strong>
+                <p>Несохранённые сопоставления будут потеряны. Уже сохранённые главы не изменятся.</p>
+                <button class="ui-button ui-button--danger" id="import-abort-yes" type="button">Удалить временные данные</button>
+                <button class="ui-button ui-button--ghost" id="import-abort-no" type="button">Продолжить</button>
+              </div>
+            </section>
+            <section id="import-review" class="ui-card" hidden>
+              <p class="kicker">Шаг 3 / Подтверждение</p><h2>Проверка перед записью</h2>
+              <div id="import-summary"></div>
+              <label class="check-confirm"><input id="import-ack" type="checkbox">
+                Я проверил назначения и понимаю, что «Заменить» обновит исходные главы.</label>
+              <div class="chapter-import-page__actions">
+                <button class="ui-button ui-button--ghost" type="button" id="import-back">Вернуться</button>
+                <button class="ui-button ui-button--primary" type="button" id="import-confirm" disabled>Подтвердить импорт</button>
+              </div>
+            </section>
+            <section id="import-success" class="ui-card" hidden aria-live="polite">
+              <h2>Импорт завершён</h2><div id="import-receipt"></div>
+              <button type="button" class="ui-button ui-button--primary" id="import-another">Новая загрузка</button>
+            </section>
+          </section>
+          <section data-page="team" hidden>
+            <div class="ui-page-header"><div><p class="kicker">РидЭра / Команда</p><h1>Участники</h1>
+              <p>Две глобальные роли: администратор и модератор. Участники работают с общей библиотекой.</p></div></div>
+            <section id="team-admin-only" class="ui-card" hidden>
+              <form id="member-invite" class="compact-form"><label class="ui-field"><span>Добавить модератора</span>
+                <input class="ui-input" name="member_id" pattern="[A-Za-z][A-Za-z0-9._-]{0,63}" maxlength="64" required placeholder="editor2"></label>
+                <button class="ui-button ui-button--primary" type="submit">Создать ключ</button>
+              </form>
+              <div id="member-secret" class="ui-alert" hidden><strong>Новый ключ — показывается только сейчас</strong>
+                <code id="member-secret-code"></code>
+                <button class="ui-button ui-button--ghost" id="member-secret-hide" type="button">Скрыть ключ</button>
+              </div>
+              <div class="table-scroll"><table class="ui-table"><thead><tr>
+                <th>Участник</th><th>Роль</th><th>Состояние</th><th>Действия</th>
+              </tr></thead><tbody id="members-list"></tbody></table></div>
+            </section>
+            <p id="team-no-admin" class="ui-alert" hidden>Управление модераторами доступно только администратору.</p>
+          </section>
+          <section data-page="jobs" hidden>
+            <div class="ui-page-header"><div><p class="kicker">РидЭра / Переводы</p><h1>Очередь заданий</h1>
+              <p>Статусы и диагностические сообщения отображаются без запуска дополнительных платных заданий.</p></div></div>
+            <div class="chapter-import-history ui-card">
+              <div class="ui-section-header"><h2>Последние задания</h2><p>Обновляются при открытии раздела.</p></div>
+              <div id="jobs-list" class="chapter-import-queue__list"></div>
+              <button class="ui-button ui-button--ghost" id="jobs-refresh" type="button">Обновить</button>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

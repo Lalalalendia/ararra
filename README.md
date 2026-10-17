@@ -66,6 +66,22 @@ curl -sS -X POST http://127.0.0.1:8000/v1/jobs \\
 
 Inspect the job with `GET /v1/jobs/{job_id}` or its events with `GET /v1/jobs/{job_id}/events`, using the same `X-API-Key`. List jobs with `GET /v1/jobs`. Cancel with `POST /v1/jobs/{job_id}/cancel`. A cancelled in-flight provider request may continue until its current response arrives; it will not save a translation as completed after the cancel flag is set.
 
+## ReadEra Jinja2 browser UI (books_platform migration)
+
+The preferred server-delivered team UI is available at `/app` (Overview,
+Books, Import, Jobs, Team). FastAPI renders Jinja2 templates that use
+vanilla JavaScript and directly reused `books_platform` chapter-import
+CSS and adapted job-status JavaScript. **React is not required at runtime**
+for this route, and no npm build is needed to serve it.
+
+The existing `/v1` API and its X-API-Key security model stay unchanged.
+Team keys remain only in browser memory on the page, never in browser
+storage or URLs. Use TLS and a trusted network boundary in deployment.
+The old React/Vite frontend is retained as a temporary comparison and
+rollback option until real-browser functional and Canva visual checks pass.
+Source mapping, test evidence, and remaining acceptance gates:
+[docs/READ_READERA_JINJA_MIGRATION.md](docs/READ_READERA_JINJA_MIGRATION.md).
+
 ## Two global roles for the ReadEra team
 
 **Administrator** (single explicit `CHAPTERA_ADMIN_MEMBER_ID`, matching a key in
