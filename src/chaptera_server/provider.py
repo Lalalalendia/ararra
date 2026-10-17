@@ -206,7 +206,8 @@ class GeminiProvider:
             frame_count += 1
             if frame_count > 4096:
                 raise ProviderFailure("Gemini SSE exceeded frame limit")
-            if frame.get("promptFeedback", {}).get("blockReason"):
+            feedback = frame.get("promptFeedback")
+            if isinstance(feedback, dict) and feedback.get("blockReason"):
                 raise ProviderFailure("Gemini SSE content blocked", finish_reason="SAFETY")
             if "error" in frame:
                 err = frame.get("error") if isinstance(frame.get("error"), dict) else {}
