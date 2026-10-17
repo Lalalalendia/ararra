@@ -78,7 +78,7 @@ try{
   assert.match(await page.locator('#members-list').innerText(),/writer/);
   await screenshot(page,'02-team-desktop.png');
   await page.locator('#logout').click();
-  assert.equal(await page.locator('#authenticated').isVisible(),false);
+  await page.locator('#authenticated').waitFor({state:'hidden'});
   await login(page,issued);
   assert.match(await page.locator('#identity-label').innerText(),/writer/);
   await choose(page,'team');
