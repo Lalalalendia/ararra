@@ -92,11 +92,16 @@
             <form id="import-upload" class="chapter-import-upload" enctype="multipart/form-data">
               <section class="chapter-import-upload__section">
                 <div class="ui-section-header"><h2>Файл</h2><p>Выберите или перетащите TXT, HTML, EPUB или DOCX (до 12 МиБ).</p></div>
-                <label class="ui-field chapter-import-upload__field">
-                  <span>Файл с главами</span>
-                  <input id="chapters_file" class="ui-input chapter-import-upload__file" name="file"
-                    type="file" accept=".txt,.html,.htm,.xhtml,.epub,.docx" required>
-                </label>
+                <div class="readera-dropzone" id="import-dropzone">
+                  <p class="readera-dropzone-title">Перетащите файл сюда или выберите с устройства</p>
+                  <label class="ui-field chapter-import-upload__field">
+                    <span>Файл с главами</span>
+                    <input id="chapters_file" class="ui-input chapter-import-upload__file" name="file"
+                      type="file" accept=".txt,.html,.htm,.xhtml,.epub,.docx" required
+                      aria-describedby="import-file-state">
+                  </label>
+                  <p class="muted" id="import-file-state" role="status" aria-live="polite">Файл не выбран.</p>
+                </div>
                 <p class="muted">JSON Rulate содержит метаданные, а не исходные тексты глав. Его нельзя импортировать как книгу.</p>
               </section>
               <div class="chapter-import-upload__actions">
