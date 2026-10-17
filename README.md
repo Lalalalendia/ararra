@@ -24,7 +24,7 @@ Server-first, closed-team translation backend based on the existing Chaptera lit
 - **v0.6 read-only book import preview and opt-in RE-02 import stages:** authenticated `POST /v1/imports/preview` accepts TXT, HTML, EPUB, DOCX and the existing Windows Rulate-account metadata JSON. Detects chapter titles/numbers and exposes bounded samples, archive safety warnings and unknown/pre-chapter text. Read-only preview does **not** commit source chapters; a separate authenticated stage-and-confirm API now saves selected full source chapters atomically, never during preview. See [frozen API contract and import limits](docs/CORE_API_CONTRACT.md).
 
 **Status:** server core has passed a real VPS live Gemini smoke (`gemini-3.8-flash`); permanent multi-user production deployment remains a separate acceptance gate. The original Windows program is unchanged. Provider integration uses a new native Gemini adapter; a synthetic live worker request has succeeded on the VPS. A server-specific prompt policy now supports scoped glossary versions, enforcement classes, literary style guidance and fingerprint-verified chapter context snapshots, adapted from the desktop source. **The server now has atom transport and bounded targeted repair, but full
-Windows PromptBuilder parity is not yet demonstrated.** Automatic context extraction is now available only for book-managed jobs; the standalone `POST /v1/jobs` remains backwards compatible. No full browser UI or Rulate publishing yet. EPUB/TXT/HTML/DOCX source chapters can be staged and explicitly confirmed, but Rulate metadata JSON remains preview-only. The new import endpoint provides preview only, not canonical book creation.
+Windows PromptBuilder parity is not yet demonstrated.** Automatic context extraction is now available only for book-managed jobs; the standalone `POST /v1/jobs` remains backwards compatible. The closed team Jinja2 UI now supports real import, library and editorial workflows, but **does not publish to Rulate**. EPUB/TXT/HTML/DOCX chapters can be staged and atomically confirmed, while Rulate metadata JSON remains preview-only.
 
 ## Install locally (Python 3.11+)
 
@@ -68,8 +68,8 @@ Inspect the job with `GET /v1/jobs/{job_id}` or its events with `GET /v1/jobs/{j
 
 ## ReadEra Jinja2 browser UI (books_platform migration)
 
-The preferred server-delivered team UI is available at `/app` (Overview,
-Books, Import, Jobs, Team). FastAPI renders Jinja2 templates that use
+The maintained server-delivered team UI is available at `/app` (Overview,
+Books, Import, Jobs, Team, Editor). FastAPI renders Jinja2 templates that use
 vanilla JavaScript and directly reused `books_platform` chapter-import
 CSS and adapted job-status JavaScript. **React is not required at runtime**
 for this route, and no npm build is needed to serve it.
@@ -77,8 +77,9 @@ for this route, and no npm build is needed to serve it.
 The existing `/v1` API and its X-API-Key security model stay unchanged.
 Team keys remain only in browser memory on the page, never in browser
 storage or URLs. Use TLS and a trusted network boundary in deployment.
-The old React/Vite frontend is retained as a temporary comparison and
-rollback option until real-browser functional and Canva visual checks pass.
+The old React/Vite pilot was retired after four-screen engineering visual/UX
+acceptance. The deployed HTML and JavaScript are served from the Python wheel;
+Node.js remains only for executable UI tests and Playwright Chromium.
 Source mapping, test evidence, and remaining acceptance gates:
 [docs/READ_READERA_JINJA_MIGRATION.md](docs/READ_READERA_JINJA_MIGRATION.md).
 
@@ -93,7 +94,7 @@ and role. `GET /v1/admin/members` lists active and disabled members without
 revealing bearer tokens. `POST /v1/admin/members` issues a new random
 moderator token once; `POST /v1/admin/members/{member_id}/rotate` replaces a
 token, while `POST /v1/admin/members/{member_id}/disable` revokes it and
-cancels pending jobs. These APIs are available through the `/team` React
+cancels pending jobs. These APIs are available through the `/app/team` Jinja2
 admin screen; an administrator pastes their protected key into memory only,
 not browser storage or server logs. Without a configured administrator **nobody is implicitly promoted**:
 all members are moderators, including the first member. An unknown admin ID
@@ -167,21 +168,22 @@ frameworks. The `auth.py` token validator raises a transport-neutral exception;
 the HTTP adapter converts it to 401. Legacy endpoint paths/status codes are
 covered by regression tests.
 
-The **independent browser app** is in top-level [`web/`](web/), not inside the
-Python wheel. Browser routes are owned by `web/src/routes/`, features under
-`web/src/features/`, and outgoing HTTP by `web/src/shared/api/`. The web shell
-currently provides navigation and public health status only; team sign-in and
-private book pages are intentionally not implemented yet.
+The **maintained team browser app** is part of the Python package under
+`src/chaptera_server/web_ui/`: Jinja2 templates, feature-owned vanilla JS,
+and vendored/adapted books_platform CSS. Authenticated data is fetched from
+`/v1/*` using the in-memory team API key; there is no React/Vite build.
 
-Architecture contracts run on every GitHub PR and push: `python
-tools/check_architecture.py`, `pytest tests/test_architecture.py` and `cd web
-&& npm run test:architecture`. GitHub Actions also builds the TypeScript/React
-app. See [architecture decisions and extension rules](docs/ARCHITECTURE.md).
+Every PR and push checks `python tools/check_architecture.py`, Python 3.11/3.12
+unit/HTTP tests, dependency-free Node 22 `node --check` + `node --test`
+for the JavaScript decision model, and real Chromium end-to-end acceptance.
+The old required-check job name is retained for branch protection compatibility.
+See [architecture decisions](docs/ARCHITECTURE.md) and
+[RE-05 visual acceptance](docs/READ_READERA_RE05_VISUAL_ACCEPTANCE.md).
 
 ## Architecture
 
 ```text
-                   [ future web UI / Windows integration ]
+                   [ Jinja2 team UI / future Windows integration ]
                                    |
                                 HTTPS API
                                    |
@@ -202,7 +204,7 @@ The server does not embed or change the desktop app. The source-algorithm baseli
 ## Safety and limits
 
 - **Run one worker with SQLite.** Atomic claims and lease tokens are already implemented, but SQLite is a development backend, not the planned multi-host production queue. PostgreSQL is the next persistence milestone.
-- Book/chapter library, persisted versioned glossary/context management (the job API currently accepts immutable client-side snapshots), proactive context extraction, proper roles/invites, audit trails, budgets/quotas, long-chapter chunking, editor and publication are not implemented yet.
+- Book/chapter library, scoped glossary/context, team member management, optimistic source/accepted revisions and the durable editorial draft/history UI are already implemented and tested. **Publication is not implemented.** Operational budgets/quotas, audit coverage, very long chapter workflows and full production readiness remain independent workstreams.
 - Do not directly expose the development server to the internet. Deploy behind HTTPS with restrictive ingress and rotate member tokens. Use an actual secret manager for Gemini keys in production.
 - `idempotency_key` applies per member; requests with an existing key but different body return HTTP 409.
 - Source chapters are stored in the local queue DB. Plan backups and suitable disk encryption for production.

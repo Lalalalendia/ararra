@@ -66,6 +66,29 @@ def test_repo_architecture_boundaries_pass():
     assert architecture.inspect_repository(ROOT) == []
 
 
+def test_retired_react_and_jinja_asset_gates_fail_closed(tmp_path):
+    """Guard must reject a reintroduced Vite workspace and missing real UI."""
+    (tmp_path / 'web').mkdir()
+    errors = architecture.inspect_repository(tmp_path)
+    assert any('obsolete React/Vite web/' in error for error in errors)
+    assert any('web_ui/templates/shell.html' in error for error in errors)
+
+
+def test_ui_architecture_rejects_browser_storage_and_misowned_fetch(tmp_path):
+    js_dir = tmp_path / 'src/chaptera_server/web_ui/static/js'
+    js_dir.mkdir(parents=True)
+    (js_dir / 'library-view.mjs').write_text(
+        "const token = localStorage.getItem('api_key');\n"
+        "fetch('/v1/books');\n"
+        "const leak = import.meta.env.VITE_TEAM_SECRET;\n",
+        encoding='utf-8',
+    )
+    errors = architecture.inspect_repository(tmp_path)
+    assert any('must not persist team/API keys' in error for error in errors)
+    assert any('direct fetch belongs' in error for error in errors)
+    assert any('legacy Vite keys' in error for error in errors)
+
+
 def test_violations_detected_for_cross_layer_imports_and_misowned_endpoints():
     cases = [
         ('from fastapi import Depends\n', 'src/chaptera_translation_core/core/bad.py', 'core imports'),

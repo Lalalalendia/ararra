@@ -6,6 +6,7 @@ inspects the *entire* repository on every CI run, not only changed files.
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,7 +21,30 @@ FILE_CEILINGS = {
     SERVER / 'http' / 'dependencies.py': 160,
 }
 ROUTER_LIMIT = 240
-WEB_FILE_LIMIT = 300
+# Protect the ACTUAL served Jinja2/vanilla workspace, not deleted React files.
+UI_ROOT = SERVER / 'web_ui'
+REQUIRED_UI_FILES = (
+    'templates/shell.html',
+    'templates/partials/chapter_editor.html',
+    'static/css/readera.css',
+    'static/css/chapter-editor.css',
+    'static/css/books-platform-chapter-import.css',
+    'static/js/readera.mjs',
+    'static/js/library-view.mjs',
+    'static/js/editor.mjs',
+    'static/js/editorial-panels.mjs',
+    'static/js/import-model.mjs',
+    'static/js/import-model.test.mjs',
+    'static/js/books-platform-chapter-status.js',
+)
+# Existing modules get bounded headroom; split them rather than expanding a
+# single large browser controller. UI has no Vite bundle or React runtime.
+UI_JS_CEILINGS = {
+    'readera.mjs': 620,
+    'editor.mjs': 330,
+    'books-platform-chapter-status.js': 280,
+}
+UI_JS_DEFAULT_LIMIT = 240
 
 
 def module_imports(tree: ast.AST) -> set[str]:
@@ -81,7 +105,11 @@ def scan_python(path: Path, source: str, *, path_relative: Path) -> list[str]:
 
 def inspect_repository(root: Path = ROOT) -> list[str]:
     errors: list[str] = []
-    required = [SERVER / 'api.py', SERVER / 'http' / 'schemas.py', SERVER / 'http' / 'dependencies.py', CORE / '__init__.py', Path('web/package.json'), Path('web/src/app/App.tsx'), Path('web/src/routes/router.tsx'), Path('web/src/routes/paths.ts'), Path('web/src/shared/api/client.ts')]
+    required = [SERVER / 'api.py', SERVER / 'http' / 'schemas.py', SERVER / 'http' / 'dependencies.py', CORE / '__init__.py']
+    required.extend(UI_ROOT / name for name in REQUIRED_UI_FILES)
+    required.extend([Path('tests/browser/smoke.mjs'), Path('tests/browser/package.json')])
+    if (root / 'web').exists():
+        errors.append('obsolete React/Vite web/ workspace must not return')
     required.extend(ROUTER_DIR / name for name in sorted(EXPECTED_ROUTERS))
     for path in required:
         if not (root / path).is_file():
@@ -116,15 +144,21 @@ def inspect_repository(root: Path = ROOT) -> list[str]:
             if source.count(call) != 1:
                 errors.append(f'api.py must compose {name} router exactly once')
 
-    for file in sorted((root / 'web/src').rglob('*')):
-        if not file.is_file() or file.suffix not in {'.ts', '.tsx', '.js', '.jsx'}:
+    js_root = root / UI_ROOT / 'static' / 'js'
+    for file in sorted(js_root.glob('*')):
+        if not file.is_file() or file.suffix not in {'.js', '.mjs'} or file.name.endswith('.test.mjs'):
             continue
         rel = file.relative_to(root)
         source = file.read_text(encoding='utf-8')
-        if len(source.splitlines()) > WEB_FILE_LIMIT:
-            errors.append(f'{rel}: web source exceeds {WEB_FILE_LIMIT} lines; split by feature')
-        if "chaptera_server" in source or "chaptera_translation_core" in source:
-            errors.append(f'{rel}: browser code must not import the Python backend or translation core')
+        limit = UI_JS_CEILINGS.get(file.name, UI_JS_DEFAULT_LIMIT)
+        if len(source.splitlines()) > limit:
+            errors.append(f'{rel}: Jinja UI module exceeds {limit} lines; split by feature')
+        if re.search(r'\b(?:localStorage|sessionStorage)\b', source):
+            errors.append(f'{rel}: browser must not persist team/API keys')
+        if re.search(r'\bfetch\s*\(', source) and file.name != 'readera.mjs':
+            errors.append(f'{rel}: direct fetch belongs to the authenticated ReadEra controller')
+        if re.search(r'\b(?:VITE_[A-Z_]*(?:KEY|SECRET|TOKEN)|full_cycle_app)\b', source):
+            errors.append(f'{rel}: browser cannot depend on legacy Vite keys or Windows app')
     return errors
 
 
