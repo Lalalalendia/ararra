@@ -221,7 +221,13 @@ def test_many_pacific_days_of_durable_atom_progress_are_not_false_partial_failur
     assert pauses >= 3
     assert len(remote.calls) > 3
     assert len(remote.calls) == len(set(remote.calls))
-    assert len([e for e in current_store.events(job["id"]) if e["stage"] == "quota_wait"]) == pauses
+    # QueueStore.events is intentionally capped to the most recent entries;
+    # use the SQL count for an all-days assertion.
+    with current_store._connect() as con:
+        assert con.execute(
+            "SELECT COUNT(*) FROM job_events WHERE job_id=? AND stage='quota_wait'",
+            (job["id"],),
+        ).fetchone()[0] == pauses
 
 
 def test_unvalidated_success_is_still_expensive_partial_work(tmp_path, monkeypatch):
