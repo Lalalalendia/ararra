@@ -210,6 +210,24 @@
               </div>
               <div id="source-job-panel" class="ui-card" aria-labelledby="source-job-title">
                 <h3 id="source-job-title">Длительный сбор книги</h3>
+                <div id="source-job-history" class="compact-form">
+                  <div class="ui-section-header">
+                    <p>Мои сохранённые сборки — выберите книгу и диапазон без копирования ID.</p>
+                  </div>
+                  <button id="source-job-history-refresh" type="button"
+                          class="ui-button ui-button--ghost">Показать мои сборки</button>
+                  <label class="ui-field"><span>Предыдущие задания</span>
+                    <select id="source-job-history-list" class="ui-input" disabled>
+                      <option value="">Получите список заданий</option>
+                    </select>
+                  </label>
+                  <button id="source-job-history-open" type="button"
+                          class="ui-button ui-button--ghost" disabled>Открыть выбранную сборку</button>
+                  <button id="source-job-history-delete" type="button"
+                          class="ui-button ui-button--ghost" disabled>Удалить сохранённые исходники задания</button>
+                  <p id="source-job-history-status" role="status" aria-live="polite">
+                    Список доступен после входа в Эриду.</p>
+                </div>
                 <form id="source-job-resume-form" class="compact-form">
                   <label class="ui-field"><span>ID задания — сохраните его для восстановления</span>
                     <input id="source-job-id" class="ui-input" autocomplete="off"

@@ -135,6 +135,17 @@ try{
   };
   const createJobPattern='**/v1/source-books/jobs';
   const getJobPattern='**/v1/source-books/jobs/job-browser-123';
+  const historyPattern='**/v1/source-books/jobs?limit=30';
+  let sourceJobDeleted=false;
+  await page.route(historyPattern,async route=>{
+    assert.equal(route.request().method(),'GET');
+    await route.fulfill({status:200,contentType:'application/json',
+      body:JSON.stringify({jobs:sourceJobDeleted?[]:[{
+        ...durableJob,updated_at:1760757000,
+        status:sourceJobFinished?'complete':'queued',
+        completed:sourceJobFinished?2:0,pending:sourceJobFinished?0:2,
+      }]})});
+  });
   await page.route(createJobPattern,async route=>{
     assert.equal(route.request().method(),'POST');
     const req=route.request().postDataJSON();
@@ -145,6 +156,14 @@ try{
   });
   let sourceJobFinished=false;
   await page.route(getJobPattern,async route=>{
+    if(route.request().method()==='DELETE'){
+      sourceJobDeleted=true;
+      await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
+        deleted:true,job_id:durableJob.job_id,deleted_checkpoints:2,
+        freed_source_bytes:412,library_unchanged:true,
+      })});
+      return;
+    }
     assert.equal(route.request().method(),'GET');
     await route.fulfill({status:200,contentType:'application/json',
       body:JSON.stringify({...durableJob,status:sourceJobFinished?'complete':'running',
@@ -199,6 +218,19 @@ try{
   const sourceTxtDownload=await fileEvent;
   assert.equal(sourceTxtDownload.suggestedFilename(),'readera-original-royalroad-1-2.txt');
   assert.deepEqual(readFileSync(await sourceTxtDownload.path()),txtBytes);
+  // The server history allows restoring without retaining a UUID in localStorage.
+  await page.locator('#source-job-history-refresh').click();
+  await page.getByText('Доступно своих сборок: 1',{exact:false}).waitFor();
+  await page.locator('#source-job-history-list').selectOption(durableJob.job_id);
+  await page.locator('#source-job-history-open').click();
+  await page.getByText('Загрузка открыта.',{exact:false}).waitFor();
+  // Only an explicit confirmation removes checkpoint storage. A library
+  // import, if any, is outside the lifecycle of this source capture.
+  page.once('dialog',dialog=>dialog.accept());
+  await page.locator('#source-job-history-delete').click();
+  await page.getByText('Доступно своих сборок: 0',{exact:false}).waitFor();
+  assert.equal(await page.locator('#source-job-id').inputValue(),'');
+  await page.unroute(historyPattern);
   await page.unroute(assemblyPattern);
   await page.unroute(downloadPattern);
   await page.unroute(createJobPattern);
