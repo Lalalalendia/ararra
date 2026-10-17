@@ -11,6 +11,7 @@ export function createSourceJobHistoryView({request,flash,onOpen,onDelete}) {
   const status=$('source-job-history-status');
   let jobs=new Map();
   let busy=false;
+  let generation=0;
   const finished=new Set(['complete','partial','cancelled']);
   const stateNames={queued:'в очереди',running:'в работе',complete:'собрано',
     partial:'есть ошибки',cancelled:'отменено'};
@@ -50,6 +51,7 @@ export function createSourceJobHistoryView({request,flash,onOpen,onDelete}) {
   }
 
   function clear() {
+    generation+=1;
     jobs.clear();
     picker.replaceChildren();
     const empty=document.createElement('option');
@@ -61,13 +63,16 @@ export function createSourceJobHistoryView({request,flash,onOpen,onDelete}) {
 
   async function refresh() {
     if(busy)return;
+    const ticket=++generation;
     busy=true;controls();
     try {
       const result=await request('/v1/source-books/jobs?limit=30');
+      if(ticket!==generation)return;
       if(!Array.isArray(result?.jobs))
         throw new Error('Сервер не вернул список заданий.');
       render(result.jobs);
     }catch(err){
+      if(ticket!==generation)return;
       clear();
       status.textContent='Не удалось загрузить мои сборки.';
       flash(err.message,true);
@@ -81,10 +86,12 @@ export function createSourceJobHistoryView({request,flash,onOpen,onDelete}) {
     if(busy)return;
     const job=selected();if(!job)return;
     void (async()=>{
+      const ticket=generation;
       busy=true;controls();
       try {
         await onOpen(job.job_id);
-        flash('Загрузка открыта. Продолжайте с сохранённого прогресса.');
+        if(ticket===generation)
+          flash('Загрузка открыта. Продолжайте с сохранённого прогресса.');
       }catch(err){flash(err.message,true);}
       finally{busy=false;controls();}
     })();
