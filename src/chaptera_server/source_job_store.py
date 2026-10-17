@@ -51,6 +51,7 @@ class SourceJobStore:
                 CREATE TABLE IF NOT EXISTS source_collect_jobs (
                     id TEXT PRIMARY KEY,
                     actor_id TEXT NOT NULL,
+                    catalog_id TEXT NOT NULL,
                     idempotency_key TEXT,
                     source TEXT NOT NULL,
                     book_url TEXT NOT NULL,
@@ -134,6 +135,7 @@ class SourceJobStore:
         return {
             "job_id": row["id"], "status": row["status"],
             "source": row["source"], "book_url": row["book_url"],
+            "catalog_id": row["catalog_id"],
             "catalog_sha256": row["catalog_sha256"],
             "manifest_sha256": row["manifest_sha256"],
             "total": len(chapters), "completed": passed, "failed": failed,
@@ -150,9 +152,11 @@ class SourceJobStore:
         }
 
     def create(
-        self, actor: str, catalog: SourceCatalog, ordinals: list[int],
+        self, actor: str, catalog_id: str, catalog: SourceCatalog, ordinals: list[int],
         *, idempotency_key: str | None = None,
     ) -> dict:
+        if not catalog_id or len(catalog_id) > 128:
+            raise SourceJobConflict("Valid source catalog reference required")
         if not 1 <= len(ordinals) <= MAX_JOB_CHAPTERS or len(set(ordinals)) != len(ordinals):
             raise SourceJobConflict("Select 1..2000 unique chapters")
         if any(type(n) is not int for n in ordinals):
@@ -179,7 +183,9 @@ class SourceJobStore:
                     (actor,key),
                 ).fetchone()
                 if prior:
-                    if prior["manifest_sha256"] != digest or prior["catalog_sha256"] != catalog.catalog_sha256:
+                    if (prior["manifest_sha256"] != digest or
+                        prior["catalog_sha256"] != catalog.catalog_sha256 or
+                        prior["catalog_id"] != catalog_id):
                         raise SourceJobConflict("Idempotency key reused for another selection")
                     return self._public(con,prior)
             active = con.execute(
@@ -192,10 +198,10 @@ class SourceJobStore:
             job_id = str(uuid.uuid4())
             con.execute(
                 "INSERT INTO source_collect_jobs("
-                "id,actor_id,idempotency_key,source,book_url,catalog_sha256,"
+                "id,actor_id,catalog_id,idempotency_key,source,book_url,catalog_sha256,"
                 "manifest_sha256,manifest_json,status,created_at,updated_at)"
-                " VALUES(?,?,?,?,?,?,?,?, 'queued',?,?)",
-                (job_id,actor,key,catalog.source,catalog.book_url,catalog.catalog_sha256,
+                " VALUES(?,?,?,?,?,?,?,?,?, 'queued',?,?)",
+                (job_id,actor,catalog_id,key,catalog.source,catalog.book_url,catalog.catalog_sha256,
                  digest,payload,now,now),
             )
             row = con.execute("SELECT * FROM source_collect_jobs WHERE id=?",(job_id,)).fetchone()
@@ -260,6 +266,8 @@ class SourceJobStore:
             raise ValueError("Either chapter body or failure receipt required")
         if body is not None and not 100 <= len(body) <= MAX_BODY_CHARS:
             raise ValueError("Invalid source chapter length")
+        if body is not None and len(body.encode("utf-8")) > MAX_ITEM_BYTES:
+            raise ValueError("Source chapter exceeds durable byte limit")
         now = time.time()
         with self.store._connect() as con:
             con.execute("BEGIN IMMEDIATE")
