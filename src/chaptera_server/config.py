@@ -33,6 +33,9 @@ class Settings:
     # Exactly two global roles: this one explicit admin and all other token holders
     # (moderators). No implicit admin when left empty.
     admin_member_id: str = ""
+    # Browser-only opaque sessions; never disable Secure outside local HTTP tests.
+    browser_session_secure: bool = True
+    browser_session_ttl_seconds: int = 12 * 60 * 60
     gemini_api_key: str = field(default="", repr=False)
     gemini_model: str = "gemini-3.8-flash"
     # Opt-in local safety cap. Google quota belongs to PROJECT + MODEL, not key.
@@ -52,6 +55,8 @@ class Settings:
     def __post_init__(self) -> None:
         if self.admin_member_id and self.admin_member_id not in self.team_tokens:
             raise ValueError("Configured admin member must exist in team_tokens")
+        if not 300 <= self.browser_session_ttl_seconds <= 604_800:
+            raise ValueError("Browser session TTL must be between 300 and 604800 seconds")
         if self.gemini_requests_per_day < 0 or self.gemini_requests_per_day > 1_000_000:
             raise ValueError("Gemini daily request limit must be between 0 and 1000000")
         if self.gemini_requests_per_day and not self.gemini_quota_project:
@@ -77,6 +82,9 @@ class Settings:
             db_path=Path(os.environ.get("CHAPTERA_DB_PATH", "./data/jobs.sqlite3")),
             team_tokens=tokens,
             admin_member_id=os.environ.get("CHAPTERA_ADMIN_MEMBER_ID", "").strip(),
+            browser_session_secure=os.environ.get("CHAPTERA_BROWSER_SESSION_SECURE", "1").strip().lower()
+                                   not in {"0", "false", "no", "off"},
+            browser_session_ttl_seconds=int(os.environ.get("CHAPTERA_BROWSER_SESSION_TTL_SECONDS", "43200")),
             gemini_api_key=_read_systemd_credential("gemini_api_key", "CHAPTERA_GEMINI_API_KEY", "").strip(),
             gemini_model=os.environ.get("CHAPTERA_GEMINI_MODEL", "gemini-3.8-flash").strip(),
             gemini_quota_project=os.environ.get("CHAPTERA_GEMINI_QUOTA_PROJECT", "").strip(),

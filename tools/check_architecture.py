@@ -14,7 +14,7 @@ SERVER = Path('src/chaptera_server')
 CORE = Path('src/chaptera_translation_core')
 ROUTER_DIR = SERVER / 'http' / 'routers'
 HTTP_METHODS = {'get', 'post', 'put', 'patch', 'delete', 'options', 'head', 'api_route', 'websocket'}
-EXPECTED_ROUTERS = {'books.py', 'jobs.py', 'imports.py', 'health.py', 'identity.py', 'ui.py', 'editorial.py'}
+EXPECTED_ROUTERS = {'books.py', 'jobs.py', 'imports.py', 'health.py', 'identity.py', 'ui.py', 'editorial.py', 'session.py'}
 FILE_CEILINGS = {
     SERVER / 'api.py': 90,
     SERVER / 'http' / 'schemas.py': 200,
@@ -30,6 +30,7 @@ REQUIRED_UI_FILES = (
     'static/css/chapter-editor.css',
     'static/css/books-platform-chapter-import.css',
     'static/js/readera.mjs',
+    'static/js/session-client.mjs',
     'static/js/library-view.mjs',
     'static/js/editor.mjs',
     'static/js/editorial-panels.mjs',
@@ -155,7 +156,7 @@ def inspect_repository(root: Path = ROOT) -> list[str]:
             errors.append(f'{rel}: Jinja UI module exceeds {limit} lines; split by feature')
         if re.search(r'\b(?:localStorage|sessionStorage)\b', source):
             errors.append(f'{rel}: browser must not persist team/API keys')
-        if re.search(r'\bfetch\s*\(', source) and file.name != 'readera.mjs':
+        if re.search(r'\bfetch\s*\(', source) and file.name != 'session-client.mjs':
             errors.append(f'{rel}: direct fetch belongs to the authenticated ReadEra controller')
         if re.search(r'\b(?:VITE_[A-Z_]*(?:KEY|SECRET|TOKEN)|full_cycle_app)\b', source):
             errors.append(f'{rel}: browser cannot depend on legacy Vite keys or Windows app')

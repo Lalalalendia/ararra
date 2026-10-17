@@ -1,9 +1,8 @@
 """Jinja2 shell for the ReadEra closed team interface.
 
-The HTML structure is rendered server-side; a small vanilla-JS adapter
-connects its forms to the existing, authenticated /v1 API. Unlike a separate
-session system, this retains the same in-memory team key security model as
-the already tested React pilot. No API key is ever put in templates or URLs.
+The HTML structure is rendered server-side; vanilla JS exchanges the existing
+team key once for an opaque, revocable HttpOnly browser session. The /v1 API
+continues accepting X-API-Key for existing non-browser clients.
 """
 from __future__ import annotations
 

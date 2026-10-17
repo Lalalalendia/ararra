@@ -11,7 +11,7 @@ from fastapi.routing import APIRoute
 from chaptera_server.api import create_app
 from chaptera_server.config import Settings
 from chaptera_server.http.dependencies import require_member
-from chaptera_server.http.routers import books, health, identity, imports, jobs, editorial, quota
+from chaptera_server.http.routers import books, health, identity, imports, jobs, editorial, quota, session
 from chaptera_server.storage import QueueStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +25,9 @@ SPEC.loader.exec_module(architecture)
 ROUTE_CONTRACT = {
     ('GET', '/healthz'),
     ('GET', '/v1/me'),
+    ('POST', '/v1/session'),
+    ('GET', '/v1/session'),
+    ('POST', '/v1/session/logout'),
     ('GET', '/v1/admin/members'),
     ('POST', '/v1/admin/members'),
     ('POST', '/v1/admin/members/{member_id}/rotate'),
@@ -114,7 +117,7 @@ def test_http_paths_and_methods_are_unique_and_stable(tmp_path):
     # the canonical APIRouters instead of version-dependent app internals.
     http_routes = [
         route
-        for owner in (books, health, identity, imports, jobs, editorial, quota)
+        for owner in (books, health, identity, imports, jobs, editorial, quota, session)
         for route in owner.router.routes
         if isinstance(route, APIRoute)
     ]
@@ -130,7 +133,8 @@ def test_http_paths_and_methods_are_unique_and_stable(tmp_path):
     assert len(routes) == len(set(routes)), 'Duplicate handlers shadow one another'
     assert set(routes) == ROUTE_CONTRACT
     for route in http_routes:
-        if route.path == '/healthz':
+        # Login/restore/logout validate session credentials in their own router.
+        if route.path in {'/healthz', '/v1/session', '/v1/session/logout'}:
             continue
         # Import preview authenticates at router level, others at endpoint level.
         assert any(dep.call is require_member for dep in route.dependant.dependencies), (
