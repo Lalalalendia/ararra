@@ -13,7 +13,8 @@ import chaptera_server.storage as storage
 from chaptera_server.atom_checkpoints import (
     SQLiteAtomCheckpoint, AtomCheckpointConflict,
 )
-from chaptera_server.quota import DailyQuotaExhausted
+import chaptera_server.quota as quota
+from chaptera_server.quota import DailyQuotaExhausted, DailyQuotaLedger, QuotaControlledProvider, pacific_window
 from chaptera_server.storage import QueueStore, JobSpec
 from chaptera_server.worker import TranslationWorker
 from chaptera_translation_core import ChapterInput, TranslationCore, TranslationRejected
@@ -158,3 +159,98 @@ def test_job_isolation_prevents_reuse_across_source_revisions(tmp_path):
     assert claimed["id"] == two["id"]
     second = SQLiteAtomCheckpoint(store, two["id"], token2)
     assert second.load(key) is None
+
+
+class OfflineChapterPacketProvider:
+    def __init__(self, *, return_empty_segments=False):
+        self.calls = []
+        self.return_empty_segments = return_empty_segments
+
+    async def generate(self, request):
+        assert request.transport == "atoms_v1"
+        self.calls.append(atom_checkpoint_key(
+            request.prompt, request.source_html_with_markers, request.request_role,
+        ))
+        if self.return_empty_segments:
+            return '{"segments":[]}'
+        return chinese_packet_response(request.source_html_with_markers)
+
+
+def test_many_pacific_days_of_durable_atom_progress_are_not_false_partial_failures(
+    tmp_path, monkeypatch,
+):
+    clock = [datetime(2026, 10, 17, 12, tzinfo=timezone.utc).timestamp()]
+    monkeypatch.setattr(storage, "time", SimpleNamespace(time=lambda: clock[0]))
+    monkeypatch.setattr(quota, "time", SimpleNamespace(time=lambda: clock[0]))
+
+    path = tmp_path / "atom-jobs.db"
+    original = big_source()
+    store = QueueStore(path)
+    job = store.create_job("moderator", JobSpec(
+        "chapter-42", original, transport="atoms_v1", max_attempts=1,
+    ))
+    remote = OfflineChapterPacketProvider()
+    pauses = 0
+
+    # Fresh DB handles, quota wrappers and workers each day: no in-memory
+    # subrequests survive; all recovery evidence lives in SQLite.
+    for day in range(30):
+        current_store = QueueStore(path)
+        current = QuotaControlledProvider(
+            remote, DailyQuotaLedger(current_store, "our-project", "gemini-test", 1),
+        )
+        assert asyncio.run(TranslationWorker(current_store, current).run_once())
+        state = current_store.get_job(job["id"])
+        if state["status"] == "completed":
+            assert state["translated_html"] == original.replace("世界", "Мир")
+            break
+        assert state["status"] == "retry_wait"
+        assert state["attempts"] == 0
+        with current_store._connect() as con:
+            counters = con.execute(
+                "SELECT quota_partial_waits FROM jobs WHERE id=?", (job["id"],)
+            ).fetchone()
+            assert counters["quota_partial_waits"] == 0
+        pauses += 1
+        clock[0] = pacific_window(clock[0])[1] + 1
+    else:
+        pytest.fail("Source-owned packet translation never finished across 30 days")
+
+    # Long chapter, daily RPD=1: more than two pauses are required. The
+    # original blanket 'made_calls' rule failed on the third day.
+    assert pauses >= 3
+    assert len(remote.calls) > 3
+    assert len(remote.calls) == len(set(remote.calls))
+    assert len([e for e in current_store.events(job["id"]) if e["stage"] == "quota_wait"]) == pauses
+
+
+def test_unvalidated_success_is_still_expensive_partial_work(tmp_path, monkeypatch):
+    clock = [datetime(2026, 10, 17, 12, tzinfo=timezone.utc).timestamp()]
+    monkeypatch.setattr(storage, "time", SimpleNamespace(time=lambda: clock[0]))
+    monkeypatch.setattr(quota, "time", SimpleNamespace(time=lambda: clock[0]))
+    store = QueueStore(tmp_path / "jobs.db")
+    job = store.create_job("mod", JobSpec(
+        "chapter", big_source(), transport="atoms_v1", max_attempts=1,
+    ))
+    remote = OfflineChapterPacketProvider(return_empty_segments=True)
+    guarded = QuotaControlledProvider(
+        remote, DailyQuotaLedger(store, "one-project", "gemini-test", 1),
+    )
+    assert asyncio.run(TranslationWorker(store, guarded).run_once())
+    assert store.get_job(job["id"])["status"] == "retry_wait"
+    with store._connect() as con:
+        row = con.execute("SELECT quota_partial_waits FROM jobs WHERE id=?",
+                          (job["id"],)).fetchone()
+        assert row["quota_partial_waits"] == 1
+        assert con.execute("SELECT COUNT(*) FROM atom_job_checkpoints").fetchone()[0] == 0
+
+
+def test_only_confirmed_durable_context_or_atom_calls_are_excluded(tmp_path):
+    class Counter:
+        completed_calls = 6
+
+    worker = TranslationWorker(QueueStore(tmp_path / "jobs.db"), Counter())
+    checkpoint = SimpleNamespace(saved_this_run=2)
+    assert worker._uncheckpointed_completed_work(0, checkpoint, 3)
+    assert not worker._uncheckpointed_completed_work(0, checkpoint, 4)
+    assert worker._uncheckpointed_completed_work(0, None, 5)
