@@ -21,8 +21,9 @@ from .atom_transport import (
     MAX_REPAIR_ROUNDS, MAX_REPAIR_DOMAINS_PER_ROUND,
     prepare_source_atoms, packets_for_atoms, parse_packet_response,
     merge_proven_segments, repair_domains, apply_proven_repair, atom_provenance,
-    atom_checkpoint_key,
+    atom_checkpoint_key, salvage_partial_atom_response,
 )
+from .api.errors import PartialGenerationError
 from .core.translation_units import build_render_plan, expected_render_domain_covers
 from .core.worker_helpers.translation_completeness import (
     build_translation_unit_source_bundle,
@@ -130,10 +131,30 @@ class TranslationCore:
             self._emit(chapter_id, 'atom_checkpoint_hit', f'role={role}')
             raw = cached
         else:
-            raw = await self.provider.generate(ProviderRequest(
-                chapter_id, prompt, payload, len(atoms), 'atoms_v1',
-                on_usage, request_role=role, is_cancelled=self.is_cancelled,
-            ))
+            try:
+                raw = await self.provider.generate(ProviderRequest(
+                    chapter_id, prompt, payload, len(atoms), 'atoms_v1',
+                    on_usage, request_role=role, is_cancelled=self.is_cancelled,
+                ))
+            except PartialGenerationError as exc:
+                if str(exc.reason).upper() not in {
+                    'MAX_TOKENS', 'NETWORK_ERROR', 'TRANSPORT_STALLED',
+                    'TRANSPORT_TRUNCATED', 'STREAM_TRUNCATED', 'CONNECTION_RESET',
+                }:
+                    raise
+                try:
+                    raw = salvage_partial_atom_response(exc.partial_text, atoms)
+                except ValueError as invalid:
+                    # Unknown/overlapping source identity is a deterministic
+                    # QA violation, never a reason to publish or repair blindly.
+                    raise TranslationRejected(chapter_id, 'atom_partial_identity',
+                                              str(invalid)) from invalid
+                if raw is None:
+                    # No complete source-owned segments. Preserve the original
+                    # transport failure for desktop ErrorAnalyzer retry policy.
+                    raise
+                self._emit(chapter_id, 'atom_partial_recovered',
+                           f'role={role} reason={str(exc.reason).upper()}')
         self._cancel_check()
         try:
             result = parse_packet_response(raw, atoms)

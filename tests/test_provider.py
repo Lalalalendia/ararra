@@ -8,6 +8,7 @@ import pytest
 from chaptera_server.provider import (GeminiProvider, ProviderFailure, TransientProviderFailure,
                                       DailyProviderQuotaFailure)
 from chaptera_translation_core.ports import ProviderRequest
+from chaptera_translation_core.api.errors import PartialGenerationError
 
 
 def test_gemini_adapter_uses_header_and_extracts_text():
@@ -52,9 +53,11 @@ def test_gemini_rejects_bad_model_and_truncated_answer():
         async with httpx.AsyncClient(transport=httpx.MockTransport(
             lambda request: httpx.Response(200, json={"candidates": [{"finishReason": "MAX_TOKENS", "content": {"parts": [{"text": "partial"}]}}]})
         )) as client:
-            with pytest.raises(TransientProviderFailure):
+            with pytest.raises(PartialGenerationError) as partial:
                 await GeminiProvider("secret", "gemini-2.5-flash", client=client).generate(
                     ProviderRequest("1", "prompt", "<p>source</p>", 1))
+            assert partial.value.partial_text == "partial"
+            assert partial.value.reason == "MAX_TOKENS"
 
     asyncio.run(scenario())
 
@@ -117,3 +120,30 @@ def test_gemini_structured_day_quota_is_not_confused_with_rpm_or_tpm():
     assert not isinstance(error.value, DailyProviderQuotaFailure)
     with pytest.raises(DailyProviderQuotaFailure):
         asyncio.run(request(["GenerateContentInputTokensPerModelPerDay-FreeTier"]))
+
+
+def test_gemini_max_tokens_excludes_thought_part_and_preserves_usage():
+    seen = []
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda _req: httpx.Response(200, json={
+                "candidates": [{"finishReason": "MAX_TOKENS", "content": {
+                    "parts": [
+                        {"text": "private reasoning", "thought": True},
+                        {"text": '{"segments":[{"covers":["a"],"translation":"Мир"}]}'},
+                    ]}}],
+                "usageMetadata": {"promptTokenCount": 100, "candidatesTokenCount": 40},
+            })
+        )) as client:
+            provider = GeminiProvider("secret", "gemini-test", client=client)
+            with pytest.raises(PartialGenerationError) as exc:
+                await provider.generate(ProviderRequest(
+                    "c", "secret source", "source", 1, "atoms_v1", seen.append,
+                ))
+            assert exc.value.reason == "MAX_TOKENS"
+            assert "private reasoning" not in exc.value.partial_text
+            assert exc.value.partial_text.startswith('{"segments"')
+            assert provider.completed_calls == 0
+            assert "secret source" not in str(exc.value)
+    asyncio.run(scenario())
+    assert seen == [{"promptTokenCount": 100, "candidatesTokenCount": 40}]

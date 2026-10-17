@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 
 from chaptera_translation_core.ports import ProviderRequest
+from chaptera_translation_core.api.errors import PartialGenerationError
 
 
 class ProviderFailure(RuntimeError):
@@ -128,7 +129,11 @@ class GeminiProvider:
             raise ProviderFailure("Gemini returned no candidates")
         first = candidates[0]
         reason = first.get("finishReason")
+        parts = (first.get("content") or {}).get("parts") or []
+        text = "".join(str(part["text"]) for part in parts if isinstance(part, dict) and part.get("text") and not part.get("thought"))
         if reason and reason not in {"STOP", "MAX_TOKENS"}:
+            # A content/safety stop can contain candidate text but it must NOT
+            # enter the source-proven partial recovery path.
             raise ProviderFailure(
                 f"Gemini response stopped ({reason})" if reason in
                 {"SAFETY", "PROHIBITED_CONTENT", "RECITATION", "SPII", "OTHER"}
@@ -136,10 +141,8 @@ class GeminiProvider:
                 finish_reason=reason if reason in
                 {"SAFETY", "PROHIBITED_CONTENT", "RECITATION", "SPII"} else None,
             )
-        if reason == "MAX_TOKENS":
-            raise TransientProviderFailure("Gemini response was truncated at token limit")
-        parts = (first.get("content") or {}).get("parts") or []
-        text = "".join(str(part["text"]) for part in parts if isinstance(part, dict) and part.get("text") and not part.get("thought"))
+        if reason == "MAX_TOKENS" and not text.strip():
+            raise TransientProviderFailure("Gemini response truncated without answer text")
         if not text.strip():
             raise ProviderFailure("Gemini returned empty text")
         if request.on_usage is not None:
@@ -153,5 +156,11 @@ class GeminiProvider:
             }
             if safe:
                 request.on_usage(safe)
+        if reason == "MAX_TOKENS":
+            # Preserve the ORIGINAL desktop PartialGenerationError contract:
+            # callers validate source-owned coverage before storing any text.
+            raise PartialGenerationError(
+                "Gemini answer stopped at MAX_TOKENS", text, "MAX_TOKENS",
+            )
         self.completed_calls += 1
         return text
