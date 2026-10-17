@@ -11,6 +11,7 @@ from chaptera_translation_core import (
 
 from .provider import ProviderFailure, TransientProviderFailure, DailyProviderQuotaFailure
 from .quota import DailyQuotaExhausted, pacific_window
+from .subrequest_checkpoints import SubrequestCheckpoints, provider_scope, CheckpointIntegrityError
 from chaptera_translation_core.prompt_policy import GlossaryVersionConflict
 from .storage import QueueStore
 from .library import BookLibrary, LibraryNotFound, StaleBookJob
@@ -44,12 +45,16 @@ class TranslationWorker:
         jid = job["id"]
         data = job["input"]
         calls_before = getattr(self.provider, "completed_calls", 0)
+        checkpoints = SubrequestCheckpoints(
+            self.store, jid, token, job["request_hash"], provider_scope(self.provider),
+        )
         stop = asyncio.Event()
         heartbeat_task = asyncio.create_task(self._heartbeat(jid, token, stop))
         core = TranslationCore(
             self.provider,
             is_cancelled=lambda: self.store.cancellation_requested(jid, token),
             on_event=lambda event: self.store.record_event(jid, token, event.stage, event.detail),
+            checkpoints=checkpoints,
         )
         try:
             managed = None
@@ -65,6 +70,7 @@ class TranslationWorker:
                         self.provider, managed,
                         on_event=lambda stage, detail: self.store.record_event(jid, token, stage, detail),
                         is_cancelled=lambda: self.store.cancellation_requested(jid, token),
+                        checkpoints=checkpoints,
                     )
                     if self.store.cancellation_requested(jid, token):
                         raise TranslationCancelled('Translation cancelled during context preflight')
@@ -105,9 +111,13 @@ class TranslationWorker:
             # A quota pause is NOT one of the finite transient/provider retries.
             # If the job already sent multiple requests, avoid an unbounded
             # paid replay every day without durable sub-request checkpoints.
-            partial_work = getattr(self.provider, "completed_calls", calls_before) > calls_before
+            completed = getattr(self.provider, "completed_calls", calls_before) - calls_before
+            # Only UNCHECKPOINTED remote successes count toward the existing
+            # repeated-paid-partial failure cap. Fully persisted valid windows
+            # and atom packets are replayed without provider charges.
+            unsafe_partial = completed > checkpoints.saved_calls
             self.store.defer_for_daily_quota(
-                jid, token, reset_at=exc.reset_at, made_calls=partial_work,
+                jid, token, reset_at=exc.reset_at, made_calls=unsafe_partial,
             )
         except DailyProviderQuotaFailure:
             # Even without an opt-in local limit, Google's explicitly
@@ -115,9 +125,10 @@ class TranslationWorker:
             # A configured QuotaControlledProvider additionally blocks other
             # attempts for the same project/model until reset.
             reset = pacific_window(time.time())[1]
-            partial_work = getattr(self.provider, "completed_calls", calls_before) > calls_before
+            completed = getattr(self.provider, "completed_calls", calls_before) - calls_before
+            unsafe_partial = completed > checkpoints.saved_calls
             self.store.defer_for_daily_quota(
-                jid, token, reset_at=reset, made_calls=partial_work,
+                jid, token, reset_at=reset, made_calls=unsafe_partial,
             )
         except TransientProviderFailure as exc:
             retry_in = max(min(300.0, 2 ** min(job["attempts"], 8)), exc.retry_after_seconds or 0.0)
