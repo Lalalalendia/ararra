@@ -8,6 +8,15 @@ const node = (tag, value, css='') => {
   return el;
 };
 
+export function selectBooks(catalog, query, selection, memberId) {
+  const q=String(query || '').trim().toLocaleLowerCase('ru-RU');
+  return catalog.filter(b=>
+    (selection==='all' || (selection==='mine' && b.owner_member_id===memberId)
+      || (selection==='unassigned' && !b.owner_member_id))
+    && [b.title,b.book_id,b.owner_member_id].join(' ')
+      .toLocaleLowerCase('ru-RU').includes(q));
+}
+
 export function createLibraryView({
   body,filter,ownerFilter,empty,request,openEditor,showError,
   currentMember,canReassign,activeModerators,reassignOwner,
@@ -114,13 +123,7 @@ export function createLibraryView({
 
   function render(books=catalog) {
     catalog=books;
-    const q=filter.value.trim().toLocaleLowerCase('ru-RU');
-    const selection=ownerFilter.value;
-    const subset=catalog.filter(b=>
-      (selection==='all' || (selection==='mine' && b.owner_member_id===currentMember())
-        || (selection==='unassigned' && !b.owner_member_id))
-      && [b.title,b.book_id,b.owner_member_id].join(' ')
-        .toLocaleLowerCase('ru-RU').includes(q));
+    const subset=selectBooks(catalog,filter.value,ownerFilter.value,currentMember());
     body.replaceChildren(...subset.map(bookRow));
     empty.hidden=subset.length>0;
   }
