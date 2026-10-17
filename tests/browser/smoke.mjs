@@ -221,9 +221,18 @@ try{
   await screenshot(page,'07-editor-durable-draft.png');
   await page.reload();
   await login(page,issued);
+  // Draft and notes are separate authenticated API reads. A revision badge
+  // can hydrate before the textarea and notes; wait on the actual durable
+  // text and the specific sanitized note instead of racing empty containers.
   await page.locator('#editor-draft-rev').getByText('rev 3').waitFor();
-  assert.match(await page.locator('#editor-text').inputValue(),/Русский литературный перевод/);
+  await page.waitForFunction(
+    ()=>document.querySelector('#editor-text')?.value.includes('Русский литературный перевод'),
+    null,{timeout:15000});
+  await page.locator('.editor-note').getByText(poisoned,{exact:true})
+    .waitFor({state:'visible',timeout:15000});
   assert.match(await page.locator('#editor-notes-list').innerText(),/Проверить термин/);
+  assert.equal(await page.locator('#editor-notes-list img').count(),0);
+  assert.equal(await page.evaluate(()=>window.__unsafe??0),0);
   assert.equal(await page.locator('#editor-accept').isEnabled(),true);
   await page.locator('#editor-accept').click();
   await page.locator('#editor-accepted-rev').getByText('rev 1').waitFor();
