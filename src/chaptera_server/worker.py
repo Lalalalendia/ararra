@@ -29,6 +29,19 @@ class TranslationWorker:
         self.lease_seconds = lease_seconds
         self.heartbeat_seconds = heartbeat_seconds
 
+    def _model_identity(self) -> str:
+        # Resolve only the non-secret model name through the RPD/scheduler
+        # decorators; the Gemini credential is never a cache key.
+        provider = self.provider
+        for _ in range(4):
+            model = getattr(provider, "model", "")
+            if model:
+                return str(model)
+            provider = getattr(provider, "provider", None)
+            if provider is None:
+                break
+        return "unconfigured"
+
     async def _heartbeat(self, job_id: str, token: str, stop: asyncio.Event) -> None:
         while not stop.is_set():
             try:
@@ -47,7 +60,8 @@ class TranslationWorker:
         calls_before = getattr(self.provider, "completed_calls", 0)
         stop = asyncio.Event()
         heartbeat_task = asyncio.create_task(self._heartbeat(jid, token, stop))
-        checkpoint = (SQLiteAtomCheckpoint(self.store, jid, token)
+        checkpoint = (SQLiteAtomCheckpoint(self.store, jid, token,
+                                           model_id=self._model_identity())
                       if data.get("transport") == "atoms_v1" else None)
         core = TranslationCore(
             self.provider,
