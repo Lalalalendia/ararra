@@ -297,8 +297,33 @@ async function modifyMember(memberId,action) {
     } catch(e){flash(e.message,true);}
   });
 }
+function renderDailyQuota(state) {
+  const target=$('gemini-quota-status');
+  if(!state?.enabled){
+    target.textContent='Локальный суточный лимит не настроен. Квота Google неизвестна.';
+    return;
+  }
+  const reset=new Date(Number(state.reset_at)*1000);
+  const resetLabel=Number.isFinite(reset.getTime())
+    ? reset.toLocaleString('ru-RU',{dateStyle:'medium',timeStyle:'short'})
+    : 'неизвестно';
+  const exhausted=state.externally_blocked
+    ? ' Провайдер сообщил об исчерпании дневной квоты (429).'
+    : '';
+  target.textContent='Модель '+state.model+': зарезервировано '+state.used+
+    ' из '+state.limit+' запросов; локальный остаток '+state.remaining+
+    '. Сброс '+resetLabel+' по времени устройства.'+exhausted;
+}
+
 async function refreshJobs() {
-  const reply=await request('/v1/jobs?limit=50');
+  const [jobsResult,quotaResult]=await Promise.allSettled([
+    request('/v1/jobs?limit=50'),
+    request('/v1/quota/gemini'),
+  ]);
+  if(jobsResult.status!=='fulfilled') throw jobsResult.reason;
+  const reply=jobsResult.value;
+  if(quotaResult.status==='fulfilled')renderDailyQuota(quotaResult.value);
+  else $('gemini-quota-status').textContent='Не удалось получить локальную квоту.';
   const jobs=reply.jobs || [];
   const root=$('jobs-list');root.replaceChildren();
   for(const job of jobs) {
