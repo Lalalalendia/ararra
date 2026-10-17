@@ -18,7 +18,7 @@ from .http.schemas import (  # noqa: F401
 
 def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
     app = FastAPI(
-        title="Chaptera Team Translation API", version="0.7.0",
+        title="Chaptera Team Translation API", version="0.6.0",
         docs_url=None, redoc_url=None, openapi_url=None,
     )
     repo = store if store is not None else QueueStore(settings.db_path)
