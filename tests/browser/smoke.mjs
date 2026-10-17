@@ -299,7 +299,25 @@ try{
   await choose(mpage,'editor');
   await mpage.locator('#editor-workspace').waitFor({state:'visible'});
   await fit(mpage,'editor mobile');
+  async function assertMobileNavigation(label){
+    const nav=await mpage.locator('.sidebar-nav').evaluate(el=>{
+      const box=el.getBoundingClientRect();
+      const active=el.querySelector('a[aria-current="page"]').getBoundingClientRect();
+      return {height:box.height,scrollWidth:el.scrollWidth,clientWidth:el.clientWidth,
+        visible:active.left>=box.left-1&&active.right<=box.right+1};
+    });
+    assert.ok(nav.height<=70,label+': navigation should fit into a single row');
+    assert.ok(nav.scrollWidth>nav.clientWidth,label+': section list remains horizontally scrollable');
+    assert.ok(nav.visible,label+': active route must be visible');
+  }
+  await assertMobileNavigation('mobile editor nav');
   await screenshot(mpage,'11-editor-mobile.png');
+  // A direct editor URL after refresh should position the scrollable menu
+  // on the active route without storing a session token.
+  await mpage.reload();
+  await login(mpage,modKey);
+  await mpage.locator('#editor-workspace').waitFor({state:'visible'});
+  await assertMobileNavigation('mobile direct-route nav');
   await mobile.close();
 
   // Book ownership prevents disabling an account until explicit reassignment.
