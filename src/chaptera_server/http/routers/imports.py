@@ -77,7 +77,7 @@ def confirm_stage(stage_id: str, body: ConfirmBookImport, request: Request,
     if payload["book_mode"] == "create":
         owner = payload["owner_member_id"] or actor
         settings = request.app.state.settings
-        if role_for(owner, settings) != "moderator":
+        if owner not in settings.team_tokens or role_for(owner, settings) != "moderator":
             raise HTTPException(status_code=422, detail="Book owner must be an active moderator")
         if role_for(actor, settings) != "admin" and owner != actor:
             raise HTTPException(status_code=403, detail="Only administrator can assign another owner")
