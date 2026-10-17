@@ -1,6 +1,8 @@
 /* Site-specific public book selection. Uses ReadEra's authenticated request
  * boundary; the final write is still the existing ImportSessions confirmation.
  */
+import {createSourceJobView} from './source-book-job-view.mjs';
+
 export function createSourceBookImportView({request,flash,onStage}) {
   const $=id=>document.getElementById(id);
   const root=$('source-import');
@@ -15,6 +17,7 @@ export function createSourceBookImportView({request,flash,onStage}) {
   const end=$('source-end');
   let catalog=null;
   let busy=false;
+  const jobs=createSourceJobView({request,flash,onStage,getCatalog:()=>catalog});
   const setBusy=value=>{
     busy=value;
     discover.disabled=value;
@@ -110,6 +113,6 @@ export function createSourceBookImportView({request,flash,onStage}) {
   });
   return {
     hide(){root.hidden=true;},
-    reset(){root.hidden=false;form.reset();clearCatalog();},
+    reset(){root.hidden=false;form.reset();clearCatalog();jobs.reset();},
   };
 }
