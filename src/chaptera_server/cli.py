@@ -8,6 +8,7 @@ import signal
 
 from .config import Settings
 from .provider import GeminiProvider
+from .quota import DailyQuotaLedger, QuotaControlledProvider
 from .storage import QueueStore
 from .worker import TranslationWorker
 
@@ -22,7 +23,14 @@ async def _run_worker(settings: Settings) -> None:
         except NotImplementedError:
             pass
     store = QueueStore(settings.db_path)
-    worker = TranslationWorker(store, GeminiProvider(settings.gemini_api_key, settings.gemini_model))
+    provider = GeminiProvider(settings.gemini_api_key, settings.gemini_model)
+    if settings.gemini_requests_per_day:
+        ledger = DailyQuotaLedger(
+            store, settings.gemini_quota_project,
+            settings.gemini_model, settings.gemini_requests_per_day,
+        )
+        provider = QuotaControlledProvider(provider, ledger)
+    worker = TranslationWorker(store, provider)
     await worker.run_forever(poll_seconds=settings.worker_poll_seconds, stop=stop)
 
 

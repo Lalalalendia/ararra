@@ -21,6 +21,35 @@ class TransientProviderFailure(ProviderFailure):
         self.retry_after_seconds = retry_after_seconds
 
 
+class DailyProviderQuotaFailure(TransientProviderFailure):
+    """The server explicitly reported a per-day quota (not a transient RPM 429)."""
+
+
+def _daily_quota_violation(response: httpx.Response) -> bool:
+    """Use only structured quota IDs; never log provider error bodies.
+
+    An unclassified 429 may be RPM, TPM or spend-related, and must keep the
+    existing bounded exponential retry path rather than sleeping a whole day.
+    """
+    if len(response.content) > 65536:
+        return False
+    try:
+        payload = response.json()
+    except (TypeError, ValueError):
+        return False
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if not isinstance(error, dict):
+        return False
+    for detail in error.get("details") or []:
+        if not isinstance(detail, dict):
+            continue
+        for violation in detail.get("violations") or []:
+            if (isinstance(violation, dict) and
+                    "perday" in str(violation.get("quotaId", "")).lower()):
+                return True
+    return False
+
+
 def _retry_after(raw: str | None) -> float | None:
     if not raw:
         return None
@@ -62,6 +91,8 @@ class GeminiProvider:
                 response = await self.client.post(url, headers={"x-goog-api-key": self.api_key}, json=payload)
         except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError) as exc:
             raise TransientProviderFailure("Gemini network failure") from exc
+        if response.status_code == 429 and _daily_quota_violation(response):
+            raise DailyProviderQuotaFailure("Gemini daily quota exhausted (HTTP 429)")
         if response.status_code in (408, 429, 500, 502, 503, 504):
             raise TransientProviderFailure(
                 f"Gemini temporarily unavailable (HTTP {response.status_code})",

@@ -5,7 +5,8 @@ import asyncio
 import httpx
 import pytest
 
-from chaptera_server.provider import GeminiProvider, ProviderFailure, TransientProviderFailure
+from chaptera_server.provider import (GeminiProvider, ProviderFailure, TransientProviderFailure,
+                                      DailyProviderQuotaFailure)
 from chaptera_translation_core.ports import ProviderRequest
 
 
@@ -94,3 +95,25 @@ def test_extended_gemini_usage_counters_include_thought_and_cached_tokens():
     assert usages == [{'promptTokenCount': 100, 'candidatesTokenCount': 15,
                        'totalTokenCount': 130, 'thoughtsTokenCount': 15,
                        'cachedContentTokenCount': 80}]
+
+
+def test_gemini_structured_day_quota_is_not_confused_with_rpm_or_tpm():
+    async def request(violations):
+        def responder(_req):
+            return httpx.Response(429, json={"error":{
+                "message":"private prompt data must not be logged",
+                "details":[{"@type":"type.googleapis.com/google.rpc.QuotaFailure",
+                            "violations":[{"quotaId": q} for q in violations]}],
+            }})
+        async with httpx.AsyncClient(transport=httpx.MockTransport(responder)) as client:
+            provider = GeminiProvider("test-key", "gemini-x", client=client)
+            return await provider.generate(ProviderRequest("1", "private", "input", 1))
+
+    with pytest.raises(DailyProviderQuotaFailure) as error:
+        asyncio.run(request(["GenerateRequestsPerDayPerProjectPerModel-FreeTier"]))
+    assert "private" not in str(error.value)
+    with pytest.raises(TransientProviderFailure) as error:
+        asyncio.run(request(["GenerateRequestsPerMinutePerProjectPerModel-FreeTier"]))
+    assert not isinstance(error.value, DailyProviderQuotaFailure)
+    with pytest.raises(DailyProviderQuotaFailure):
+        asyncio.run(request(["GenerateContentInputTokensPerModelPerDay-FreeTier"]))

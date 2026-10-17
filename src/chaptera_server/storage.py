@@ -89,6 +89,7 @@ class QueueStore:
                         ('queued', 'running', 'retry_wait', 'completed', 'failed', 'cancelled')),
                     attempts INTEGER NOT NULL DEFAULT 0,
                     max_attempts INTEGER NOT NULL DEFAULT 3,
+                    quota_partial_waits INTEGER NOT NULL DEFAULT 0,
                     run_after REAL NOT NULL,
                     lease_until REAL,
                     lease_owner TEXT,
@@ -117,6 +118,8 @@ class QueueStore:
             columns = {row['name'] for row in con.execute('PRAGMA table_info(jobs)')}
             if 'provenance_json' not in columns:
                 con.execute('ALTER TABLE jobs ADD COLUMN provenance_json TEXT')
+            if 'quota_partial_waits' not in columns:
+                con.execute('ALTER TABLE jobs ADD COLUMN quota_partial_waits INTEGER NOT NULL DEFAULT 0')
 
     @staticmethod
     def _public(row: sqlite3.Row | dict[str, Any], *, include_result: bool = False) -> dict[str, Any]:
@@ -292,6 +295,47 @@ class QueueStore:
             return self.fail(job_id, lease_owner, message)
         return self._finish(job_id, lease_owner, "retry_wait", message=message,
                             run_after=time.time() + max(0.0, delay_seconds))
+
+    def defer_for_daily_quota(self, job_id: str, lease_owner: str, *,
+                              reset_at: float, made_calls: bool) -> bool:
+        """Pause quota-blocked work without burning finite transient retries.
+
+        No remote call => not a failed job attempt. After repeated partial
+        expensive runs (preflight/atom repair), fail closed rather than
+        re-spending the same daily allowance forever without checkpoints.
+        """
+        now = time.time()
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            row = con.execute("""
+                SELECT cancel_requested, attempts, quota_partial_waits
+                FROM jobs WHERE id=? AND status='running' AND lease_owner=?
+            """, (job_id, lease_owner)).fetchone()
+            if row is None:
+                con.execute("COMMIT")
+                return False
+            partials = row["quota_partial_waits"] + (1 if made_calls else 0)
+            if row["cancel_requested"]:
+                state, note = "cancelled", ""
+            elif partials > 2:
+                state = "failed"
+                note = "Translation needs more than daily provider allowance; split or checkpoint job"
+            else:
+                state = "retry_wait"
+                note = f"Gemini daily quota; resume at UTC timestamp {int(reset_at)}"
+            con.execute("""
+                UPDATE jobs SET status=?, run_after=?, attempts=?,
+                    quota_partial_waits=?, last_error=?, lease_owner=NULL,
+                    lease_until=NULL, updated_at=?
+                WHERE id=? AND lease_owner=?
+            """, (
+                state, max(now, reset_at) if state == "retry_wait" else now,
+                max(0, row["attempts"] - 1) if state == "retry_wait" else row["attempts"],
+                partials, note, now, job_id, lease_owner,
+            ))
+            self._event(con, job_id, "quota_wait" if state == "retry_wait" else state, note, now)
+            con.execute("COMMIT")
+            return True
 
     def request_cancel(self, job_id: str) -> dict[str, Any] | None:
         now = time.time()
