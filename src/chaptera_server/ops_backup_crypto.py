@@ -119,6 +119,7 @@ def seal(manifest_path: str | Path, key_path: str | Path,
     if not _OUTER.fullmatch(destination.name):
         raise BackupRejected("Invalid encrypted bundle name")
     incomplete = _temporary(folder, ".rbe")
+    published = False
     try:
         nonce = os.urandom(_NONCE_BYTES)
         header = _MAGIC + nonce
@@ -141,8 +142,13 @@ def seal(manifest_path: str | Path, key_path: str | Path,
             out.flush()
             os.fsync(out.fileno())
         _publish_new(incomplete, destination)
+        published = True
         _sync_directory(folder)
         return destination
+    except BaseException:
+        if published:
+            destination.unlink(missing_ok=True)
+        raise
     finally:
         incomplete.unlink(missing_ok=True)
 
@@ -169,6 +175,7 @@ def unseal(archive_path: str | Path, key_path: str | Path,
     if length < overhead + 4 + 2 + 512:
         raise BackupRejected("Encrypted backup too short")
     incomplete = _temporary(folder, ".sqlite3")
+    published = False
     try:
         with archive.open("rb") as inp:
             header = inp.read(len(_MAGIC) + _NONCE_BYTES)
@@ -226,8 +233,13 @@ def unseal(archive_path: str | Path, key_path: str | Path,
                 os.fsync(out.fileno())
         _healthy(incomplete)
         _publish_new(incomplete, target)
+        published = True
         _sync_directory(folder)
         return target
+    except BaseException:
+        if published:
+            target.unlink(missing_ok=True)
+        raise
     finally:
         incomplete.unlink(missing_ok=True)
         (folder / (incomplete.name + "-wal")).unlink(missing_ok=True)

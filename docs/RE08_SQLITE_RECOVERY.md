@@ -30,7 +30,9 @@ If the directory is missing, too permissive, symlinked, or any check fails,
 the command rejects the operation. No auto-creation of a public backup
 directory, no deleting previous snapshots, and no network upload.
 
-**Important:** these backups are sensitive and not encrypted by this utility.
+**Important:** plaintext snapshots produced by the `ops_backup` module are
+sensitive. The separate `ops_backup_crypto` module below can seal them
+before transfer. Plaintext snapshots remain sensitive even after sealing.
 Keep the filesystem mode `0700/0600`; copy snapshots and manifests to an
 independently encrypted, access-controlled, off-host destination under a
 separately approved retention policy. Same-disk snapshots are not disaster
@@ -89,3 +91,58 @@ finished public-ingress rate limiting: a separately reviewed HTTPS reverse
 proxy must strip untrusted inbound forwarding headers and supply verified
 client identity, with repeatable end-to-end acceptance tests. Port 8091
 remains loopback-only until that gate is complete.
+
+## Encrypted, authenticated bundles for an off-host destination (RE-08-ENC-01)
+
+This package **does not choose or connect a cloud provider**. It creates
+self-contained encrypted `.rbe` archives for later operator-controlled
+transfer to an independent, access-controlled off-host backup target.
+
+Encryption is AES-256-GCM with a fresh random 96-bit nonce for every bundle,
+a 128-bit authentication tag, a fixed format/version and authenticated
+metadata (SQLite origin hash, byte count and snapshot identity). Only a
+format identifier and nonce are visible before decryption; database contents
+and internal manifest metadata are encrypted. The implementation processes
+data in bounded 1-MiB chunks and refuses modified, truncated or unknown
+formats before publishing the restored database.
+
+The secret is an **existing 32-byte binary key file** supplied through a path.
+The key itself must never appear on command lines, in environment variables,
+CI artifacts, app logs or Git. Owner-only permissions (`0600`) are mandatory.
+Create a 0700 private directory yourself and provision a key **once**:
+
+```bash
+python -m chaptera_server.ops_backup_crypto generate-key \
+  --path /private/keys/readera-recovery.key
+
+python -m chaptera_server.ops_backup_crypto seal \
+  --manifest /private/snapshots/readera-....sqlite3.manifest.json \
+  --key-file /private/keys/readera-recovery.key \
+  --directory /private/sealed
+
+python -m chaptera_server.ops_backup_crypto unseal \
+  --archive /private/sealed/readera-....sqlite3.rbe \
+  --key-file /private/keys/readera-recovery.key \
+  --destination /private/restore-candidate/jobs.sqlite3
+```
+
+The `seal` output directory must be distinct from the plaintext snapshot
+directory. Each operation uses a pre-existing 0700, operator-owned
+directory, temporary owner-only files, file-system sync, and exclusive
+publish. `unseal` authenticates the whole stream and verifies SQLite
+integrity/foreign keys before publishing a **new, offline-only** database
+at a previously nonexistent path. No key material or book text is printed.
+
+**Key availability is part of disaster recovery:** keep the key in a separate
+approved secrets store with an independently tested recovery procedure. Losing
+the key means losing access to sealed archives. Do not put the key alongside
+archives at the off-host destination. The plaintext snapshot left by
+`ops_backup snapshot` is NOT automatically deleted by sealing; define a
+separate retention/secure disposal policy. The current code does not schedule
+backups, upload to S3/Drive, verify replication to another host, rotate keys or
+restore the production database in place.
+
+Operational acceptance is tracked in
+[ararra #56](https://github.com/Lalalalendia/ararra/issues/56). Passing
+cryptographic tests and rootless VPS smoke is not a substitute for a tested,
+encrypted off-host copy and a witnessed real-host recovery.

@@ -16,7 +16,7 @@ import pytest
 from chaptera_server.api import create_app
 from chaptera_server.config import Settings
 from chaptera_server.ops_backup import BackupRejected, snapshot
-from chaptera_server.ops_backup_crypto import generate_key, seal, unseal
+from chaptera_server.ops_backup_crypto import _MAGIC, generate_key, seal, unseal
 from chaptera_server.storage import JobSpec, QueueStore
 
 
@@ -189,6 +189,7 @@ def test_key_not_embedded_and_archive_has_random_nonce(tmp_path):
     second_dir = private(tmp_path, "sealed2")
     repeated = seal(manifest, secret, second_dir)
     assert repeated.read_bytes() != blob
-    assert repeated.read_bytes()[:23] == blob[:23]
+    assert repeated.read_bytes().startswith(_MAGIC)
+    assert blob.startswith(_MAGIC)
     with pytest.raises(FileExistsError):
         seal(manifest, secret, folder)
