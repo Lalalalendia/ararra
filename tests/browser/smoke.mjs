@@ -538,6 +538,19 @@ try{
     local:Object.keys(localStorage),session:Object.keys(sessionStorage),
   }));
   assert.deepEqual(noKeys,{local:[],session:[]});
+  // The same authenticated moderator can voluntarily rotate their password.
+  await page.locator('#change-password-open').click();
+  await page.locator('#password-change').waitFor({state:'visible'});
+  await page.locator('#change-password-current').fill('My new moderator password 2026!');
+  await page.locator('#password-change-form [name="new_password"]').fill('Another secure moderator passphrase!');
+  await page.locator('#password-change-form [name="confirmation"]').fill('Another secure moderator passphrase!');
+  await page.locator('#password-change-form button[type="submit"]').click();
+  await page.locator('#login-form').waitFor({state:'visible'});
+  await page.locator('#login-form [name="login_mode"][value="password"]').check();
+  await page.locator('#login-member').fill('writer');
+  await page.locator('#login-secret').fill('Another secure moderator passphrase!');
+  await page.locator('#login-form button[type="submit"]').click();
+  await page.locator('#authenticated').waitFor({state:'visible'});
   assert.deepEqual(pageErrors,[],'No uncaught browser errors');
   console.log('PASS: real Chromium desktop/mobile, roles, source import and replacement CAS,');
   console.log('      stage abort, memory-only keys, ownership, responsive widths, screenshots.');
