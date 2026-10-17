@@ -37,6 +37,7 @@ jobs:
       - name: Validate books_platform/Jinja vanilla front-end
         run: |
           node --check src/chaptera_server/web_ui/static/js/readera.mjs
+          node --check src/chaptera_server/web_ui/static/js/library-view.mjs
           node --check src/chaptera_server/web_ui/static/js/books-platform-chapter-status.js
           node --check src/chaptera_server/web_ui/static/js/import-model.mjs
           node --check src/chaptera_server/web_ui/static/js/editor.mjs

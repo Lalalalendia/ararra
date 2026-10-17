@@ -212,14 +212,29 @@ class BookLibrary:
             return self._book_dict(row)
 
     def list_books(self) -> list[dict]:
-        """Shared directory, including unassigned legacy books for remediation."""
+        """Shared directory with truthful chapter counts; no N+1 body reads.
+
+        Accepted means a translation still tied to the CURRENT source revision.
+        Missing or stale accepted translations must not count as ready.
+        """
         with self.queue._connect() as con:
-            rows = con.execute(
-                'SELECT id,title,owner_member_id,owner_revision FROM books ORDER BY title,id'
-            ).fetchall()
+            rows = con.execute("""
+                SELECT b.id, b.title, b.owner_member_id, b.owner_revision,
+                       COUNT(c.chapter_id) AS chapter_count,
+                       COALESCE(SUM(CASE
+                           WHEN c.accepted_revision > 0
+                            AND c.accepted_source_revision = c.source_revision
+                           THEN 1 ELSE 0 END), 0) AS accepted_current_count
+                FROM books AS b
+                LEFT JOIN book_chapters AS c ON c.book_id = b.id
+                GROUP BY b.id
+                ORDER BY b.title, b.id
+            """).fetchall()
         return [
             {'book_id': row['id'], 'title': row['title'],
-             'owner_member_id': row['owner_member_id'], 'owner_revision': row['owner_revision']}
+             'owner_member_id': row['owner_member_id'], 'owner_revision': row['owner_revision'],
+             'chapter_count': row['chapter_count'],
+             'accepted_current_count': row['accepted_current_count']}
             for row in rows
         ]
 

@@ -49,6 +49,11 @@ def test_jinja_pages_render_without_credentials_but_never_expose_team_state(tmp_
             assert "import-model.mjs" in js.text
             assert "localStorage" not in js.text
             assert "sessionStorage" not in js.text
+            library_js = await client.get("/app-static/js/library-view.mjs")
+            assert library_js.status_code == 200
+            assert "createLibraryView" in library_js.text
+            assert "innerHTML" not in library_js.text
+            assert "localStorage" not in library_js.text
             model = await client.get("/app-static/js/import-model.mjs")
             assert model.status_code == 200
             assert "validateDraft" in model.text
@@ -93,6 +98,7 @@ def test_bundled_resource_files_exist_in_source_tree():
         "src/chaptera_server/web_ui/static/css/readera.css",
         "src/chaptera_server/web_ui/static/js/import-model.mjs",
         "src/chaptera_server/web_ui/static/js/readera.mjs",
+        "src/chaptera_server/web_ui/static/js/library-view.mjs",
         "src/chaptera_server/web_ui/static/css/chapter-editor.css",
         "src/chaptera_server/web_ui/static/js/editor.mjs",
     )

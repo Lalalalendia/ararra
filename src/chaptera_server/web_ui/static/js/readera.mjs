@@ -7,6 +7,7 @@ import {
   validateDraft, confirmation,
 } from './import-model.mjs';
 import {initChapterEditor} from './editor.mjs';
+import {createLibraryView} from './library-view.mjs';
 
 const $ = id => document.getElementById(id);
 const sections = Array.from(document.querySelectorAll('[data-page]'));
@@ -161,38 +162,22 @@ $('logout').addEventListener('click',()=>{
   hideImportSteps();flash('');
 });
 
+const libraryView=createLibraryView({
+  body:$('book-list'),filter:$('book-filter'),empty:$('books-empty'),request,
+  openEditor:(bookId,chapterId='')=>{
+    editor?.selectOnActivation(bookId,chapterId);
+    if(showPage('editor',true))flash('');
+  },
+  showError:error=>flash(error.message,true),
+});
+
 async function refreshBooks() {
   const reply=await request('/v1/books');
   books=reply.books || [];
-  const needle=$('book-filter').value.trim().toLocaleLowerCase('ru-RU');
-  const body=$('book-list');body.replaceChildren();
-  const filtered=books.filter(book=>
-    [book.title,book.book_id,book.owner_member_id].join(' ')
-      .toLocaleLowerCase('ru-RU').includes(needle));
-  for (const book of filtered) {
-    const tr=document.createElement('tr');
-    td(tr,book.title);td(tr,book.book_id);
-    td(tr,book.owner_member_id || 'Не назначен');
-    td(tr,book.owner_revision);
-    body.append(tr);
-  }
-  $('books-empty').hidden=filtered.length>0;
+  libraryView.render(books);
   $('metric-books').textContent=String(books.length);
   fillBooksSelect();
 }
-$('book-filter').addEventListener('input',()=>{
-  const body=$('book-list');body.replaceChildren();
-  const q=$('book-filter').value.trim().toLocaleLowerCase('ru-RU');
-  const matching=books.filter(b=>
-    [b.title,b.book_id,b.owner_member_id].join(' ').toLocaleLowerCase('ru-RU').includes(q));
-  matching.forEach(b=>{
-    const tr=document.createElement('tr');
-    [b.title,b.book_id,b.owner_member_id||'Не назначен',b.owner_revision]
-      .forEach(x=>td(tr,x));
-    body.append(tr);
-  });
-  $('books-empty').hidden=matching.length>0;
-});
 
 async function refreshMembers() {
   $('team-admin-only').hidden=identity.role!=='admin';
