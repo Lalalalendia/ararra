@@ -112,8 +112,9 @@ class SourceCatalogStore:
             raise SourceCatalogConflict("Chapter number outside supported range")
         if catalog.catalog_sha256 != _fingerprint(catalog.chapters):
             raise SourceCatalogConflict("Source catalog fingerprint mismatch")
+        pages = catalog.page_urls or (catalog.book_url,)
         if (catalog.coverage_state not in ("declared_count_matched","observed_html_only") or
-            not 1 <= len(catalog.page_urls) <= 12 or
+            not 1 <= len(pages) <= 12 or
             (catalog.declared_chapter_count is not None and
              catalog.declared_chapter_count != len(catalog.chapters))):
             raise SourceCatalogConflict("Source catalog coverage metadata invalid")
@@ -140,7 +141,7 @@ class SourceCatalogStore:
                 (cat_id,actor,catalog.source,catalog.book_url,catalog.catalog_sha256,
                  json.dumps([asdict(ch) for ch in catalog.chapters],ensure_ascii=False),
                  now,now+CATALOG_TTL_SECONDS,
-                 json.dumps(catalog.page_urls),catalog.declared_chapter_count,
+                 json.dumps(pages),catalog.declared_chapter_count,
                  catalog.coverage_state),
             )
             row = con.execute("SELECT * FROM source_book_catalogs WHERE id=?", (cat_id,)).fetchone()
