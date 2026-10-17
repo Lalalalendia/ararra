@@ -214,7 +214,10 @@ try{
 
   // Parallel author updates source after checked replacement; transaction rejects all.
   await choose(page,'import');
-  await page.locator('#import-another').click();
+  // A reload intentionally discards browser-only import state, not committed books.
+  if(await page.locator('#import-another').isVisible()){
+    await page.locator('#import-another').click();
+  }
   await upload(page,'replace.txt','Глава 12. Первая\nНовый текст после обновления.\n');
   await page.locator('#import-map input[name="book_mode"][value="existing"]').check();
   await page.locator('#import-existing').selectOption('browser-novel');
