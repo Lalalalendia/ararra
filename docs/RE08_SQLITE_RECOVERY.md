@@ -75,3 +75,17 @@ root-owned installer, trusted peer/IP and HTTPS ingress decisions, service
 RAM tests, encrypted off-host copy, recurring scheduler, and a witnessed
 restore + rollback test on the real VPS. Until that proof exists, do not
 mark production as accepted.
+
+## Private peer-IP boundary
+
+The production `chaptera-server serve` entrypoint sets Uvicorn
+`proxy_headers=False`. This prevents implicit trust in client-supplied
+forwarded-IP headers arriving over a localhost connection. The SQLite login
+rate limit therefore uses the connected peer, not a caller-selected value.
+
+When ReadEra is later placed behind a reverse proxy, many clients can share
+one visible peer address. This conservative behavior does **not** constitute
+finished public-ingress rate limiting: a separately reviewed HTTPS reverse
+proxy must strip untrusted inbound forwarding headers and supply verified
+client identity, with repeatable end-to-end acceptance tests. Port 8091
+remains loopback-only until that gate is complete.
