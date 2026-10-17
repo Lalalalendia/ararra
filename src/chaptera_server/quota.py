@@ -118,12 +118,15 @@ class QuotaControlledProvider:
     def __init__(self, provider, ledger: DailyQuotaLedger):
         self.provider, self.ledger = provider, ledger
         self.sent_calls = 0
+        self.completed_calls = 0
 
     async def generate(self, request):
         self.ledger.reserve()
         self.sent_calls += 1
         try:
-            return await self.provider.generate(request)
+            result = await self.provider.generate(request)
+            self.completed_calls += 1
+            return result
         except DailyProviderQuotaFailure as exc:
             reset = self.ledger.block_day()
             raise DailyQuotaExhausted(reset) from exc

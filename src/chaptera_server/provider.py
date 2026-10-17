@@ -76,6 +76,7 @@ class GeminiProvider:
         self.model = model
         self.client = client
         self.timeout_seconds = timeout_seconds
+        self.completed_calls = 0
 
     async def generate(self, request: ProviderRequest) -> str:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
@@ -129,4 +130,5 @@ class GeminiProvider:
             }
             if safe:
                 request.on_usage(safe)
+        self.completed_calls += 1
         return text

@@ -191,3 +191,33 @@ def test_unconfigured_daily_429_suspends_instead_of_failing(tmp_path, monkeypatc
     assert state["status"] == "retry_wait"
     assert state["attempts"] == 0
     assert store.claim_next() is None
+
+
+def test_consecutive_external_daily_429s_do_not_consume_partial_job_budget(tmp_path, monkeypatch):
+    clock = [ts(2026, 10, 17, 12)]
+    monkeypatch.setattr(quota, "time", SimpleNamespace(time=lambda: clock[0]))
+    monkeypatch.setattr(storage, "time", SimpleNamespace(time=lambda: clock[0]))
+
+    class AlwaysDaily:
+        calls = 0
+
+        async def generate(self, _request):
+            self.calls += 1
+            raise DailyProviderQuotaFailure("Gemini 429 PerDay")
+
+    store = QueueStore(tmp_path / "jobs.db")
+    remote = AlwaysDaily()
+    guarded = QuotaControlledProvider(
+        remote, DailyQuotaLedger(store, "project-a", "gemini-test", 21),
+    )
+    worker = TranslationWorker(store, guarded)
+    job = store.create_job("alice", JobSpec("1", "<p>世界正在燃烧。</p>", max_attempts=1))
+    for day in range(4):
+        assert asyncio.run(worker.run_once())
+        state = store.get_job(job["id"])
+        assert state["status"] == "retry_wait"
+        assert state["attempts"] == 0
+        assert guarded.completed_calls == 0
+        assert remote.calls == day + 1
+        clock[0] = pacific_window(clock[0])[1] + 1
+
