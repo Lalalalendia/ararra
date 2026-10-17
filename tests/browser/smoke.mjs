@@ -81,6 +81,22 @@ try{
   assert.equal((await api('/v1/admin/members',issued)).status,403);
 
   await choose(page,'import');
+  assert.match(await page.locator('#import-file-state').innerText(),/не выбран/);
+  const droppedFile=await page.evaluateHandle(()=>{
+    const transfer=new DataTransfer();
+    transfer.items.add(new File(['Глава 1. Из файла\\nТекст.\\n'], 'dropped.txt',
+      {type:'text/plain'}));
+    return transfer;
+  });
+  await page.locator('#import-dropzone').dispatchEvent('dragenter',{dataTransfer:droppedFile});
+  assert.equal(await page.locator('#import-dropzone').evaluate(el=>el.classList.contains('is-over')),true);
+  await page.locator('#import-dropzone').dispatchEvent('drop',{dataTransfer:droppedFile});
+  assert.equal(await page.locator('#import-dropzone').evaluate(el=>el.classList.contains('is-over')),false);
+  assert.match(await page.locator('#import-file-state').innerText(),/dropped.txt/);
+  assert.equal(await page.locator('#chapters_file').evaluate(el=>el.files[0].name),'dropped.txt');
+  await droppedFile.dispose();
+  // Native selection must update the same visible status and continue the
+  // existing staged-upload workflow; drag/drop does not auto-import.
   await upload(page,'novel.txt',sample());
   assert.equal(await page.locator('#chapter-map tr').count(),2);
   assert.match(await page.locator('#stage-details').innerText(),/novel.txt/);
