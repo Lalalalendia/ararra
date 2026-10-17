@@ -24,12 +24,41 @@
   граница output 65536; реальное `maxOutputTokens` ограничено 98%,
   как в настольном Gemini handler. Проверяются до сетевого запроса.
 
-## Принципиальные границы
-Это **первый завершённый блок миграции**, а не вся настольная подсистема.
-Desktop `ErrorAnalyzer`, streaming partial salvage, `coverage_v2`,
-`translation_debts`, `split_v2`, `finalize_only` и per-atom durable
-checkpoints пока НЕ подключены к SQLite очереди РидЭры. Следующими PR
-переносим их контракты и сравниваем одинаковые mocked error/response traces.
+## Следующие завершённые блоки
+
+- **PR #38 — атомные контрольные точки:** уже проверенные исходным
+  desktop `CoverageMap` пакеты, включая targeted repair, сохраняются
+  в SQLite с lease fencing и ключом точного prompt/payload/role/model.
+  Срабатывает восстановление после паузы и перезапуска без повторного
+  вызова Gemini. Не переносит ещё streaming или контекстные окна.
+- **PR #39 — классификация и отложенные повторы:** из
+  `full_cycle_app/.../worker_helpers/error_analyzer.py` без изменения
+  взят метод `_classify_exception` с приоритетом условий (включая
+  provider unavailable перед network). Серверный
+  `gemini_error_bridge.py` только превращает очищенные HTTP-коды в
+  существующие `ErrorType` через оригинальные классы исключений.
+  `TemporaryRateLimitError` (429/RPM), `ProviderUnavailableError`
+  (5xx) и `NetworkError` не расходуют конечные `max_attempts`.
+  Постоянный `transient_streak` наращивает паузу до 300 секунд,
+  `Retry-After` учитывается до 3600 секунд. 401/404/400
+  блокируют обработку новых задач в текущем worker, как desktop
+  `ABORT_WORKER`; текущая плохая глава получает явную ошибку.
+  Дневная квота по-прежнему идёт через RPD и ждёт Pacific reset.
+  Непонятные/искажённые 200/200 MAX_TOKENS не объявляются «сетью»:
+  пока доступны только **ограниченные countable повторы**, не
+  полноценный partial salvage. Полезная работа не перечёркивается
+  при временном отказе; сохранённые атомы из PR #38 остаются доступны.
+
+## Что ещё НЕ перенесено
+
+Полный desktop `ErrorAnalyzer.analyze_and_act` включает действия
+`split_v2`, `coverage_v2`, `translation_debts`, `finalize_only`,
+сессионный model failover, streaming salvage и обработку нескольких
+типов ошибок в рамках общего history. Это **не** заявляется
+реализованным: GUI и настольная очередь имеют другую
+инфраструктурную оболочку, и их не нужно вслепую копировать
+в серверную SQLite. Далее переносим **то же поведение** в серверные
+порты с мокированными desktop traces и crash-test.
 
 Scheduler настольной программы хранит RPM/TPM/circuit в памяти процесса,
 поэтому при рестарте эти минутные окна сбрасываются. Устойчивое суточное
