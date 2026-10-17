@@ -220,6 +220,13 @@
           <section data-page="jobs" hidden>
             <div class="ui-page-header"><div><p class="kicker">РидЭра / Переводы</p><h1>Очередь заданий</h1>
               <p>Статусы и диагностические сообщения отображаются без запуска дополнительных платных заданий.</p></div></div>
+            <div class="ui-card">
+              <div class="ui-section-header"><h2>Суточная квота Gemini</h2>
+                <p>Только локальный счётчик попыток этой SQLite-базы; запросы из других приложений и расходы по токенам здесь не учитываются.</p>
+              </div>
+              <p id="gemini-quota-status" role="status" aria-live="polite">Загрузка локальной квоты…</p>
+              <p class="muted">Лимит задаётся для Google-проекта и модели, а не отдельного ключа. Сброс — полночь Pacific.</p>
+            </div>
             <div class="chapter-import-history ui-card">
               <div class="ui-section-header"><h2>Последние задания</h2><p>Обновляются при открытии раздела.</p></div>
               <div id="jobs-list" class="chapter-import-queue__list"></div>
