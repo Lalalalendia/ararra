@@ -211,6 +211,52 @@ def test_expired_session_is_not_committable_and_active_quota_is_bounded(tmp_path
     assert sessions.stage("alice", "fourth.txt", source())["status"] == "staged"
 
 
+
+def test_cancel_stage_is_owner_only_and_reclaims_quota_without_changing_books(tmp_path):
+    store, lib, sessions = make_store(tmp_path)
+    uploads = [sessions.stage("alice", f"batch-{i}.txt", source()) for i in range(3)]
+    stage_id = uploads[0]["stage_id"]
+    with pytest.raises(StageMissing):
+        sessions.cancel("bob", stage_id)
+    with pytest.raises(StageTooLarge):
+        sessions.stage("alice", "fourth.txt", source())
+    assert sessions.cancel("alice", stage_id) == {"stage_id": stage_id, "status": "cancelled"}
+    with pytest.raises(StageMissing):
+        sessions.get("alice", stage_id)
+    assert sessions.stage("alice", "fourth.txt", source())["status"] == "staged"
+    committed = sessions.confirm("alice", uploads[1]["stage_id"],
+                                 request([decision(1, "a", 12), decision(2, "b", 13)]))
+    with pytest.raises(StageConflict, match="cannot be cancelled"):
+        sessions.cancel("alice", uploads[1]["stage_id"])
+    assert committed["imported_count"] == 2
+    assert lib.get_chapter("demo", "a")["source_revision"] == 1
+
+
+def test_http_delete_stage_is_authenticated_isolated_and_never_writes_book(tmp_path):
+    store, _, _ = make_store(tmp_path)
+    app = create_app(Settings(db_path=store.db_path,
+                              team_tokens={"alice": "alice-key", "bob": "bob-key"}), store)
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                     base_url="http://test") as client:
+            uploaded = await client.post("/v1/imports/stages", headers=HEADERS,
+                                         files={"file": ("book.txt", source(), "text/plain")})
+            assert uploaded.status_code == 201, uploaded.text
+            url = "/v1/imports/stages/" + uploaded.json()["stage_id"]
+            assert (await client.delete(url)).status_code == 401
+            assert (await client.delete(url, headers=BOB)).status_code == 404
+            assert (await client.get(url, headers=HEADERS)).status_code == 200
+            assert (await client.delete(url, headers=HEADERS)).json()["status"] == "cancelled"
+            assert (await client.get(url, headers=HEADERS)).status_code == 404
+            assert (await client.delete(url, headers=HEADERS)).status_code == 404
+            with store._connect() as con:
+                assert con.execute("SELECT COUNT(*) FROM books").fetchone()[0] == 0
+                assert con.execute("SELECT COUNT(*) FROM book_chapters").fetchone()[0] == 0
+
+    asyncio.run(scenario())
+
+
 def test_metadata_only_cannot_be_mistaken_for_real_source_text(tmp_path):
     _, _, sessions = make_store(tmp_path)
     metadata = {"format": "rulate_account_metadata", "schema_version": 1,
