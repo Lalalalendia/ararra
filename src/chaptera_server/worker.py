@@ -14,7 +14,8 @@ from .gemini_error_bridge import (
     NON_COUNTABLE_TRANSIENT, FATAL_WORKER_CONFIG,
     desktop_error_type, desktop_transient_delay,
 )
-from chaptera_translation_core.api.errors import ErrorType
+from chaptera_translation_core.api.errors import ErrorType, PartialGenerationError
+from chaptera_translation_core.api.desktop_error_policy import DesktopErrorClassifier
 from .quota import DailyQuotaExhausted, pacific_window
 from .atom_checkpoints import SQLiteAtomCheckpoint, AtomCheckpointConflict
 from chaptera_translation_core.prompt_policy import GlossaryVersionConflict
@@ -180,6 +181,20 @@ class TranslationWorker:
             self.store.defer_for_daily_quota(
                 jid, token, reset_at=reset, made_calls=partial_work,
             )
+        except PartialGenerationError as exc:
+            # The desktop retains the actual partial output, but a rejected
+            # partial without source-proof cannot become a translated chapter.
+            # Physical transport interruptions are non-countable like NetworkError;
+            # content truncation is a finite retry/split candidate.
+            kind = DesktopErrorClassifier.classify(exc)
+            if kind == ErrorType.NETWORK:
+                self.store.defer_desktop_transient(
+                    jid, token, kind="NETWORK", initial_delay_seconds=exc.delay_seconds,
+                )
+            else:
+                self.store.retry(jid, token,
+                                 f"Gemini partial answer ({str(exc.reason).upper()[:40]})",
+                                 delay_seconds=3.0)
         except TransientProviderFailure as exc:
             kind = desktop_error_type(exc)
             if kind in NON_COUNTABLE_TRANSIENT:
