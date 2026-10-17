@@ -38,6 +38,11 @@ class Settings:
     # Opt-in local safety cap. Google quota belongs to PROJECT + MODEL, not key.
     gemini_quota_project: str = ""
     gemini_requests_per_day: int = 0
+    # Desktop full_cycle_app default for gemini-3.8-flash. Local admission
+    # limits can be adjusted to actual model/project entitlement.
+    gemini_rpm: int = 5
+    gemini_tpm: int = 250_000
+    gemini_reserved_output_tokens: int = 65_536
     worker_poll_seconds: float = 1.0
     bind: str = "127.0.0.1"
     port: int = 8000
@@ -49,6 +54,10 @@ class Settings:
             raise ValueError("Gemini daily request limit must be between 0 and 1000000")
         if self.gemini_requests_per_day and not self.gemini_quota_project:
             raise ValueError("CHAPTERA_GEMINI_QUOTA_PROJECT must be set for daily quota")
+        if self.gemini_rpm < 0 or self.gemini_tpm < 0 or self.gemini_reserved_output_tokens < 0:
+            raise ValueError("Gemini RPM, TPM and output reservation must be non-negative")
+        if self.gemini_tpm and not self.gemini_reserved_output_tokens:
+            raise ValueError("Gemini TPM requires an explicit output-token reservation")
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -70,6 +79,9 @@ class Settings:
             gemini_model=os.environ.get("CHAPTERA_GEMINI_MODEL", "gemini-3.8-flash").strip(),
             gemini_quota_project=os.environ.get("CHAPTERA_GEMINI_QUOTA_PROJECT", "").strip(),
             gemini_requests_per_day=int(os.environ.get("CHAPTERA_GEMINI_REQUESTS_PER_DAY", "0")),
+            gemini_rpm=int(os.environ.get("CHAPTERA_GEMINI_RPM", "5")),
+            gemini_tpm=int(os.environ.get("CHAPTERA_GEMINI_TPM", "250000")),
+            gemini_reserved_output_tokens=int(os.environ.get("CHAPTERA_GEMINI_RESERVED_OUTPUT_TOKENS", "65536")),
             worker_poll_seconds=max(0.1, float(os.environ.get("CHAPTERA_WORKER_POLL_SECONDS", "1.0"))),
             bind=os.environ.get("CHAPTERA_BIND", "127.0.0.1"),
             port=int(os.environ.get("CHAPTERA_PORT", "8000")),

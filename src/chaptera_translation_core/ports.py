@@ -30,6 +30,9 @@ class ProviderRequest:
     unit_count: int
     transport: str = "html_v0"
     on_usage: Callable[[dict[str, int]], None] | None = None
+    # Desktop scheduler owns these labels and cancellation; keep prior positional API.
+    request_role: str = "translation"
+    is_cancelled: Callable[[], bool] | None = None
 
 
 class TranslationProvider(Protocol):

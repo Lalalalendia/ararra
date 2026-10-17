@@ -16,9 +16,12 @@ class ProviderFailure(RuntimeError):
 
 
 class TransientProviderFailure(ProviderFailure):
-    def __init__(self, message: str, *, retry_after_seconds: float | None = None):
+    def __init__(self, message: str, *, retry_after_seconds: float | None = None,
+                 status_code: int | None = None, is_network_error: bool = False):
         super().__init__(message)
         self.retry_after_seconds = retry_after_seconds
+        self.status_code = status_code
+        self.is_network_error = is_network_error
 
 
 class DailyProviderQuotaFailure(TransientProviderFailure):
@@ -67,7 +70,7 @@ def _retry_after(raw: str | None) -> float | None:
 
 class GeminiProvider:
     def __init__(self, api_key: str, model: str, *, client: httpx.AsyncClient | None = None,
-                 timeout_seconds: float = 180.0):
+                 timeout_seconds: float = 180.0, max_output_tokens: int | None = None):
         if not api_key:
             raise ValueError("Gemini API key is required")
         if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}", model):
@@ -75,14 +78,20 @@ class GeminiProvider:
         self.api_key = api_key
         self.model = model
         self.client = client
+        if max_output_tokens is not None and max_output_tokens < 1:
+            raise ValueError("max_output_tokens must be positive")
         self.timeout_seconds = timeout_seconds
+        self.max_output_tokens = max_output_tokens
         self.completed_calls = 0
 
     async def generate(self, request: ProviderRequest) -> str:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
+        generation_config = {"temperature": 0.2}
+        if self.max_output_tokens is not None:
+            generation_config["maxOutputTokens"] = self.max_output_tokens
         payload = {
             "contents": [{"role": "user", "parts": [{"text": request.prompt}]}],
-            "generationConfig": {"temperature": 0.2},
+            "generationConfig": generation_config,
         }
         try:
             if self.client is None:
@@ -91,13 +100,14 @@ class GeminiProvider:
             else:
                 response = await self.client.post(url, headers={"x-goog-api-key": self.api_key}, json=payload)
         except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError) as exc:
-            raise TransientProviderFailure("Gemini network failure") from exc
+            raise TransientProviderFailure("Gemini network failure", is_network_error=True) from exc
         if response.status_code == 429 and _daily_quota_violation(response):
             raise DailyProviderQuotaFailure("Gemini daily quota exhausted (HTTP 429)")
         if response.status_code in (408, 429, 500, 502, 503, 504):
             raise TransientProviderFailure(
                 f"Gemini temporarily unavailable (HTTP {response.status_code})",
                 retry_after_seconds=_retry_after(response.headers.get("Retry-After")),
+                status_code=response.status_code,
             )
         if not (200 <= response.status_code < 300):
             # Do not leak response bodies, API keys, prompt text or paid chapters to logs.

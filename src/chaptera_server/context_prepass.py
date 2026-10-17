@@ -210,6 +210,7 @@ async def generate_chapter_context(provider, inputs: ContextInputs, *, on_event:
             chapter_id=f'context:{inputs.book_id}:{inputs.chapter_id}:w{index}of{total}',
             prompt=prompt, source_html_with_markers='', unit_count=0,
             on_usage=capture_usage,
+            request_role='glossary', is_cancelled=is_cancelled,
         ))
         if is_cancelled is not None and is_cancelled():
             raise TranslationCancelled('Cancelled during context window request')

@@ -202,6 +202,19 @@ See [architecture decisions](docs/ARCHITECTURE.md) and
 
 The server does not embed or change the desktop app. The source-algorithm baseline comes from the earlier isolated `chaptera_translation_core` extraction; it is now part of **this independent repository**, so subsequent server changes cannot unexpectedly affect the Windows build.
 
+## Desktop Gemini scheduler restored in the cloud (RE-06)
+
+The worker now uses the **source-identical** full_cycle_app request scheduler,
+not a second scheduler design: RPM/RPS/TPM priority admission and a network
+circuit gate precede the existing durable SQLite daily RPD and HTTP adapter.
+One key from one Google project remains the normal configuration. Defaults for
+the desktop `gemini-3.8-flash` model: 5 RPM, 250,000 TPM, 65,536 reserved
+output tokens (98% actual max output). Set `CHAPTERA_GEMINI_RPM`,
+`CHAPTERA_GEMINI_TPM`, and `CHAPTERA_GEMINI_RESERVED_OUTPUT_TOKENS`
+to the actual model settings. This migration does not yet bring over the
+desktop's partial-stream recovery, debts or finalize-only checkpoints.
+[Source parity, assumptions and next phases](docs/RE06_DESKTOP_GEMINI_MIGRATION.md).
+
 ## Gemini project daily request quota (RE-06)
 
 If your Google AI Studio project/model has a small free daily cap

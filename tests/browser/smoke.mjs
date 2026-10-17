@@ -253,6 +253,12 @@ try{
   page.once('dialog',d=>void d.accept());
   await page.locator('#editor-reload').click();
   await page.locator('#editor-accepted-rev').getByText('rev 2').waitFor();
+  // Revision labels and draft hydration arrive from separate authenticated
+  // reads. Wait for BOTH before inspecting the shared unsaved textarea.
+  await page.locator('#editor-draft-stale').waitFor({state:'visible'});
+  await page.waitForFunction(()=>
+    document.querySelector('#editor-text')?.value.includes('Русский литературный перевод'),
+    null,{timeout:15000});
   // Shared draft remains intact; it is marked stale instead of replacing
   // the last accepted translation silently.
   assert.match(await page.locator('#editor-text').inputValue(),/Русский литературный перевод/);

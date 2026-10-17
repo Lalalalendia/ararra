@@ -48,8 +48,9 @@ CHAPTERA_GEMINI_REQUESTS_PER_DAY=21
 
 ## Как ведёт себя очередь
 
-1. Каждый `GeminiProvider.generate` проходит через один
-   `QuotaControlledProvider`: предварительный контекст, основной
+1. Каждый вызов проходит через настольный `ScheduledGeminiProvider`
+   (RPM/TPM/network), затем `QuotaControlledProvider` (SQLite RPD) и
+   `GeminiProvider` (HTTP): предварительный контекст, основной
    перевод, атомные пакеты, repair и повторы. Вся цепочка —
    **несколько запросов**, не одна глава = один запрос.
 2. Если разрешённый RPD локально исчерпан, запрос вообще не уходит
@@ -76,10 +77,12 @@ CHAPTERA_GEMINI_REQUESTS_PER_DAY=21
    успешной частичной работой и не расходуют этот лимит: задача остаётся
    в `retry_wait` для следующих суток.
 
-Отображение quota в UI, пакетный выбор глав, локальное RPM/TPM,
-планирование по реальному `countTokens`, расходы по токенам и
-поштучные checkpoints после каждого atom-пакета **не входят**
-в этот PR; выполняются отдельными инкрементами RE-06.
+Этот первый PR включал только RPD. В следующем инкременте
+[RE-06 desktop Gemini migration](RE06_DESKTOP_GEMINI_MIGRATION.md)
+подключён сам оригинальный настольный RPM/TPM scheduler с сетевым circuit.
+Бюджет TPM пока консервативно оценивается по UTF-8 и output reservation;
+точный `countTokens`, денежные бюджеты и сохраняемые atom checkpoints
+остаются отдельными этапами. Статус RPD в UI добавлен отдельным PR.
 
 ## Приёмка (offline, без Gemini и оплаты)
 
