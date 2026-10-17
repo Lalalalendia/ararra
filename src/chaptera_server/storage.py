@@ -280,6 +280,8 @@ class QueueStore:
             """, (actual, translated_html, source_hash, unit_count, proof,
                   message[:4000] if actual not in {"completed", "cancelled"} else "",
                   now if run_after is None else run_after, now, job_id, lease_owner))
+            if actual in {"completed", "failed", "cancelled"}:
+                con.execute("DELETE FROM atom_job_checkpoints WHERE job_id=?", (job_id,))
             self._event(con, job_id, actual, message if actual != "completed" else "", now)
             con.execute("COMMIT")
             return True
