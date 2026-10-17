@@ -260,7 +260,10 @@ class TranslationCore:
                         f'prompt_tokens={usage.get("promptTokenCount", 0)} '
                         f'output_tokens={usage.get("candidatesTokenCount", 0)} '
                         f'total_tokens={usage.get("totalTokenCount", 0)}'),
-                    allow_provider=repair_calls_this_claim < MAX_REPAIR_DOMAINS_PER_ROUND,
+                    allow_provider=(
+                        not durable_recovery or
+                        repair_calls_this_claim < MAX_REPAIR_DOMAINS_PER_ROUND
+                    ),
                     defer_missing=durable_recovery,
                 )
                 if fetched:
