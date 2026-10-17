@@ -29,7 +29,15 @@ def test_headless_translation_pipeline_preserves_structure():
     assert result.unit_count == 1
     assert len(result.source_hash) == 64
     assert "TSEG_" in provider.requests[0].prompt
-    assert [x.stage for x in events] == ["preparing", "provider_request", "validating", "completed"]
+    stages = [x.stage for x in events]
+    assert stages[:3] == ["preparing", "provider_request", "validating"]
+    assert stages[-1] == "completed"
+    assert stages.count("glossary_qa_summary") == 1
+    # HTML-v0 has no source-owned atom provenance: the same slot count alone
+    # must never be treated as proof for a hard glossary rejection.
+    report = next(e.detail for e in events if e.stage == "glossary_qa_summary")
+    assert "diagnostic_only=1" in report
+    assert "alignment_proven=0" in report
 
 
 def test_missing_provenance_markers_block_incomplete_output():
