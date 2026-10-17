@@ -30,7 +30,7 @@ export function safeExportFilename(bookId,extension){
   return 'readera-'+clean+'.'+extension;
 }
 
-async function verifySha256(buffer,sha){
+export async function verifySha256(buffer,sha){
   if(!/^[a-f0-9]{64}$/.test(sha||''))throw new Error('Нет контрольной суммы выгрузки.');
   if(!globalThis.crypto?.subtle)throw new Error('Проверка файла требует защищённого подключения.');
   const digest=await crypto.subtle.digest('SHA-256',buffer);
