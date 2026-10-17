@@ -497,6 +497,46 @@ try{
   await screenshot(page,'13-verified-book-export.png');
   await exportDialog.getByRole('button',{name:'Закрыть'}).click();
   await exportDialog.waitFor({state:'hidden'});
+  // RE-03: admin issues a one-time password to an EXISTING moderator.
+  await choose(page,'team');
+  const writerRow=page.locator('#members-list tr').filter({hasText:'writer'});
+  page.once('dialog',dialog=>void dialog.accept());
+  await writerRow.getByRole('button',{name:'Выдать пароль'}).click();
+  await page.locator('#member-secret').waitFor({state:'visible'});
+  const initialPassword=await page.locator('#member-secret-code').innerText();
+  assert.ok(initialPassword.startsWith('rp_'));
+  assert.match(await page.locator('#member-secret-heading').innerText(),/Временный пароль/);
+  await page.locator('#member-secret-hide').click();
+  await page.locator('#logout').click();
+  await page.locator('#login-form').waitFor({state:'visible'});
+  await page.locator('#login-form [name="login_mode"][value="password"]').check();
+  await page.locator('#login-member').fill('writer');
+  await page.locator('#login-secret').fill(initialPassword);
+  await page.locator('#login-form button[type="submit"]').click();
+  await page.locator('#password-change').waitFor({state:'visible'});
+  assert.equal(await page.locator('#authenticated').isVisible(),false);
+  assert.equal((await page.request.get(origin+'/v1/books')).status(),403);
+  await page.locator('#change-password-current').fill(initialPassword);
+  await page.locator('#password-change-form [name="new_password"]').fill('My new moderator password 2026!');
+  await page.locator('#password-change-form [name="confirmation"]').fill('My new moderator password 2026!');
+  await page.locator('#password-change-form button[type="submit"]').click();
+  await page.locator('#login-form').waitFor({state:'visible'});
+  await page.locator('#login-form [name="login_mode"][value="password"]').check();
+  await page.locator('#login-member').fill('writer');
+  await page.locator('#login-secret').fill('My new moderator password 2026!');
+  await page.locator('#login-form button[type="submit"]').click();
+  await page.locator('#authenticated').waitFor({state:'visible'});
+  assert.match(await page.locator('#identity-label').innerText(),/writer/);
+  assert.equal(await page.locator('#change-password-open').isVisible(),true);
+  await page.reload();
+  await page.waitForFunction(()=>document.body?.dataset.authReady==='1');
+  await page.locator('#authenticated').waitFor({state:'visible'});
+  await choose(page,'books');
+  assert.match(await page.locator('#book-list').innerText(),/Браузерная проверка/);
+  const noKeys=await page.evaluate(()=>({
+    local:Object.keys(localStorage),session:Object.keys(sessionStorage),
+  }));
+  assert.deepEqual(noKeys,{local:[],session:[]});
   assert.deepEqual(pageErrors,[],'No uncaught browser errors');
   console.log('PASS: real Chromium desktop/mobile, roles, source import and replacement CAS,');
   console.log('      stage abort, memory-only keys, ownership, responsive widths, screenshots.');
