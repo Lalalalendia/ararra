@@ -71,6 +71,10 @@ def test_backup_wal_and_restore_all_state_without_overwrite(tmp_path):
     assert meta["bytes"] == backup.stat().st_size
     assert stat.S_IMODE(backup.stat().st_mode) == 0o600
     assert stat.S_IMODE(manifest.stat().st_mode) == 0o600
+    with sqlite3.connect(backup) as standalone:
+        assert standalone.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+    assert not backup.with_name(backup.name + "-wal").exists()
+    assert not backup.with_name(backup.name + "-shm").exists()
     assert "Книга восстановления" not in manifest.read_text()
     assert "admin-secret-for-ops" not in manifest.read_text()
     assert not list(folder.glob(".readera-incomplete-*"))
@@ -205,3 +209,23 @@ def test_command_line_offline_and_no_contents_in_stdout(tmp_path):
     )
     assert second.returncode == 2
     assert "REJECTED" in second.stderr
+
+
+def test_backup_rejects_valid_checksum_but_nonportable_wal_journal(tmp_path):
+    import hashlib
+
+    db, _, _ = _sample(tmp_path)
+    folder = _private(tmp_path, "private")
+    manifest = snapshot(db, folder)
+    meta = verify(manifest)
+    image = folder / meta["file"]
+    with sqlite3.connect(image) as con:
+        assert con.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+    # An attacker with access to the private folder might rewrite SHA metadata.
+    # The standalone-journal invariant must fail independently of SHA256.
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload["sha256"] = hashlib.sha256(image.read_bytes()).hexdigest()
+    payload["bytes"] = image.stat().st_size
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(BackupRejected):
+        verify(manifest)
