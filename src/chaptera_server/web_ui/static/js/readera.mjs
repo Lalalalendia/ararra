@@ -448,15 +448,39 @@ $('import-upload').addEventListener('submit',event=>{
     }catch(e){flash(e.message,true);}
   });
 });
+function showImportFileSelection() {
+  const file=selectedFile||$('chapters_file').files[0];
+  $('import-file-state').textContent=file
+    ? file.name+' · '+(file.size/(1024*1024)).toFixed(2)+' МиБ'
+    : 'Файл не выбран.';
+  $('import-dropzone').classList.toggle('has-file',Boolean(file));
+}
 $('chapters_file').addEventListener('change',event=>{
   selectedFile=event.target.files[0]||null;uploadNonce=crypto.randomUUID();
+  showImportFileSelection();
+});
+const dropzone=$('import-dropzone');
+for(const kind of ['dragenter','dragover']){
+  dropzone.addEventListener(kind,event=>{
+    if(!event.dataTransfer?.types?.includes('Files'))return;
+    event.preventDefault();event.dataTransfer.dropEffect='copy';
+    dropzone.classList.add('is-over');
+  });
+}
+dropzone.addEventListener('dragleave',event=>{
+  if(!dropzone.contains(event.relatedTarget))dropzone.classList.remove('is-over');
 });
 $('import-upload').addEventListener('dragover',event=>event.preventDefault());
 $('import-upload').addEventListener('drop',event=>{
-  event.preventDefault();
-  if (event.dataTransfer?.files?.length) {
-    selectedFile=event.dataTransfer.files[0];uploadNonce=crypto.randomUUID();
+  event.preventDefault();dropzone.classList.remove('is-over');
+  const files=event.dataTransfer?.files;
+  if(files?.length>1){
+    flash('Загрузите один файл за раз.',true);return;
+  }
+  if(files?.length===1){
+    selectedFile=files[0];uploadNonce=crypto.randomUUID();
     const data=new DataTransfer();data.items.add(selectedFile);$('chapters_file').files=data.files;
+    showImportFileSelection();
   }
 });
 $('import-resume').addEventListener('submit',event=>{

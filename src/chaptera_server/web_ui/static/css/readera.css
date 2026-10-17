@@ -117,3 +117,34 @@ textarea.ui-input {resize:vertical;}
  .steps li {font-size:11px;display:grid;place-items:center;text-align:center;}
  .content {padding:15px 10px 45px;}
 }
+
+/* RE-05 import visual parity: presentation around the existing secure
+ * staged-file upload, without modifying vendored books_platform CSS. */
+.readera-dropzone {
+  display:grid;
+  gap:10px;
+  padding:24px;
+  background:#f7fbfc;
+  border:2px dashed #9fbfcc;
+  border-radius:12px;
+  transition:background .15s ease,border-color .15s ease;
+}
+.readera-dropzone-title {
+  margin:0;
+  color:#335c6e;
+  font-size:15px;
+  font-weight:700;
+}
+.readera-dropzone .chapter-import-upload__field {max-width:620px;}
+.readera-dropzone .muted {margin:0;overflow-wrap:anywhere;}
+.readera-dropzone.is-over {
+  background:#e5f5fb;
+  border-color:var(--primary-color);
+}
+.readera-dropzone.has-file:not(.is-over) {
+  background:#edf7fa;
+  border-style:solid;
+}
+@media(max-width:540px){
+  .readera-dropzone {padding:15px;}
+}
