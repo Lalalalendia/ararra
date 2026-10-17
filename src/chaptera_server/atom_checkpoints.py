@@ -11,6 +11,7 @@ import re
 import time
 
 from .storage import QueueStore
+from chaptera_translation_core.atom_transport import atom_checkpoint_key
 
 
 class AtomCheckpointConflict(ValueError):
@@ -19,16 +20,6 @@ class AtomCheckpointConflict(ValueError):
 
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 FINGERPRINT = re.compile(r"[0-9a-f]{64}\Z")
-
-
-def checkpoint_fingerprint(prompt: str, payload: str, role: str) -> str:
-    """Bind response reuse to exact generated prompt, atom scope and request role."""
-    hasher = hashlib.sha256()
-    for value in ("atoms-v1-checkpoint-1", role, prompt, payload):
-        data = value.encode("utf-8")
-        hasher.update(len(data).to_bytes(8, "big"))
-        hasher.update(data)
-    return hasher.hexdigest()
 
 
 class SQLiteAtomCheckpoint:
