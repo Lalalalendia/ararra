@@ -14,7 +14,7 @@ from .gemini_error_bridge import (
     NON_COUNTABLE_TRANSIENT, FATAL_WORKER_CONFIG,
     desktop_error_type, desktop_transient_delay,
 )
-from chaptera_translation_core.api.errors import ErrorType, PartialGenerationError
+from chaptera_translation_core.api.errors import ErrorType, PartialGenerationError, TranslationDebtDeferredError
 from chaptera_translation_core.api.desktop_error_policy import DesktopErrorClassifier
 from .quota import DailyQuotaExhausted, pacific_window
 from .atom_checkpoints import SQLiteAtomCheckpoint, AtomCheckpointConflict
@@ -181,6 +181,12 @@ class TranslationWorker:
             self.store.defer_for_daily_quota(
                 jid, token, reset_at=reset, made_calls=partial_work,
             )
+        except TranslationDebtDeferredError:
+            # Same semantics as desktop's held debt parent: a full chapter
+            # retry is NOT authorized; progress is only in the unchanged,
+            # lease-fenced atom packet checkpoints. Resume next wave at zero
+            # finite-attempt cost without sending already proven domains.
+            self.store.defer_atom_debt_handoff(jid, token, delay_seconds=1.0)
         except PartialGenerationError as exc:
             # The desktop retains the actual partial output, but a rejected
             # partial without source-proof cannot become a translated chapter.
@@ -232,7 +238,11 @@ class TranslationWorker:
             self.store.fail(jid, token, str(exc))
         except Exception as exc:
             logger.error("Unexpected job error in %s: %s", jid, type(exc).__name__)
-            self.store.retry(jid, token, "Unexpected worker error", delay_seconds=15.0)
+            # Desktop finalize_only forbids a second paid translation after
+            # a local HTML/provenance/commit exception. Keep the immutable
+            # proofs and consume only a bounded LOCAL retry budget.
+            if not self.store.defer_atom_local_finalization(jid, token, delay_seconds=2.0):
+                self.store.retry(jid, token, "Unexpected worker error", delay_seconds=15.0)
         finally:
             stop.set()
             await heartbeat_task

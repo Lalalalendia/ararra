@@ -60,6 +60,67 @@ class SQLiteAtomCheckpoint:
         if row is None:
             raise AtomCheckpointConflict("Stale, cancelled or invalid atom checkpoint lease")
 
+    @staticmethod
+    def _check_source_digest(source_sha256: str) -> None:
+        if not isinstance(source_sha256, str) or not FINGERPRINT.fullmatch(source_sha256):
+            raise AtomCheckpointConflict("Invalid source revision fingerprint")
+
+    def phase(self, source_sha256: str) -> str | None:
+        """Read only the phase owned by this exact job/model/source revision."""
+        self._check_source_digest(source_sha256)
+        with self.store._connect() as con:
+            self._authorized(con)
+            row = con.execute("""
+                SELECT model_id, source_sha256, phase FROM atom_recovery_state
+                WHERE job_id=?
+            """, (self.job_id,)).fetchone()
+        if row is None:
+            return None
+        if row["model_id"] != self.model_id or row["source_sha256"] != source_sha256:
+            raise AtomCheckpointConflict("Recovery phase belongs to a different source/model")
+        return str(row["phase"])
+
+    def mark_phase(self, source_sha256: str, phase: str, *,
+                   remaining_debts: int = 0) -> None:
+        """Durable debt handoff / irrevocable finalize-only guard.
+
+        The core alone proves domain coverage. This method persists metadata,
+        not translations, after that proof. A completed proof cannot be
+        silently downgraded to permit another billable Gemini request.
+        """
+        self._check_source_digest(source_sha256)
+        if phase not in {"debt_repair", "finalize_only"}:
+            raise ValueError("Unknown desktop recovery phase")
+        if not isinstance(remaining_debts, int) or remaining_debts < 0:
+            raise ValueError("Invalid debt domain count")
+        if phase == "finalize_only" and remaining_debts:
+            raise ValueError("Finalization cannot retain unresolved debts")
+        with self.store._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            self._authorized(con)
+            row = con.execute("""
+                SELECT model_id, source_sha256, phase FROM atom_recovery_state
+                WHERE job_id=?
+            """, (self.job_id,)).fetchone()
+            if row is not None:
+                if row["model_id"] != self.model_id or row["source_sha256"] != source_sha256:
+                    raise AtomCheckpointConflict("Recovery phase belongs to a different source/model")
+                if row["phase"] == "finalize_only" and phase != "finalize_only":
+                    raise AtomCheckpointConflict("Finalized recovery cannot restart Gemini generation")
+                con.execute("""
+                    UPDATE atom_recovery_state SET phase=?, remaining_debts=?,
+                        updated_at=? WHERE job_id=?
+                """, (phase, remaining_debts, time.time(), self.job_id))
+            else:
+                con.execute("""
+                    INSERT INTO atom_recovery_state(
+                        job_id, model_id, source_sha256, phase,
+                        remaining_debts, debt_passes, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, 0, ?)
+                """, (self.job_id, self.model_id, source_sha256, phase,
+                      remaining_debts, time.time()))
+            con.execute("COMMIT")
+
     def load(self, key: str) -> str | None:
         storage_key = self._storage_key(key)
         with self.store._connect() as con:

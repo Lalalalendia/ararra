@@ -23,7 +23,7 @@ from .atom_transport import (
     merge_proven_segments, repair_domains, apply_proven_repair, atom_provenance,
     atom_checkpoint_key, salvage_partial_atom_response,
 )
-from .api.errors import PartialGenerationError
+from .api.errors import PartialGenerationError, TranslationDebtDeferredError
 from .core.translation_units import build_render_plan, expected_render_domain_covers
 from .core.worker_helpers.translation_completeness import (
     build_translation_unit_source_bundle,
@@ -118,7 +118,8 @@ class TranslationCore:
 
     async def _proven_atom_request(self, chapter_id: str, prompt: str,
                                   payload: str, atoms: tuple, role: str,
-                                  on_usage):
+                                  on_usage, *, allow_provider: bool = True,
+                                  defer_missing: bool = False):
         """Reuse exact source-owned atom requests after re-validating their reply.
 
         Desktop reconciliation and repair algorithms remain the authority;
@@ -131,6 +132,16 @@ class TranslationCore:
             self._emit(chapter_id, 'atom_checkpoint_hit', f'role={role}')
             raw = cached
         else:
+            if not allow_provider:
+                if defer_missing:
+                    raise TranslationDebtDeferredError(
+                        "Bounded source-owned repair wave deferred; resume from durable SQLite proofs",
+                        leaf_state={"mode": "debt_repair"},
+                    )
+                raise TranslationRejected(
+                    chapter_id, 'finalize_only',
+                    'Source-owned checkpoint missing or changed; Gemini generation forbidden',
+                )
             try:
                 raw = await self.provider.generate(ProviderRequest(
                     chapter_id, prompt, payload, len(atoms), 'atoms_v1',
@@ -167,7 +178,7 @@ class TranslationCore:
         if self.atom_checkpoint and not reused and result.segments:
             self.atom_checkpoint.save(key, raw)
             self._emit(chapter_id, 'atom_checkpoint_saved', f'role={role}')
-        return result
+        return result, not reused
 
     async def _translate_atoms(self, chapter: ChapterInput, source: str, marked_source: str,
                                units: list[dict]) -> ChapterResult:
@@ -180,6 +191,14 @@ class TranslationCore:
         if not batches:
             raise TranslationRejected(chapter.chapter_id, 'input', 'no source atoms')
         self._emit(chapter.chapter_id, 'atom_prepared', f'atoms={len(atoms)} batches={len(batches)}')
+        source_digest = hashlib.sha256(chapter.source_html.encode('utf-8')).hexdigest()
+        phase_reader = getattr(self.atom_checkpoint, 'phase', None)
+        phase_writer = getattr(self.atom_checkpoint, 'mark_phase', None)
+        durable_recovery = callable(phase_reader) and callable(phase_writer)
+        finalize_only = bool(durable_recovery and phase_reader(source_digest) == 'finalize_only')
+        if finalize_only:
+            self._emit(chapter.chapter_id, 'atom_finalize_only_resume',
+                       'local proof revalidation only; provider admission forbidden')
         accepted = []
         for index, batch in enumerate(batches, start=1):
             self._cancel_check()
@@ -191,29 +210,43 @@ class TranslationCore:
                     self._emit(chapter.chapter_id, 'context_conflict', f'count={diagnostics.context_conflicts}')
             self._emit(chapter.chapter_id, 'atom_batch',
                        f'{index}/{len(batches)} atoms={len(batch.atoms)} prompt_chars={len(prompt)} payload_chars={len(batch.payload)}')
-            part = await self._proven_atom_request(
+            part, _ = await self._proven_atom_request(
                 chapter.chapter_id, prompt, batch.payload, batch.atoms,
                 'translation',
                 lambda usage, number=index: self._emit(chapter.chapter_id, 'gemini_usage',
                     f'batch={number} prompt_tokens={usage.get("promptTokenCount", 0)} '
                     f'output_tokens={usage.get("candidatesTokenCount", 0)} '
                     f'total_tokens={usage.get("totalTokenCount", 0)}'),
+                allow_provider=not finalize_only,
             )
             accepted.append(part)
         try:
             coverage = merge_proven_segments(atoms, accepted)
         except ValueError as exc:
             raise TranslationRejected(chapter.chapter_id, 'atom_identity', str(exc)) from exc
+        # The desktop debt-parent handoff limits new paid *repairs* per claim,
+        # not the number of source-owned domains in the chapter. Already saved
+        # repairs are replayed locally without consuming this wave budget.
+        repair_calls_this_claim = 0
         for round_index in range(MAX_REPAIR_ROUNDS + 1):
             self._cancel_check()
             domains = repair_domains(coverage, marked_source)
             if not domains:
                 break
+            if finalize_only:
+                raise TranslationRejected(
+                    chapter.chapter_id, 'finalize_only',
+                    'Previously complete proof is now missing source-owned domains',
+                )
             if round_index == MAX_REPAIR_ROUNDS:
                 break
-            if len(domains) > MAX_REPAIR_DOMAINS_PER_ROUND:
+            if not durable_recovery and len(domains) > MAX_REPAIR_DOMAINS_PER_ROUND:
+                # No persistent job/lease evidence: preserve the original
+                # bounded fail-closed behavior for standalone core consumers.
                 raise TranslationRejected(chapter.chapter_id, 'atom_repair',
                                           f'too many damaged domains: {len(domains)}')
+            if durable_recovery:
+                phase_writer(source_digest, 'debt_repair', remaining_debts=len(domains))
             self._emit(chapter.chapter_id, 'atom_repair',
                        f'round={round_index + 1} domains={len(domains)}')
             for domain in domains:
@@ -221,13 +254,20 @@ class TranslationCore:
                 payload = packets_for_atoms(domain)[0].payload
                 prompt, _ = compose_prompt(chapter, marked_source, source,
                                            atom_payload=payload, repair=True)
-                part = await self._proven_atom_request(
+                part, fetched = await self._proven_atom_request(
                     chapter.chapter_id, prompt, payload, domain, 'targeted_repair',
                     lambda usage: self._emit(chapter.chapter_id, 'gemini_repair_usage',
                         f'prompt_tokens={usage.get("promptTokenCount", 0)} '
                         f'output_tokens={usage.get("candidatesTokenCount", 0)} '
                         f'total_tokens={usage.get("totalTokenCount", 0)}'),
+                    allow_provider=(
+                        not durable_recovery or
+                        repair_calls_this_claim < MAX_REPAIR_DOMAINS_PER_ROUND
+                    ),
+                    defer_missing=durable_recovery,
                 )
+                if fetched:
+                    repair_calls_this_claim += 1
                 coverage = apply_proven_repair(coverage, part)
         self._emit(chapter.chapter_id, 'validating')
         plan = build_render_plan(marked_source, coverage)
@@ -236,6 +276,13 @@ class TranslationCore:
         if coverage.missing_atom_ids or plan.debts or plan.rendered_html is None or actual != expected:
             raise TranslationRejected(chapter.chapter_id, 'atom_coverage',
                                       f'missing={len(coverage.missing_atom_ids)} debts={len(plan.debts)}')
+        # This is the desktop finalize_only boundary: the complete source
+        # proof is already in durable checkpoints. A crash here must resume
+        # with ZERO new Gemini requests, regardless of quota or error history.
+        if durable_recovery:
+            phase_writer(source_digest, 'finalize_only')
+            self._emit(chapter.chapter_id, 'atom_finalize_only',
+                       'complete source proof; local HTML and provenance checks only')
         cleaned = finalize_publication_html(marked_source, plan.rendered_html, chapter.chapter_path or None)
         ok, reason = validate_chunk_completeness(source, cleaned)
         if not ok:
