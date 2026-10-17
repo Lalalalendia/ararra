@@ -20,6 +20,7 @@ export function createSourceJobView({request,flash,onStage,getCatalog}) {
   const downloadTxt=$('source-job-download-txt');
   const txtStatus=$('source-job-txt-status');
   let current=null;
+  let sessionGeneration=0;
   let busy=false;
   let txtReceipt=null;
   const history=createSourceJobHistoryView({
@@ -61,13 +62,16 @@ export function createSourceJobView({request,flash,onStage,getCatalog}) {
     stage.hidden=job.completed===0;
   }
   function reset(){
+    sessionGeneration+=1;
     current=null;id.value='';actions.hidden=true;
     invalidateTxt();
     txtStatus.textContent='Проверка полного исходника ещё не выполнена.';
     state.textContent='Фоновое задание ещё не выбрано.';
   }
   async function load(jobId){
+    const ticket=sessionGeneration;
     const job=await request('/v1/source-books/jobs/'+encodeURIComponent(jobId));
+    if(ticket!==sessionGeneration)return null;
     render(job);
     return job;
   }
