@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { BookSummary, StageSnapshot } from '../../shared/api/imports';
 import type { TeamIdentity, TeamMember } from '../../shared/api/team';
 import {
@@ -28,6 +29,7 @@ export function ImportMapping({
   function updateRow(sequence: number, patch: (c: DraftChapter) => DraftChapter) {
     onRows(current => current.map(c => c.sequence === sequence ? patch(c) : c));
   }
+  const [confirmAbort, setConfirmAbort] = useState(false);
   const hasPrefix = stage.unassigned_prefix_saved;
   const activeModerators = moderators.filter(m => m.role === 'moderator' && m.status === 'active');
   return (
@@ -168,8 +170,18 @@ export function ImportMapping({
         <ul>{errors.slice(0, 14).map((error, i) => <li key={i}>{error}</li>)}</ul>
         {errors.length > 14 && <p>И ещё замечаний: {errors.length - 14}</p>}
       </div>}
+      {confirmAbort && <div className="import-alert" role="group" aria-label="Удаление временной загрузки">
+        <strong>Отменить загрузку и удалить временные данные?</strong>
+        <p>Текущие сопоставления и ID сессии будут потеряны. Принятые главы в библиотеке не затрагиваются.</p>
+        <div className="import-actions">
+          <button type="button" className="import-secondary" disabled={busy}
+            onClick={() => setConfirmAbort(false)}>Продолжить работу</button>
+          <button type="button" disabled={busy} onClick={onBack}>Удалить временную загрузку</button>
+        </div>
+      </div>}
       <div className="import-actions">
-        <button type="button" className="import-secondary" onClick={onBack} disabled={busy}>Назад</button>
+        <button type="button" className="import-secondary" onClick={() => setConfirmAbort(true)}
+          disabled={busy}>Отменить загрузку</button>
         <button type="button" onClick={onNext} disabled={busy}>Проверить и продолжить</button>
       </div>
     </div>
