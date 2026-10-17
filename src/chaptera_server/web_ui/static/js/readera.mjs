@@ -163,7 +163,22 @@ $('logout').addEventListener('click',()=>{
 });
 
 const libraryView=createLibraryView({
-  body:$('book-list'),filter:$('book-filter'),empty:$('books-empty'),request,
+  body:$('book-list'),filter:$('book-filter'),ownerFilter:$('book-owner-filter'),
+  empty:$('books-empty'),request,
+  currentMember:()=>identity?.member_id || '',
+  canReassign:()=>identity?.role==='admin',
+  activeModerators:()=>members.filter(m=>m.role==='moderator' && m.status==='active'),
+  reassignOwner:async(book,newOwner)=>{
+    await request('/v1/books/'+encodeURIComponent(book.book_id)+'/owner',{
+      method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        owner_member_id:newOwner,expected_owner_revision:book.owner_revision,
+      }),
+    });
+    await refreshBooks();
+    flash('Ответственный за книгу изменён.');
+  },
   openEditor:(bookId,chapterId='')=>{
     editor?.selectOnActivation(bookId,chapterId);
     if(showPage('editor',true))flash('');
