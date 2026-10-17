@@ -86,7 +86,7 @@ def test_api_reports_only_two_global_roles_and_admin_roster_is_private(tmp_path)
 
             # All books and jobs are a SHARED technical workspace, not per-book ACL.
             created = await c.post("/v1/books", headers=ADMIN, json={
-                "book_id": "shared", "title": "Техническая книга"
+                "book_id": "shared", "title": "Техническая книга", "owner_member_id": "mod"
             })
             assert created.status_code == 201, created.text
             assert (await c.get("/v1/books/shared", headers=MOD)).status_code == 200
@@ -127,3 +127,72 @@ def test_no_implicit_admin_in_existing_configuration(tmp_path):
                                  json={"book_id": "shared", "title": "Book"})).status_code == 201
 
     asyncio.run(scenario())
+
+
+def test_book_ownership_is_not_book_access_control(tmp_path):
+    cfg = settings(tmp_path)
+    app = create_app(cfg)
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                     base_url="http://test") as c:
+            made = await c.post("/v1/books", headers=MOD,
+                                json={"book_id": "a", "title": "A"})
+            assert made.status_code == 201, made.text
+            assert made.json()["owner_member_id"] == "mod"
+            assert made.json()["owner_revision"] == 0
+            assert (await c.get("/v1/books", headers=ADMIN)).json()["books"][0]["owner_member_id"] == "mod"
+            assert (await c.put("/v1/books/a/owner", headers=MOD, json={
+                "owner_member_id": "mod", "expected_owner_revision": 0,
+            })).status_code == 403
+            invalid = await c.put("/v1/books/a/owner", headers=ADMIN, json={
+                "owner_member_id": "ghost", "expected_owner_revision": 0,
+            })
+            assert invalid.status_code == 422
+            assert (await c.get("/v1/books/a", headers=MOD)).status_code == 200
+            assert (await c.post("/v1/books", headers=ADMIN,
+                                 json={"book_id": "bad", "title": "Bad"})).status_code == 422
+            assert (await c.post("/v1/books", headers=MOD,
+                                 json={"book_id": "other", "title": "Other",
+                                       "owner_member_id": "alice"})).status_code == 422
+
+    asyncio.run(scenario())
+
+
+def test_book_transfer_cas_audit_and_old_sqlite_migration(tmp_path):
+    import sqlite3
+    cfg = Settings(db_path=tmp_path / "owner.sqlite3",
+                   team_tokens={"alice": "a-secret", "mod": "m-secret",
+                                "mod2": "c-secret"}, admin_member_id="alice")
+    old = QueueStore(cfg.db_path)
+    from chaptera_server.library import BookLibrary
+    lib = BookLibrary(old)
+    lib.create_book("legacy", "Old", owner_member_id="mod")
+    with old._connect() as db:
+        db.execute("UPDATE books SET owner_member_id=NULL WHERE id='legacy'")
+    app = create_app(cfg, QueueStore(cfg.db_path))
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                     base_url="http://test") as c:
+            assert (await c.get("/v1/books/legacy", headers=ADMIN)).json()["owner_member_id"] is None
+            result = await c.put("/v1/books/legacy/owner", headers=ADMIN, json={
+                "owner_member_id": "mod2", "expected_owner_revision": 0,
+            })
+            assert result.status_code == 200, result.text
+            assert result.json()["owner_revision"] == 1
+            assert (await c.put("/v1/books/legacy/owner", headers=ADMIN, json={
+                "owner_member_id": "mod", "expected_owner_revision": 0,
+            })).status_code == 409
+            assert (await c.put("/v1/books/legacy/owner", headers=ADMIN, json={
+                "owner_member_id": "alice", "expected_owner_revision": 1,
+            })).status_code == 422
+            assert (await c.get("/v1/books/legacy", headers=MOD)).status_code == 200
+
+    asyncio.run(scenario())
+    with old._connect() as db:
+        event = db.execute(
+            "SELECT previous_owner_member_id,new_owner_member_id,actor_id "
+            "FROM book_owner_events WHERE book_id='legacy' AND revision=1"
+        ).fetchone()
+        assert tuple(event) == (None, "mod2", "alice")
