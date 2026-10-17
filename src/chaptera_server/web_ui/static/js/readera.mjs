@@ -8,6 +8,7 @@ import {
 } from './import-model.mjs';
 import {initChapterEditor} from './editor.mjs';
 import {createLibraryView} from './library-view.mjs';
+import {createBookExportView} from './book-export-view.mjs';
 import {renderDailyQuota,renderJobs} from './jobs-view.mjs';
 import {createSessionClient} from './session-client.mjs';
 
@@ -173,9 +174,15 @@ async function chooseBookOwner(book, candidates) {
   return selection;
 }
 
+const exportView=createBookExportView({
+  dialog:$('book-export-dialog'),title:$('book-export-title'),help:$('book-export-help'),
+  last:$('book-export-last'),status:$('book-export-status'),check:$('book-export-preview'),
+  txt:$('book-export-txt'),html:$('book-export-html'),request,
+  showError:e=>flash(e.message,true),notify:m=>flash(m),
+});
 const libraryView=createLibraryView({
   body:$('book-list'),filter:$('book-filter'),ownerFilter:$('book-owner-filter'),
-  empty:$('books-empty'),request,
+  empty:$('books-empty'),request,openExport:book=>exportView.open(book),
   currentMember:()=>identity?.member_id || '',
   canReassign:()=>identity?.role==='admin',
   activeModerators:()=>members.filter(m=>m.role==='moderator' && m.status==='active'),

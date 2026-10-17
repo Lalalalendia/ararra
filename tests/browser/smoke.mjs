@@ -2,7 +2,7 @@
  * Screenshots omit login and one-time secret fields.
  */
 import assert from 'node:assert/strict';
-import {mkdirSync} from 'node:fs';
+import {mkdirSync, readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {chromium} from 'playwright';
 
@@ -54,7 +54,7 @@ async function fit(page,label){
 }
 const browser=await chromium.launch({channel:'chrome',headless:true,args:['--no-sandbox']});
 try{
-  const context=await browser.newContext({viewport:{width:1440,height:900},locale:'ru-RU'});
+  const context=await browser.newContext({viewport:{width:1440,height:900},locale:'ru-RU',acceptDownloads:true});
   const page=await context.newPage();spy(page,'desktop');
   const response=await page.goto(origin+'/app/overview');
   assert.equal(response.status(),200);
@@ -442,8 +442,63 @@ try{
   await row.getByText('Отключить').click();
   await page.locator('#flash').getByText(/Конфликт версий/).waitFor({timeout:15000});
   assert.equal((await api('/v1/me',issued)).status,200);
+
+  // RE-06D: real browser preview, verified TXT/HTML download and stale receipt.
+  const exportBook=await api('/v1/books',adminKey,'POST',{
+    book_id:'export-fixture',title:'Экспортная книга',owner_member_id:'writer',
+  });
+  assert.equal(exportBook.status,201);
+  for(const n of [1,2]){
+    const saved=await api('/v1/books/export-fixture/chapters/c'+n,adminKey,'PUT',{
+      chapter_index:n,chapter_path:'chapters/'+n+'.xhtml',
+      source_html:'<p>原文 '+n+'</p>',expected_revision:0,
+    });
+    assert.equal(saved.status,200);
+    const accepted=await api('/v1/books/export-fixture/chapters/c'+n+
+      '/accepted-translation',adminKey,'PUT',{
+        translated_html:'<p>Перевод '+n+'.</p>',
+        expected_revision:0,expected_source_revision:1,
+      });
+    assert.equal(accepted.status,200);
+  }
+  await choose(page,'books');
+  const exportRow=page.locator('#book-list .library-book-row').filter({hasText:'Экспортная книга'});
+  await exportRow.getByRole('button',{name:'Экспортировать книгу Экспортная книга'}).click();
+  const exportDialog=page.locator('#book-export-dialog');
+  await exportDialog.waitFor({state:'visible'});
+  await exportDialog.locator('#book-export-last').fill('3');
+  await exportDialog.locator('#book-export-preview').click();
+  await exportDialog.locator('#book-export-status').getByText(/Отсутствует исходная глава 3/).waitFor();
+  assert.equal(await exportDialog.locator('#book-export-txt').isDisabled(),true);
+  await exportDialog.locator('#book-export-last').fill('2');
+  await exportDialog.locator('#book-export-preview').click();
+  await exportDialog.locator('#book-export-status').getByText(/Готово к экспорту: 2/).waitFor();
+  assert.equal(await exportDialog.locator('#book-export-txt').isEnabled(),true);
+
+  const txtReady=page.waitForEvent('download');
+  await exportDialog.locator('#book-export-txt').click();
+  const txtDownload=await txtReady;
+  assert.equal(txtDownload.suggestedFilename(),'readera-export-fixture.txt');
+  assert.match(readFileSync(await txtDownload.path(),'utf8'),/^Глава 1\n\nПеревод 1\./);
+
+  const htmlReady=page.waitForEvent('download');
+  await exportDialog.locator('#book-export-html').click();
+  const htmlDownload=await htmlReady;
+  assert.equal(htmlDownload.suggestedFilename(),'readera-export-fixture.html');
+  assert.match(readFileSync(await htmlDownload.path(),'utf8'),/<h2>Глава 2<\/h2>/);
+
+  const edited=await api('/v1/books/export-fixture/chapters/c2/accepted-translation',
+    adminKey,'PUT',{translated_html:'<p>Изменённый перевод.</p>',
+      expected_revision:1,expected_source_revision:1});
+  assert.equal(edited.status,200);
+  await exportDialog.locator('#book-export-html').click();
+  await page.locator('#flash').getByText(/Конфликт версий/).waitFor({timeout:15000});
+  assert.equal(await exportDialog.locator('#book-export-txt').isDisabled(),true);
+  await screenshot(page,'13-verified-book-export.png');
+  await exportDialog.getByRole('button',{name:'Закрыть'}).click();
+  await exportDialog.waitFor({state:'hidden'});
   assert.deepEqual(pageErrors,[],'No uncaught browser errors');
   console.log('PASS: real Chromium desktop/mobile, roles, source import and replacement CAS,');
-  console.log('      stage abort, persistent revocable sessions, ownership, responsive widths, screenshots.');
+  console.log('      stage abort, memory-only keys, ownership, responsive widths, screenshots.');
   await context.close();
 }finally{await browser.close();}

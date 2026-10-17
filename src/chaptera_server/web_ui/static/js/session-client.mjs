@@ -35,7 +35,7 @@ export function createSessionClient() {
     csrfToken='';
   }
   function clear() {csrfToken='';}
-  async function request(path,{method='GET',body,headers={},...rest}={}) {
+  async function request(path,{method='GET',body,headers={},responseType='json',...rest}={}) {
     if (!csrfToken) throw new Error('Сначала выполните вход в команду.');
     const mutating=!['GET','HEAD','OPTIONS'].includes(method.toUpperCase());
     const response=await fetchSession(path,{
@@ -56,7 +56,7 @@ export function createSessionClient() {
       if (response.status===413) throw new Error('Превышен разрешённый размер или квота загрузок.');
       throw new Error('Ошибка '+response.status+': '+(detail||'запрос отклонён'));
     }
-    return response.json();
+    return responseType==='raw'?response:response.json();
   }
   return {login,restore,logout,clear,request};
 }

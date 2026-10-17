@@ -100,6 +100,32 @@
                 </div>
               </form>
             </dialog>
+            <dialog id="book-export-dialog" class="readera-modal"
+                    aria-labelledby="book-export-title" aria-describedby="book-export-help">
+              <form method="dialog">
+                <p class="kicker">Библиотека / Принятые переводы</p>
+                <h2 id="book-export-title">Экспорт книги</h2>
+                <p id="book-export-help" class="muted">Задайте конец полной книги.</p>
+                <label class="ui-field"><span>Номер последней главы</span>
+                  <input id="book-export-last" class="ui-input" type="number"
+                         min="1" max="2000" step="1" required placeholder="Например, 150">
+                </label>
+                <button id="book-export-preview" class="ui-button ui-button--ghost"
+                        type="button">Проверить готовность книги</button>
+                <p id="book-export-status" role="status" aria-live="polite"
+                   class="muted">Для проверки введите номер последней главы.</p>
+                <p class="muted">Скачивание доступно только после проверки всех глав.
+                  Исходники, черновики и незаконченные переводы не включаются.</p>
+                <div class="readera-modal-actions">
+                  <button id="book-export-txt" class="ui-button ui-button--primary"
+                          type="button" disabled>Скачать TXT</button>
+                  <button id="book-export-html" class="ui-button ui-button--ghost"
+                          type="button" disabled>Скачать HTML</button>
+                  <button class="ui-button ui-button--ghost" type="submit"
+                          value="cancel" formnovalidate>Закрыть</button>
+                </div>
+              </form>
+            </dialog>
           </section>
           <section data-page="import" hidden class="chapter-import-create-page">
             <div class="ui-page-header"><div>
