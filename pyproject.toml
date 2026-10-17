@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 dependencies = [
     "beautifulsoup4>=4.11",
     "python-multipart>=0.0.12,<1",
+    "jinja2>=3.1,<4",
     "fastapi>=0.110,<1",
     "pydantic>=2,<3",
     "httpx>=0.27,<1",
@@ -30,6 +31,11 @@ include = ["chaptera_translation_core*", "chaptera_server*"]
 
 [tool.setuptools.package-data]
 chaptera_translation_core = ["py.typed"]
+chaptera_server = [
+    "web_ui/templates/*.html",
+    "web_ui/static/css/*.css",
+    "web_ui/static/js/*.mjs",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
