@@ -40,7 +40,6 @@ def _sample(tmp_path: Path) -> tuple[Path, str, str]:
     with app.state.store._connect() as con:
         con.execute("INSERT INTO job_events(job_id,stage,detail,created_at) VALUES(?,?,?,?)",
                     (job["id"], "recovery_test", "durable", 1234.5))
-    assert db.with_name(db.name + "-wal").exists()
     return db, raw, member_key
 
 
@@ -53,7 +52,18 @@ def _private(tmp_path: Path, name: str) -> Path:
 def test_backup_wal_and_restore_all_state_without_overwrite(tmp_path):
     db, raw_session, member_key = _sample(tmp_path)
     folder = _private(tmp_path, "snapshots")
+    # Keep a real reader connection open so recent committed writes remain
+    # in WAL: raw cp jobs.sqlite3 would miss this inserted event.
+    live = sqlite3.connect(db)
+    live.execute("PRAGMA journal_mode=WAL")
+    live.execute(
+        "INSERT INTO job_events(job_id,stage,detail,created_at) "
+        "SELECT id,'wal_uncheckpointed','recent',4321.0 FROM jobs LIMIT 1"
+    )
+    live.commit()
+    assert db.with_name(db.name + "-wal").exists()
     manifest = snapshot(db, folder)
+    live.close()
     backup = manifest.with_name(manifest.name.removesuffix(".manifest.json"))
     meta = verify(manifest)
     assert meta["schema"] == "readera.sqlite-snapshot.v1"
@@ -79,6 +89,9 @@ def test_backup_wal_and_restore_all_state_without_overwrite(tmp_path):
         ).fetchone()[0] == 1
         assert con.execute(
             "SELECT COUNT(*) FROM job_events WHERE stage='recovery_test'"
+        ).fetchone()[0] == 1
+        assert con.execute(
+            "SELECT COUNT(*) FROM job_events WHERE stage='wal_uncheckpointed'"
         ).fetchone()[0] == 1
         assert con.execute(
             "SELECT COUNT(*) FROM team_password_credentials WHERE member_id='writer'"

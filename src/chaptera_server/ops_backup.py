@@ -191,7 +191,9 @@ def restore(manifest_path: str | Path, destination: str | Path) -> Path:
     target = folder / target.name
     if (target.exists() or target.is_symlink()
             or (folder / (target.name + "-wal")).exists()
-            or (folder / (target.name + "-shm")).exists()):
+            or (folder / (target.name + "-wal")).is_symlink()
+            or (folder / (target.name + "-shm")).exists()
+            or (folder / (target.name + "-shm")).is_symlink()):
         raise BackupRejected("Destination or SQLite sidecar already exists")
     if source.resolve(strict=True) == target.resolve(strict=False):
         raise BackupRejected("Cannot restore over snapshot source")
