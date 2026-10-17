@@ -13,14 +13,14 @@ from ..storage import QueueStore
 
 def require_member(request: Request, x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> str:
     try:
-        return authenticate(x_api_key, request.app.state.settings)
+        return authenticate(x_api_key, request.app.state.settings, request.app.state.team_credentials)
     except InvalidTeamToken as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
 def require_admin(request: Request, actor: str = Depends(require_member)) -> str:
     """Reserved for system/member controls, never for ordinary book editing."""
-    if role_for(actor, request.app.state.settings) != "admin":
+    if role_for(actor, request.app.state.settings, request.app.state.team_credentials) != "admin":
         raise HTTPException(status_code=403, detail="Administrator role required")
     return actor
 
