@@ -530,5 +530,9 @@ class BookLibrary:
                          unit_count if status == 'completed' else None,
                          json.dumps(atom_provenance, ensure_ascii=False) if status == 'completed' and atom_provenance else None,
                          message, now, now, job_id, token))
+            # Managed book completion bypasses QueueStore._finish; enforce
+            # the SAME terminal privacy cleanup for both atom packets and
+            # fully validated context-window raw responses.
+            con.execute('DELETE FROM atom_job_checkpoints WHERE job_id=?', (job_id,))
             self.queue._event(con, job_id, status, message, now)
             return status == 'completed'
