@@ -1,9 +1,10 @@
 """Safe read-only preview plus explicitly confirmed, revision-safe team imports."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile, Request
 
 from ...book_import import ImportFormatError, MAX_UPLOAD_BYTES, preview_book_import
+from ...auth import role_for
 from ...import_sessions import (
     ImportSessions, StageConflict, StageExpired, StageMissing, StageTooLarge,
 )
@@ -69,11 +70,22 @@ def get_stage(stage_id: str, actor: str = Depends(require_member),
 
 
 @router.post("/stages/{stage_id}/confirm")
-def confirm_stage(stage_id: str, body: ConfirmBookImport,
+def confirm_stage(stage_id: str, body: ConfirmBookImport, request: Request,
                   actor: str = Depends(require_member),
                   sessions: ImportSessions = Depends(get_import_sessions)):
+    payload = body.model_dump()
+    if payload["book_mode"] == "create":
+        owner = payload["owner_member_id"] or actor
+        settings = request.app.state.settings
+        if role_for(owner, settings) != "moderator":
+            raise HTTPException(status_code=422, detail="Book owner must be an active moderator")
+        if role_for(actor, settings) != "admin" and owner != actor:
+            raise HTTPException(status_code=403, detail="Only administrator can assign another owner")
+        payload["owner_member_id"] = owner
+    elif payload["owner_member_id"] is not None:
+        raise HTTPException(status_code=422, detail="Existing book owner cannot change during import")
     try:
-        return sessions.confirm(actor, stage_id, body.model_dump())
+        return sessions.confirm(actor, stage_id, payload)
     except (StageMissing, StageExpired, StageConflict, LibraryConflict,
             LibraryNotFound, ValueError) as exc:
         raise _import_error(exc) from exc
