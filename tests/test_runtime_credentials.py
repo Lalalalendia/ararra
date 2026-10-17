@@ -65,3 +65,18 @@ def test_no_systemd_credential_still_supports_dev_environment(tmp_path, monkeypa
     assert conf.gemini_api_key == 'env-secret'
     assert conf.gemini_model == 'gemini-3.6-flash'
     assert conf.team_tokens == {'test': 'token'}
+
+
+def test_daily_quota_is_opt_in_and_scoped_to_explicit_project(tmp_path, monkeypatch):
+    monkeypatch.delenv('CREDENTIALS_DIRECTORY', raising=False)
+    monkeypatch.setenv('CHAPTERA_GEMINI_REQUESTS_PER_DAY', '21')
+    monkeypatch.delenv('CHAPTERA_GEMINI_QUOTA_PROJECT', raising=False)
+    with pytest.raises(ValueError, match='CHAPTERA_GEMINI_QUOTA_PROJECT'):
+        Settings.from_env()
+    monkeypatch.setenv('CHAPTERA_GEMINI_QUOTA_PROJECT', 'one-google-project')
+    settings = Settings.from_env()
+    assert settings.gemini_requests_per_day == 21
+    assert settings.gemini_quota_project == 'one-google-project'
+    monkeypatch.setenv('CHAPTERA_GEMINI_REQUESTS_PER_DAY', '-1')
+    with pytest.raises(ValueError, match='daily request limit'):
+        Settings.from_env()
