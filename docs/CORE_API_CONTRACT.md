@@ -166,7 +166,49 @@ storage outside SQLite. The metadata-only JSON **still works for read-only
 preview** and is explicitly rejected for source chapter staging. Do not claim
 that a metadata-only catalog contains downloadable chapters.
 
-The next RE-02 work is metadata URL/id persistence and the browser book-import flow. No metadata-only JSON can create source chapters.
+The next RE-02 work is metadata URL/id persistence and the browser book-import flow.
+
+### RE-05: shared editorial drafts, review notes and accepted history
+
+Every endpoint below is under \`/v1/books/{book_id}/chapters/{chapter_id}\`
+and uses the normal \`X-API-Key\` team member authentication. There are only
+two global roles (admin/moderator); the book owner is a responsibility field,
+not an exclusive ACL.
+
+- \`GET /draft\`: current shared draft with \`revision\`, \`source_revision\`,
+  \`accepted_revision\`, \`body_text\` (plain text), \`actor_id\`, \`updated_at\`.
+  When absent, returns an empty draft with revision 0 and the current chapter
+  revision bases. No draft is fabricated from the LLM queue.
+- \`PUT /draft\`: \`{body_text,expected_revision,expected_source_revision,
+  expected_accepted_revision,rebase:false}\`. SQLite \`BEGIN IMMEDIATE\` CAS
+  requires both chapter revisions and exact previous draft revision.
+  \`rebase:true\` is explicit user acknowledgement when a saved draft targets
+  a superseded source or accepted revision; stale unacknowledged drafts fail
+  with 409. Each changed draft is appended to \`editor_draft_revisions\`.
+  The draft is separate from the accepted text and never published.
+- \`GET /notes\` and \`POST /notes\`: bounded review findings stored as separate
+  DB rows linked to source, shared-draft and accepted revision numbers.
+  \`POST\` body is \`{body_text,expected_source_revision,
+  expected_draft_revision,expected_accepted_revision}\`; changed bases cause
+  409. The authenticated actor is authoritative, not a user-supplied field.
+- \`PATCH /notes/{note_id}\`: \`{status:"open"|"resolved",
+  expected_revision}\` with per-note CAS. Resolutions keep the author and
+  record resolver identity. These notes are NOT concatenated into chapter
+  bodies or translation exports; all fields are escaped in browser UI.
+- \`GET /accepted-revisions\`: metadata-only up to 100 latest accepted
+  revisions, newest first (revision,source_revision,actor_id,created_at).
+  \`GET /accepted-revisions/{revision}\`: that single historical translation.
+- \`POST /restore-accepted\`: \`{revision,expected_current_revision,
+  expected_source_revision}\`. Checks exact current revisions and requires
+  the historical translation's source revision equal the current source.
+  Atomically appends a NEW accepted version with audit actor; never changes
+  historical records or source text. 409 for stale/current choice, 404 for
+  absent revision. This is not Publish.
+
+The editor keeps credentials in memory, persists plain-text Draft separately
+from Accepted and notes separately from both. It performs no paid LLM call.
+Partial-save errors or collisions must not silently replace text in the UI.
+ No metadata-only JSON can create source chapters.
 
 
 Example for a trusted local developer instance:
