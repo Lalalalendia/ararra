@@ -7,11 +7,12 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 
 from ...editorial import EditorialStore
+from ...chapter_qa import ChapterQaStore
 from ...library import LibraryConflict, LibraryNotFound
-from ..dependencies import get_editorial, map_library_error, require_member
+from ..dependencies import get_editorial, get_chapter_qa, map_library_error, require_member
 from ..schemas import (
     CreateEditorNote, RestoreEditorAccepted,
-    SaveEditorDraft, SetEditorNoteStatus,
+    SaveEditorDraft, SetEditorNoteStatus, RunChapterQa, ReviewChapterQa,
 )
 
 router = APIRouter(prefix="/v1/books/{book_id}/chapters/{chapter_id}")
@@ -99,6 +100,40 @@ def restore_history(book_id: str, chapter_id: str, body: RestoreEditorAccepted,
     try:
         return store.restore_accepted(
             book_id, chapter_id, actor_id=actor, **body.model_dump()
+        )
+    except (LibraryNotFound, LibraryConflict, ValueError) as exc:
+        raise map_library_error(exc) from exc
+
+
+@router.get("/qa")
+def read_chapter_qa(book_id: str, chapter_id: str,
+                    actor: str = Depends(require_member),
+                    qa: ChapterQaStore = Depends(get_chapter_qa)):
+    try:
+        return qa.current(book_id, chapter_id)
+    except (LibraryNotFound, LibraryConflict) as exc:
+        raise map_library_error(exc) from exc
+
+
+@router.post("/qa")
+def scan_chapter_qa(book_id: str, chapter_id: str, body: RunChapterQa,
+                    actor: str = Depends(require_member),
+                    qa: ChapterQaStore = Depends(get_chapter_qa)):
+    try:
+        return qa.scan(book_id, chapter_id, actor_id=actor, **body.model_dump())
+    except (LibraryNotFound, LibraryConflict, ValueError) as exc:
+        raise map_library_error(exc) from exc
+
+
+@router.patch("/qa/findings/{finding_id}")
+def review_chapter_qa(book_id: str, chapter_id: str, finding_id: str,
+                      body: ReviewChapterQa,
+                      actor: str = Depends(require_member),
+                      qa: ChapterQaStore = Depends(get_chapter_qa)):
+    try:
+        return qa.review(
+            book_id, chapter_id, finding_id, actor_id=actor,
+            **body.model_dump(),
         )
     except (LibraryNotFound, LibraryConflict, ValueError) as exc:
         raise map_library_error(exc) from exc

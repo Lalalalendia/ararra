@@ -1,6 +1,8 @@
 /** Separate review metadata and accepted history; never modify literary text.
  * All content from the server or users is inserted with textContent.
  */
+import {initChapterQaPanel} from './qa-panel.mjs';
+
 const $=id=>document.getElementById(id);
 const node=(tag,value)=>{const el=document.createElement(tag);el.textContent=String(value??'');return el;};
 
@@ -10,6 +12,7 @@ export function initEditorialPanels({request,flash,current,reloadChapter,toText}
   const preview=$('editor-history-preview');
   const noteText=$('editor-note-body');
   let noteSeq=0,historySeq=0;
+  const qa=initChapterQaPanel({request,flash,current});
 
   function path(ctx){
     return '/v1/books/'+encodeURIComponent(ctx.bookId)
@@ -21,6 +24,7 @@ export function initEditorialPanels({request,flash,current,reloadChapter,toText}
   }
   function blank(){
     noteSeq++;historySeq++;
+    qa.blank();
     notesRoot.replaceChildren();
     historyRoot.replaceChildren();
     preview.hidden=true;preview.textContent='';
@@ -126,5 +130,5 @@ export function initEditorialPanels({request,flash,current,reloadChapter,toText}
       if(remains(ctx)){noteText.value='';await loadNotes();flash('Замечание сохранено отдельно от главы.');}
     }catch(e){flash(e.message,true);}
   });
-  return {blank,load:async()=>{await Promise.all([loadNotes(),loadHistory()]);},loadNotes,loadHistory};
+  return {blank,load:async()=>{await Promise.all([loadNotes(),loadHistory(),qa.load()]);},loadNotes,loadHistory};
 }

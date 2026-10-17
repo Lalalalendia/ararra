@@ -241,6 +241,15 @@ try{
   assert.equal(translation.data.accepted_current,true);
   assert.match(translation.data.accepted_html,/Русский литературный перевод/);
   assert.equal(await page.locator('#editor-accept').isEnabled(),false);
+  await page.waitForFunction(
+    ()=>!document.querySelector('#editor-qa-scan')?.disabled,null,{timeout:15000});
+  await page.locator('#editor-qa-scan').click();
+  await page.locator('#editor-qa-summary').getByText(/Диагностика/).waitFor();
+  const qa=await api('/v1/books/browser-novel/chapters/12/qa',issued);
+  assert.equal(qa.status,200);
+  assert.equal(qa.data.report.diagnostic_only,true);
+  assert.equal(qa.data.report.accepted_revision,1);
+  assert.equal(qa.data.report.alignment_proven,false);
   await screenshot(page,'08-editor-accepted.png');
 
   // The saved draft was based on accepted rev 0; deliberate rebase is required
