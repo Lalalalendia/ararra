@@ -88,6 +88,7 @@ class TranslationCore:
                 f'prompt_tokens={usage.get("promptTokenCount", 0)} '
                 f'output_tokens={usage.get("candidatesTokenCount", 0)} '
                 f'total_tokens={usage.get("totalTokenCount", 0)}'),
+            request_role='translation', is_cancelled=self.is_cancelled,
         ))
         self._cancel_check()
         if not isinstance(raw, str) or not raw.strip():
@@ -139,6 +140,7 @@ class TranslationCore:
                     f'batch={part} prompt_tokens={usage.get("promptTokenCount", 0)} '
                     f'output_tokens={usage.get("candidatesTokenCount", 0)} '
                     f'total_tokens={usage.get("totalTokenCount", 0)}'),
+                request_role='translation', is_cancelled=self.is_cancelled,
             ))
             self._cancel_check()
             try:
@@ -173,6 +175,7 @@ class TranslationCore:
                         f'prompt_tokens={usage.get("promptTokenCount", 0)} '
                         f'output_tokens={usage.get("candidatesTokenCount", 0)} '
                         f'total_tokens={usage.get("totalTokenCount", 0)}'),
+                    request_role='targeted_repair', is_cancelled=self.is_cancelled,
                 ))
                 self._cancel_check()
                 try:
