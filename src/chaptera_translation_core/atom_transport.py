@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -99,6 +100,65 @@ def parse_packet_response(raw: str, atoms: tuple[SourceAtom, ...]) -> CoverageMa
     if not coverage.missing_atom_ids and any(item.get('reason') == 'malformed_lines' for item in coverage.invalid_segments):
         raise ValueError('Atom response contains unexplained malformed records')
     return coverage
+
+
+def salvage_partial_atom_response(partial_text: str, atoms: tuple[SourceAtom, ...]) -> str | None:
+    """Extract complete JSON segment objects, then require desktop reconciliation.
+
+    A MAX_TOKENS/transport interruption may truncate a JSON object halfway
+    through a later segment. We reuse ONLY fully decoded prefix objects and
+    pass their source identity to the existing CoverageMap validator. This
+    is a transport syntax adapter, not a second translation/recovery algorithm.
+
+    Never salvage unknown IDs, duplicate/overlapping coverage, noncontiguous
+    segments, arbitrary prose, thoughts, or oversized untrusted response data.
+    """
+    if not isinstance(partial_text, str) or not 0 < len(partial_text) <= 2_000_000:
+        return None
+    # A provider can signal MAX_TOKENS even if the JSON answer was complete.
+    try:
+        complete = parse_packet_response(partial_text, atoms)
+        if complete.segments:
+            return partial_text
+    except (ValueError, TypeError):
+        pass
+    match = re.match(r'\s*\{\s*"segments"\s*:\s*\[', partial_text)
+    if match is None:
+        return None
+    pos = match.end()
+    decoder = json.JSONDecoder()
+    records: list[dict] = []
+    while pos < len(partial_text):
+        while pos < len(partial_text) and partial_text[pos].isspace():
+            pos += 1
+        if pos >= len(partial_text) or partial_text[pos] == ']':
+            break
+        if partial_text[pos] != '{':
+            return None
+        try:
+            value, pos = decoder.raw_decode(partial_text, pos)
+        except json.JSONDecodeError:
+            # The next segment is physically incomplete; do not guess its
+            # translation or extend a truncated string.
+            break
+        if not isinstance(value, dict):
+            return None
+        records.append(value)
+        if len(records) > len(atoms):
+            return None
+        while pos < len(partial_text) and partial_text[pos].isspace():
+            pos += 1
+        if pos >= len(partial_text) or partial_text[pos] == ']':
+            break
+        if partial_text[pos] != ',':
+            return None
+        pos += 1
+    if not records:
+        return None
+    candidate = json.dumps({'segments': records}, ensure_ascii=False)
+    # Preserve only source-proven segments; reject forged and overlapping IDs.
+    proof = parse_packet_response(candidate, atoms)
+    return candidate if proof.segments else None
 
 
 def merge_proven_segments(atoms: list[SourceAtom], parts: Iterable[CoverageMap]) -> CoverageMap:
