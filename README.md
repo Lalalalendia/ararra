@@ -21,10 +21,10 @@ Server-first, closed-team translation backend based on the existing Chaptera lit
 
 - **v0.5 complete-window context preflight:** bounded, ordered source windows for 50k+ visible-character chapters, deterministic fail-closed merging, conflict-safe terminology, source/glossary/predecessor fencing and fingerprinted source-window audit. See [windowed context](docs/WINDOWED_CONTEXT.md).
 - **Opt-in, content-redacted evaluation:** offline simulated `html_v0` versus `atoms_v1` structural/cost-proxy report; explicitly gated, *not yet executed* billable Gemini pilot. See [evaluation checkpoint](docs/EVAL_REPORT.md).
-- **v0.6 read-only book import preview:** authenticated `POST /v1/imports/preview` accepts TXT, HTML, EPUB, DOCX and the existing Windows Rulate-account metadata JSON. Detects chapter titles/numbers and exposes bounded samples, archive safety warnings and unknown/pre-chapter text. It does **not** commit source chapters yet. See [frozen API contract and import limits](docs/CORE_API_CONTRACT.md).
+- **v0.6 read-only book import preview and opt-in RE-02 import stages:** authenticated `POST /v1/imports/preview` accepts TXT, HTML, EPUB, DOCX and the existing Windows Rulate-account metadata JSON. Detects chapter titles/numbers and exposes bounded samples, archive safety warnings and unknown/pre-chapter text. Read-only preview does **not** commit source chapters; a separate authenticated stage-and-confirm API now saves selected full source chapters atomically, never during preview. See [frozen API contract and import limits](docs/CORE_API_CONTRACT.md).
 
 **Status:** server core has passed a real VPS live Gemini smoke (`gemini-3.8-flash`); permanent multi-user production deployment remains a separate acceptance gate. The original Windows program is unchanged. Provider integration uses a new native Gemini adapter; a synthetic live worker request has succeeded on the VPS. A server-specific prompt policy now supports scoped glossary versions, enforcement classes, literary style guidance and fingerprint-verified chapter context snapshots, adapted from the desktop source. **The server now has atom transport and bounded targeted repair, but full
-Windows PromptBuilder parity is not yet demonstrated.** Automatic context extraction is now available only for book-managed jobs; the standalone `POST /v1/jobs` remains backwards compatible. No browser UI, Rulate publishing or persisted EPUB import yet. The new import endpoint provides preview only, not canonical book creation.
+Windows PromptBuilder parity is not yet demonstrated.** Automatic context extraction is now available only for book-managed jobs; the standalone `POST /v1/jobs` remains backwards compatible. No full browser UI or Rulate publishing yet. EPUB/TXT/HTML/DOCX source chapters can be staged and explicitly confirmed, but Rulate metadata JSON remains preview-only. The new import endpoint provides preview only, not canonical book creation.
 
 ## Install locally (Python 3.11+)
 
@@ -74,7 +74,7 @@ curl -X POST http://127.0.0.1:8000/v1/imports/preview \
   -F 'file=@novel.epub'
 ```
 
-The response shows the title, order, detected chapter numbers, bounded text samples, metadata and any warnings about unmapped preface or duplicate numbers. DOCX, TXT, HTML and EPUB produce a `book` preview. A JSON exported by our Windows Rulate account metadata tool produces a `metadata_catalog` of books and links **without chapter texts**. The next implementation milestone is explicit user selection and revision-safe confirmation; a preview response must not be treated as a completed import.
+The response shows the title, order, detected chapter numbers, bounded text samples, metadata and any warnings about unmapped preface or duplicate numbers. DOCX, TXT, HTML and EPUB produce a `book` preview. A JSON exported by our Windows Rulate account metadata tool produces a `metadata_catalog` of books and links **without chapter texts**. To store original chapter texts, call the separate authenticated stage-and-confirm API described in `docs/CORE_API_CONTRACT.md`. A preview response is never a completed import.
 
 ## Book-managed translation (new in v0.3)
 
