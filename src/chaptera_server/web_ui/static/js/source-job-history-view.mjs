@@ -1,4 +1,4 @@
-/* Actor-scoped server history; no localStorage and no browser secrets.
+/* Actor-scoped server history; job IDs stay in server-backed state, no browser secrets.
  * Deleting a completed source job frees its crawler checkpoints only; it
  * cannot delete an imported book, stage, or accepted translation.
  */
