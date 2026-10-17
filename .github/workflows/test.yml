@@ -38,7 +38,7 @@ jobs:
           node --check src/chaptera_server/web_ui/static/js/import-model.mjs
           node --check src/chaptera_server/web_ui/static/js/editor.mjs
           node --check src/chaptera_server/web_ui/static/js/editorial-panels.mjs
-          node --test src/chaptera_server/web_ui/static/js/import-model.test.mjs
+          node --test src/chaptera_server/web_ui/static/js/*.test.mjs
 
   browser:
     name: ReadEra real Chromium acceptance
