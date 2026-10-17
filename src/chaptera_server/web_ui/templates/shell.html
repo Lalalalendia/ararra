@@ -84,6 +84,22 @@
               </table></div>
               <p id="books-empty" class="muted" hidden>Книги не найдены.</p>
             </div>
+            <dialog id="book-owner-dialog" class="readera-modal"
+                    aria-labelledby="book-owner-title" aria-describedby="book-owner-help">
+              <form method="dialog">
+                <p class="kicker">Библиотека / Ответственный</p>
+                <h2 id="book-owner-title">Переназначить книгу</h2>
+                <p id="book-owner-help" class="muted">Выберите нового ответственного модератора.</p>
+                <label class="ui-field"><span>Новый ответственный</span>
+                  <select id="book-owner-target" class="ui-input" required></select>
+                </label>
+                <p class="muted">Книга останется доступна всей команде. Меняется только ответственный модератор.</p>
+                <div class="readera-modal-actions">
+                  <button class="ui-button ui-button--ghost" type="submit" value="cancel" formnovalidate>Отмена</button>
+                  <button class="ui-button ui-button--primary" type="submit" value="confirm">Переназначить</button>
+                </div>
+              </form>
+            </dialog>
           </section>
           <section data-page="import" hidden class="chapter-import-create-page">
             <div class="ui-page-header"><div>
