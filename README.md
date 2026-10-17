@@ -85,18 +85,27 @@ fails startup rather than falling back to arbitrary credentials.
 
 The book library, import sessions, glossary, chapter edits, accepted versions,
 and translation queue remain a **shared technical workspace** for both roles.
-The role model deliberately does not introduce per-book assignments. API tokens
-and the administrator identity are managed by the trusted host operator through
-protected environment/systemd deployment configuration; member creation,
-token rotation, and admin transfer are NOT exposed as unreviewed HTTP writes.
+Book access is still shared, but each newly created book records **one
+accountable moderator owner** and an independent owner revision. This is not
+a third role and does not restrict editors from other books. New books created
+by a moderator default to that moderator as owner; an administrator must
+explicitly select a moderator owner. Legacy books stay ownerless until an
+administrator assigns a moderator. The administrator can transfer ownership
+through `PUT /v1/books/{book_id}/owner` using optimistic owner revision checks;
+`GET /v1/books` lists the shared catalogue with ownership metadata.
+Admin/member credentials are separate from this responsibility field.
+The administrator's own key and identity are managed by trusted host
+configuration, while moderator key issuance/rotation/disable use the
+authenticated admin API described above.
 The administrator can manage legacy configured credentials through that
 operational process; new moderator credentials are stored as one-way SHA-256
 digests in the same durable SQLite database and are never recoverable via
 the API. Existing static moderator secrets are immediately invalidated when
 rotated or disabled through the admin API. The administrator credential remains
 host/operator-managed and cannot be replaced via HTTP.
-Moderator invitation delivery is manual via a secure channel, not email. If
-book ownership tracking is enabled, reassign books before disabling the owner.
+Moderator invitation delivery is manual via a secure channel, not email.
+Before disabling a moderator who owns books, reassign ALL their books explicitly
+to an active moderator; API returns 409 until the owner ledger is clear.
 No RBAC or admin UI rollout occurs on the VPS until an explicitly reviewed deploy.
 
 ## Import-file preview (new in v0.6)
