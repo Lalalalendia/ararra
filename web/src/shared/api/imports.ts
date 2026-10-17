@@ -127,6 +127,10 @@ export const importApi = {
   },
   stageDetails: (key: string, stageId: string) =>
     api<StageSnapshot>('/v1/imports/stages/' + encodeURIComponent(stageId), key),
+  cancelStage: (key: string, stageId: string) =>
+    api<{ stage_id: string; status: 'cancelled' }>(
+      '/v1/imports/stages/' + encodeURIComponent(stageId), key, { method: 'DELETE' },
+    ),
   chapter: (key: string, bookId: string, chapterId: string) =>
     api<ExistingChapter>(
       '/v1/books/' + encodeURIComponent(bookId) + '/chapters/' + encodeURIComponent(chapterId),
