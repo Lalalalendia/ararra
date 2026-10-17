@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit && vite build",
     "test:architecture": "node --test scripts/architecture.test.mjs",
-    "check": "npm run test:architecture && npm run build"
+    "check": "npm run test:architecture && npm run test:import && npm run build",
+    "test:import": "node --test scripts/import-model.test.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",
