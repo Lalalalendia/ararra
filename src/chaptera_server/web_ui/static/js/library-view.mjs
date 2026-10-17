@@ -8,7 +8,10 @@ const node = (tag, value, css='') => {
   return el;
 };
 
-export function createLibraryView({body,filter,empty,request,openEditor,showError}) {
+export function createLibraryView({
+  body,filter,ownerFilter,empty,request,openEditor,showError,
+  currentMember,canReassign,activeModerators,reassignOwner,
+}) {
   let catalog=[];
 
   function bookRow(book) {
@@ -30,6 +33,13 @@ export function createLibraryView({body,filter,empty,request,openEditor,showErro
     edit.setAttribute('aria-label','Редактировать книгу '+book.title);
     edit.addEventListener('click',()=>openEditor(book.book_id));
     actions.append(toggle,edit);
+    if(canReassign()){
+      const transfer=node('button','Переназначить','ui-button ui-button--ghost');
+      transfer.type='button';
+      transfer.setAttribute('aria-label','Переназначить ответственным за книгу '+book.title);
+      transfer.addEventListener('click',()=>void changeOwner(book,transfer));
+      actions.append(transfer);
+    }
     tr.append(actions);
     return tr;
   }
@@ -80,15 +90,41 @@ export function createLibraryView({body,filter,empty,request,openEditor,showErro
     }
   }
 
+  async function changeOwner(book,button) {
+    const available=activeModerators().filter(m=>m.member_id!==book.owner_member_id);
+    if(!available.length){showError(new Error('Других активных модераторов нет.'));return;}
+    const choices=available.map(m=>m.member_id);
+    const answer=window.prompt(
+      'Новый ответственный за «'+book.title+'»:\\n'+choices.join(', '),
+      choices[0],
+    );
+    if(answer===null)return;
+    const next=answer.trim();
+    if(!choices.includes(next)){showError(new Error('Выберите активного модератора из списка.'));return;}
+    if(!window.confirm('Передать ответственность за «'+book.title+'» модератору '+next+'?'))return;
+    button.disabled=true;
+    try {
+      await reassignOwner(book,next);
+    } catch(error) {
+      showError(error);
+    } finally {
+      button.disabled=false;
+    }
+  }
+
   function render(books=catalog) {
     catalog=books;
     const q=filter.value.trim().toLocaleLowerCase('ru-RU');
+    const selection=ownerFilter.value;
     const subset=catalog.filter(b=>
-      [b.title,b.book_id,b.owner_member_id].join(' ')
+      (selection==='all' || (selection==='mine' && b.owner_member_id===currentMember())
+        || (selection==='unassigned' && !b.owner_member_id))
+      && [b.title,b.book_id,b.owner_member_id].join(' ')
         .toLocaleLowerCase('ru-RU').includes(q));
     body.replaceChildren(...subset.map(bookRow));
     empty.hidden=subset.length>0;
   }
   filter.addEventListener('input',()=>render());
+  ownerFilter.addEventListener('change',()=>render());
   return {render};
 }
