@@ -8,6 +8,7 @@ from chaptera_translation_core.prompt_policy import GlossaryVersionConflict
 from ..auth import InvalidTeamToken, authenticate, role_for
 from ..library import BookLibrary, LibraryConflict, LibraryNotFound
 from ..editorial import EditorialStore
+from ..chapter_qa import ChapterQaStore
 from ..import_sessions import ImportSessions
 from ..storage import QueueStore
 
@@ -36,6 +37,10 @@ def get_import_sessions(request: Request) -> ImportSessions:
 
 def get_editorial(request: Request) -> EditorialStore:
     return request.app.state.editorial
+
+
+def get_chapter_qa(request: Request) -> ChapterQaStore:
+    return request.app.state.chapter_qa
 
 
 def get_library(request: Request) -> BookLibrary:
