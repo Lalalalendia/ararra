@@ -94,12 +94,23 @@ class BookLibrary:
                 CREATE TABLE IF NOT EXISTS books (
                     id TEXT PRIMARY KEY,
                     title TEXT NOT NULL,
+                    owner_member_id TEXT,
+                    owner_revision INTEGER NOT NULL DEFAULT 0,
                     glossary_json TEXT NOT NULL DEFAULT '{}',
                     glossary_versions_json TEXT NOT NULL DEFAULT '{}',
                     glossary_authority TEXT NOT NULL DEFAULT 'READY',
                     glossary_revision INTEGER NOT NULL DEFAULT 0,
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS book_owner_events (
+                    book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+                    revision INTEGER NOT NULL,
+                    previous_owner_member_id TEXT,
+                    new_owner_member_id TEXT NOT NULL,
+                    actor_id TEXT NOT NULL,
+                    changed_at REAL NOT NULL,
+                    PRIMARY KEY(book_id, revision)
                 );
                 CREATE TABLE IF NOT EXISTS book_glossary_revisions (
                     book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
@@ -149,27 +160,44 @@ class BookLibrary:
                         ON DELETE CASCADE
                 );
             """)
+            # Existing SQLite databases predate book ownership. Never infer a
+            # moderator from token order, last editor, or import history.
+            columns = {row['name'] for row in con.execute('PRAGMA table_info(books)')}
+            if 'owner_member_id' not in columns:
+                con.execute('ALTER TABLE books ADD COLUMN owner_member_id TEXT')
+            if 'owner_revision' not in columns:
+                con.execute('ALTER TABLE books ADD COLUMN owner_revision INTEGER NOT NULL DEFAULT 0')
 
-    def create_book(self, book_id: str, title: str) -> dict:
+    def create_book(self, book_id: str, title: str, *,
+                    owner_member_id: str, actor_id: str | None = None) -> dict:
         book_id, title = str(book_id or '').strip(), str(title or '').strip()
+        owner_member_id = str(owner_member_id or '').strip()
         if not book_id or not title or len(book_id) > 128 or len(title) > 500:
             raise ValueError('Valid book id and title are required')
+        if not owner_member_id or len(owner_member_id) > 128:
+            raise ValueError('A valid moderator owner is required')
         with self.queue._connect() as con:
             con.execute('BEGIN IMMEDIATE')
             existing = con.execute('SELECT * FROM books WHERE id=?', (book_id,)).fetchone()
             if existing:
-                if existing['title'] != title:
-                    raise LibraryConflict('Book already exists with a different title')
+                if existing['title'] != title or existing['owner_member_id'] != owner_member_id:
+                    raise LibraryConflict('Book already exists with a different title or owner')
                 return self._book_dict(existing)
             now = time.time()
-            con.execute('INSERT INTO books(id,title,created_at,updated_at) VALUES(?,?,?,?)',
-                        (book_id, title, now, now))
+            con.execute('INSERT INTO books(id,title,owner_member_id,created_at,updated_at) VALUES(?,?,?,?,?)',
+                        (book_id, title, owner_member_id, now, now))
+            con.execute(
+                'INSERT INTO book_owner_events VALUES(?,?,?,?,?,?)',
+                (book_id, 0, None, owner_member_id, actor_id or owner_member_id, now),
+            )
             return self._book_dict(con.execute('SELECT * FROM books WHERE id=?', (book_id,)).fetchone())
 
     @staticmethod
     def _book_dict(row: sqlite3.Row) -> dict:
         return {
             'book_id': row['id'], 'title': row['title'],
+            'owner_member_id': row['owner_member_id'],
+            'owner_revision': row['owner_revision'],
             'glossary': json.loads(row['glossary_json']),
             'glossary_versions': json.loads(row['glossary_versions_json']),
             'glossary_authority': row['glossary_authority'],
@@ -182,6 +210,47 @@ class BookLibrary:
             if not row:
                 raise LibraryNotFound('Book not found')
             return self._book_dict(row)
+
+    def list_books(self) -> list[dict]:
+        """Shared directory, including unassigned legacy books for remediation."""
+        with self.queue._connect() as con:
+            rows = con.execute(
+                'SELECT id,title,owner_member_id,owner_revision FROM books ORDER BY title,id'
+            ).fetchall()
+        return [
+            {'book_id': row['id'], 'title': row['title'],
+             'owner_member_id': row['owner_member_id'], 'owner_revision': row['owner_revision']}
+            for row in rows
+        ]
+
+    def reassign_book_owner(self, book_id: str, *, new_owner_member_id: str,
+                            expected_owner_revision: int, actor_id: str) -> dict:
+        """Admin-validated reassignment; preserve an immutable audit record."""
+        new_owner_member_id = str(new_owner_member_id or '').strip()
+        if not new_owner_member_id or len(new_owner_member_id) > 128:
+            raise ValueError('A valid moderator owner is required')
+        if expected_owner_revision < 0:
+            raise ValueError('Owner revision must be nonnegative')
+        with self.queue._connect() as con:
+            con.execute('BEGIN IMMEDIATE')
+            row = con.execute('SELECT * FROM books WHERE id=?', (book_id,)).fetchone()
+            if row is None:
+                raise LibraryNotFound('Book not found')
+            if row['owner_revision'] != expected_owner_revision:
+                raise LibraryConflict('Book owner revision mismatch')
+            if row['owner_member_id'] == new_owner_member_id:
+                return self._book_dict(row)
+            now = time.time()
+            next_revision = expected_owner_revision + 1
+            con.execute(
+                'UPDATE books SET owner_member_id=?,owner_revision=?,updated_at=? WHERE id=?',
+                (new_owner_member_id, next_revision, now, book_id),
+            )
+            con.execute(
+                'INSERT INTO book_owner_events VALUES(?,?,?,?,?,?)',
+                (book_id, next_revision, row['owner_member_id'], new_owner_member_id, actor_id, now),
+            )
+            return self._book_dict(con.execute('SELECT * FROM books WHERE id=?', (book_id,)).fetchone())
 
     def put_glossary(self, book_id: str, *, glossary: dict, versions: dict,
                      authority: str, expected_revision: int, actor_id: str) -> dict:
