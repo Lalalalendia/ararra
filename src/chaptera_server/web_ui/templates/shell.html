@@ -163,6 +163,51 @@
               <p class="kicker">РидЭра / Импорт</p><h1>Импорт исходных глав</h1>
               <p>Три шага: файл → сопоставление → проверка и запись. Перевод Gemini здесь не запускается.</p>
             </div></div>
+            <section id="source-import" class="ui-card" aria-labelledby="source-import-title">
+              <div class="ui-section-header">
+                <h2 id="source-import-title">Собрать книгу с сайта</h2>
+                <p>Укажите публичную страницу книги, проверьте оглавление и выберите главы.
+                  Перед записью в библиотеку остаётся обычный этап подтверждения.</p>
+              </div>
+              <form id="source-book-form" class="compact-form">
+                <div class="field-grid">
+                  <label class="ui-field"><span>Источник</span>
+                    <select id="source-site" class="ui-input">
+                      <option value="royalroad">Royal Road</option>
+                      <option value="webnovel">WebNovel</option>
+                      <option value="uukanshu">UUKanshu</option>
+                    </select>
+                  </label>
+                  <label class="ui-field"><span>Ссылка на книгу</span>
+                    <input id="source-book-url" class="ui-input" type="url"
+                           required maxlength="2048" placeholder="https://..." autocomplete="off">
+                  </label>
+                </div>
+                <button id="source-discover" class="ui-button ui-button--ghost"
+                        type="submit">Получить оглавление</button>
+              </form>
+              <div id="source-catalog" hidden>
+                <p id="source-summary" role="status" aria-live="polite"></p>
+                <div class="field-grid">
+                  <label class="ui-field"><span>Начальная глава</span>
+                    <input id="source-start" class="ui-input" type="number" min="1" step="1"></label>
+                  <label class="ui-field"><span>Конечная глава</span>
+                    <input id="source-end" class="ui-input" type="number" min="1" step="1"></label>
+                </div>
+                <p class="muted">За один запрос — до 20 глав. Для больших книг повторяйте сбор
+                  следующего диапазона в ту же книгу; пропущенные или недоступные главы не будут записаны.</p>
+                <button id="source-collect" class="ui-button ui-button--primary"
+                        type="button">Скачать выбранные главы</button>
+                <p id="source-result" role="status" aria-live="polite"></p>
+                <div class="table-scroll"><table class="ui-table">
+                  <thead><tr><th>№</th><th>Глава</th><th>Идентификатор источника</th></tr></thead>
+                  <tbody id="source-rows"></tbody>
+                </table></div>
+                <p class="muted">Первые 80 записей оглавления показаны для проверки.
+                  Номера остальных глав можно указать в диапазоне выше.</p>
+              </div>
+            </section>
+
             <ol class="steps" id="import-steps">
               <li data-step="1"><span>1</span>Загрузка</li>
               <li data-step="2"><span>2</span>Оглавление</li>

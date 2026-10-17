@@ -9,6 +9,7 @@ import {
 import {initChapterEditor} from './editor.mjs';
 import {createLibraryView} from './library-view.mjs';
 import {createBookExportView} from './book-export-view.mjs';
+import {createSourceBookImportView} from './source-book-import-view.mjs';
 import {renderDailyQuota,renderJobs} from './jobs-view.mjs';
 import {createSessionClient} from './session-client.mjs';
 import {installAuthView} from './login-view.mjs';
@@ -299,6 +300,7 @@ async function refreshJobs() {
 $('jobs-refresh').addEventListener('click',()=>void refreshJobs().catch(e=>flash(e.message,true)));
 
 function hideImportSteps() {
+  sourceBookImportView.reset();
   $('import-upload').hidden=false;$('import-resume').hidden=false;
   $('import-map').hidden=true;$('import-review').hidden=true;$('import-success').hidden=true;
   $('import-ack').checked=false;$('import-confirm').disabled=true;
@@ -344,6 +346,7 @@ function currentTarget() {
   };
 }
 function stageShown(stage) {
+  sourceBookImportView.hide();
   staged=stage;
   rows=createDraft(stage.preview);
   confirmed=stage.commit_result || null;
@@ -586,6 +589,12 @@ function showReceipt(receipt){
   $('import-map').hidden=true;$('import-review').hidden=true;$('import-success').hidden=false;markStep(3);
 }
 $('import-another').addEventListener('click',()=>{hideImportSteps();$('chapters_file').value='';selectedFile=null;flash('');});
+const sourceBookImportView=createSourceBookImportView({
+  request,flash,
+  onStage:async stageId=>stageShown(
+    await request('/v1/imports/stages/'+encodeURIComponent(stageId))
+  ),
+});
 editor=initChapterEditor({request,flash,getBooks:()=>books});
 hideImportSteps();
 showPage(currentPage());
