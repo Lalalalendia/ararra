@@ -54,6 +54,8 @@ class ExportFile:
 def _validated_fragment(raw: str, chapter_index: int) -> tuple[str, str]:
     if _SOURCE_MARKER.search(raw):
         raise UnsafeAcceptedHtml("reserved_service_marker")
+    if re.search(r"\b(?:https?://|www\.)", raw, flags=re.I):
+        raise UnsafeAcceptedHtml("external_url_requires_editor_review")
     soup = BeautifulSoup(raw, "html.parser")
     for element in soup.descendants:
         if isinstance(element, (Comment, Doctype)):
