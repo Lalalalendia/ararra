@@ -123,7 +123,7 @@ def test_finalize_only_survives_local_crash_without_another_gemini_call(
     db = tmp_path / "finalize.db"
     store = QueueStore(db)
     job = store.create_job("mod", JobSpec(
-        "chapter", source, transport="atoms_v1", max_attempts=3,
+        "chapter", source, transport="atoms_v1", max_attempts=1,
     ))
 
     class OneShot:
@@ -148,9 +148,10 @@ def test_finalize_only_survives_local_crash_without_another_gemini_call(
     assert asyncio.run(TranslationWorker(store, provider).run_once())
     assert provider.calls == 1
     assert store.get_job(job["id"])["status"] == "retry_wait"
+    assert store.get_job(job["id"])["attempts"] == 0
     with store._connect() as con:
         assert con.execute(
-            "SELECT phase FROM atom_recovery_state WHERE job_id=?", (job["id"],)
+            "SELECT phase, finalize_failures FROM atom_recovery_state WHERE job_id=?", (job["id"],)
         ).fetchone()["phase"] == "finalize_only"
 
     class Forbidden:
@@ -180,7 +181,7 @@ def test_finalize_only_missing_cached_proof_fails_closed_without_model_call(
     source = "<p>世界。</p>"
     store = QueueStore(db)
     job = store.create_job("mod", JobSpec(
-        "chapter", source, transport="atoms_v1", max_attempts=3,
+        "chapter", source, transport="atoms_v1", max_attempts=1,
     ))
 
     class One:
@@ -269,4 +270,85 @@ def test_debt_handoff_has_finite_32_wave_bound_and_terminal_cleanup(tmp_path):
     with store._connect() as con:
         assert con.execute(
             "SELECT COUNT(*) FROM atom_recovery_state WHERE job_id=?", (job["id"],)
+        ).fetchone()[0] == 0
+
+
+def test_expired_finalization_lease_keeps_proofs_until_bounded_third_crash(
+    tmp_path, monkeypatch,
+):
+    clock = [1000.0]
+    monkeypatch.setattr(storage, "time", SimpleNamespace(time=lambda: clock[0]))
+    store = QueueStore(tmp_path / "lease.db")
+    source = "<p>世界。</p>"
+    job = store.create_job("mod", JobSpec(
+        "chapter", source, transport="atoms_v1", max_attempts=1,
+    ))
+    digest = hashlib.sha256(source.encode()).hexdigest()
+    _, token = store.claim_next(lease_seconds=2)
+    checkpoint = SQLiteAtomCheckpoint(store, job["id"], token)
+    checkpoint.save("0" * 64, "validated source-proven packet")
+    checkpoint.mark_phase(digest, "finalize_only")
+    for index in (1, 2):
+        clock[0] += 3
+        claim = store.claim_next(lease_seconds=2)
+        assert claim is not None
+        claimed, token = claim
+        assert claimed["id"] == job["id"]
+        assert claimed["attempts"] == 1
+        with store._connect() as con:
+            stage = con.execute(
+                "SELECT phase, finalize_failures FROM atom_recovery_state WHERE job_id=?",
+                (job["id"],),
+            ).fetchone()
+            assert stage["phase"] == "finalize_only"
+            assert stage["finalize_failures"] == index
+            assert con.execute(
+                "SELECT COUNT(*) FROM atom_job_checkpoints WHERE job_id=?",
+                (job["id"],),
+            ).fetchone()[0] == 1
+    clock[0] += 3
+    assert store.claim_next(lease_seconds=2) is None
+    assert store.get_job(job["id"])["status"] == "failed"
+    with store._connect() as con:
+        assert con.execute(
+            "SELECT COUNT(*) FROM atom_recovery_state WHERE job_id=?", (job["id"],)
+        ).fetchone()[0] == 0
+        assert con.execute(
+            "SELECT COUNT(*) FROM atom_job_checkpoints WHERE job_id=?", (job["id"],)
+        ).fetchone()[0] == 0
+
+
+def test_two_unexpected_local_finalization_failures_cannot_spin_forever(
+    tmp_path, monkeypatch,
+):
+    clock = [1000.0]
+    monkeypatch.setattr(storage, "time", SimpleNamespace(time=lambda: clock[0]))
+    db = tmp_path / "budget.db"
+    source = "<p>世界。</p>"
+    store = QueueStore(db)
+    job = store.create_job("mod", JobSpec(
+        "c", source, transport="atoms_v1", max_attempts=1,
+    ))
+
+    class Once:
+        calls = 0
+        async def generate(self, request):
+            self.calls += 1
+            return json.dumps({"segments": packet_segments(request.source_html_with_markers)},
+                              ensure_ascii=False)
+
+    monkeypatch.setattr(core_service, "finalize_publication_html",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("local QA crash")))
+    provider = Once()
+    for attempt in range(1, 4):
+        assert asyncio.run(TranslationWorker(QueueStore(db), provider).run_once())
+        row = store.get_job(job["id"])
+        assert row["status"] == ("retry_wait" if attempt < 3 else "failed")
+        if attempt < 3:
+            assert row["attempts"] == 0
+            clock[0] += 3
+    assert provider.calls == 1
+    with store._connect() as con:
+        assert con.execute(
+            "SELECT COUNT(*) FROM atom_job_checkpoints WHERE job_id=?", (job["id"],)
         ).fetchone()[0] == 0
