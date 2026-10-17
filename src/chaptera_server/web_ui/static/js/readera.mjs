@@ -11,6 +11,7 @@ import {createLibraryView} from './library-view.mjs';
 import {createBookExportView} from './book-export-view.mjs';
 import {renderDailyQuota,renderJobs} from './jobs-view.mjs';
 import {createSessionClient} from './session-client.mjs';
+import {installAuthView} from './login-view.mjs';
 
 const $ = id => document.getElementById(id);
 const sections = Array.from(document.querySelectorAll('[data-page]'));
@@ -120,27 +121,13 @@ async function activateSession(session) {
   $('metric-role').textContent=identity.role==='admin'?'Администратор':'Модератор';
   showPage(currentPage());flash('');
 }
-$('login-form').addEventListener('submit',event=>{
-  event.preventDefault();
-  const form=event.currentTarget;
-  void busyDuring(async()=>{
-    const secret=String(new FormData(form).get('api_key')||'').trim();
-    form.reset();
-    try {await activateSession(await auth.login(secret));}
-    catch(e){auth.clear();identity=null;flash(e.message,true);}
-  });
-});
-$('logout').addEventListener('click',()=>{
-  if(shownPage==='editor' && editor && !editor.canLeave())return;
-  void busyDuring(async()=>{
-    try {await auth.logout();}
-    catch(e){flash(e.message,true);return;}
-    editor?.reset();identity=null;books=[];members=[];staged=null;rows=[];confirmed=null;
-    clearSecret();$('identity-label').hidden=true;
-    $('authenticated').hidden=true;$('login-form').hidden=false;$('login-form').reset();
-    hideImportSteps();flash('');
-  });
-});
+function clearWorkspace(){
+  editor?.reset();
+  auth.clear();identity=null;books=[];members=[];staged=null;rows=[];confirmed=null;
+  clearSecret();$('identity-label').hidden=true;
+  $('authenticated').hidden=true;
+  hideImportSteps();
+}
 
 async function chooseBookOwner(book, candidates) {
   const modal=$('book-owner-dialog');
@@ -237,6 +224,9 @@ async function refreshMembers() {
       rotate.type='button';rotate.className='ui-button ui-button--ghost';
       rotate.addEventListener('click',()=>void modifyMember(member.member_id,'rotate'));
       if (member.status==='active') {
+        const password=text(actions,'Выдать пароль','button');
+        password.type='button';password.className='ui-button ui-button--ghost';
+        password.addEventListener('click',()=>void modifyMember(member.member_id,'password'));
         const disable=text(actions,'Отключить','button');
         disable.type='button';disable.className='ui-button ui-button--danger';
         disable.addEventListener('click',()=>void modifyMember(member.member_id,'disable'));
@@ -247,7 +237,9 @@ async function refreshMembers() {
   fillOwnerSelect();
 }
 function revealSecret(reply) {
-  $('member-secret-code').textContent=reply.access_token;
+  $('member-secret-code').textContent=reply.temporary_password||reply.access_token||'';
+  $('member-secret-heading').textContent=reply.temporary_password
+    ? 'Временный пароль — только сейчас' : 'Новый ключ — только сейчас';
   $('member-secret').hidden=false;
 }
 $('member-invite').addEventListener('submit',event=>{
@@ -271,15 +263,18 @@ async function modifyMember(memberId,action) {
   if (identity?.role!=='admin') return;
   const message=action==='rotate'
     ? 'Перевыпустить ключ «'+memberId+'»? Предыдущий перестанет работать.'
-    : 'Отключить «'+memberId+'»? Ожидающие задания будут отменены. Все книги сначала должны быть переназначены.';
+    : action==='password'
+      ? 'Выдать временный пароль «'+memberId+'»? Старый пароль и все парольные сессии будут отозваны.'
+      : 'Отключить «'+memberId+'»? Ожидающие задания будут отменены. Все книги сначала должны быть переназначены.';
   if (!window.confirm(message)) return;
   clearSecret();flash('');
   await busyDuring(async()=>{
     try {
       const result=await request('/v1/admin/members/'+encodeURIComponent(memberId)+'/'+action,{method:'POST'});
       await refreshMembers();
-      if (result.access_token) revealSecret(result);
-      flash(action==='rotate'?'Новый ключ выдан однократно.':'Доступ модератора отключён.');
+      if (result.access_token||result.temporary_password) revealSecret(result);
+      flash(action==='password'?'Пароль выдан однократно. Модератор должен сменить его при входе.'
+        :action==='rotate'?'Новый ключ выдан однократно.':'Доступ модератора отключён.');
     } catch(e){flash(e.message,true);}
   });
 }
@@ -594,10 +589,5 @@ $('import-another').addEventListener('click',()=>{hideImportSteps();$('chapters_
 editor=initChapterEditor({request,flash,getBooks:()=>books});
 hideImportSteps();
 showPage(currentPage());
-void busyDuring(async()=>{
-  try {
-    const session=await auth.restore();
-    if(session)await activateSession(session);
-  } catch(e) {flash('Не удалось восстановить вход: '+e.message,true);}
-  finally {document.body.dataset.authReady='1';}
-});
+installAuthView({auth,activateSession,clearWorkspace,flash,busyDuring,
+  canLeave:()=>shownPage!=='editor'||!editor||editor.canLeave()});

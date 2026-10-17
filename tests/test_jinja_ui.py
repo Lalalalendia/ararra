@@ -47,6 +47,10 @@ def test_jinja_pages_render_without_credentials_but_never_expose_team_state(tmp_
             js = await client.get("/app-static/js/readera.mjs")
             assert js.status_code == 200
             assert "import-model.mjs" in js.text
+            assert "login-view.mjs" in js.text
+            login_view = await client.get("/app-static/js/login-view.mjs")
+            assert login_view.status_code == 200
+            assert "installAuthView" in login_view.text
             assert "localStorage" not in js.text
             assert "sessionStorage" not in js.text
             library_js = await client.get("/app-static/js/library-view.mjs")
