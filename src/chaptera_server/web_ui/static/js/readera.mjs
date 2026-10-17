@@ -237,10 +237,20 @@ async function refreshJobs() {
     const item=document.createElement('article');item.className='chapter-import-queue__item';
     const main=document.createElement('div');main.className='chapter-import-queue__main';
     text(main,'Задание '+shorten(job.id,80),'strong');
-    text(main,shorten(job.chapter_id,80)+' · '+shorten(job.status,40),'small');
+    text(main,shorten(job.chapter_id,80),'small');
     const meta=document.createElement('div');meta.className='chapter-import-queue__meta';
-    text(meta,job.status,'span');
+    const label=text(meta,job.status,'span');
+    label.dataset.importStatusLabel='';
     item.append(main,meta);root.append(item);
+    // Reuse the ported books_platform renderer on already authorized job JSON.
+    // No second polling loop or unauthenticated fetch of /v1/jobs.
+    if(window.ReadEraStatus) {
+      window.ReadEraStatus.renderStatus(item, {
+        status:job.status==='completed'?'succeeded':job.status,
+        status_label:job.status, progress:{current:0,total:0},
+        result:{}, preview:{}, error_message:'',
+      });
+    }
   }
   $('metric-jobs').textContent=String(jobs.filter(j=>['queued','retry_wait','running'].includes(j.status)).length);
   if (!jobs.length) text(root,'Заданий пока нет.','p');
