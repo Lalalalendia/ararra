@@ -171,3 +171,23 @@ def test_repeated_partial_quota_restarts_eventually_fail_closed(tmp_path, monkey
         assert state["status"] == ("retry_wait" if index < 2 else "failed")
         clock[0] += 101
     assert store.claim_next() is None
+
+
+def test_unconfigured_daily_429_suspends_instead_of_failing(tmp_path, monkeypatch):
+    clock = [ts(2026, 10, 17, 12)]
+    monkeypatch.setattr(storage, "time", SimpleNamespace(time=lambda: clock[0]))
+    # Worker uses its own clock for the remote RPD fallback.
+    import chaptera_server.worker as worker_module
+    monkeypatch.setattr(worker_module, "time", SimpleNamespace(time=lambda: clock[0]))
+
+    class RemoteDaily:
+        async def generate(self, _request):
+            raise DailyProviderQuotaFailure("HTTP 429 daily")
+
+    store = QueueStore(tmp_path / "jobs.db")
+    job = store.create_job("alice", JobSpec("1", "<p>世界正在燃烧。</p>", max_attempts=1))
+    assert asyncio.run(TranslationWorker(store, RemoteDaily()).run_once())
+    state = store.get_job(job["id"])
+    assert state["status"] == "retry_wait"
+    assert state["attempts"] == 0
+    assert store.claim_next() is None
