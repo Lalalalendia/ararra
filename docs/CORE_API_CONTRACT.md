@@ -108,13 +108,14 @@ calls; no upload is ever silently treated as a successful import.
 2. \`GET /v1/imports/stages/{stage_id}\`: owner only (404 for other members).
    Returns the preview and **full unassigned_prefix_html** for review. No
    generated translations or public chapter body.
-3. \`POST /v1/imports/stages/{stage_id}/confirm\`: owner only, under
+3. \`DELETE /v1/imports/stages/{stage_id}\`: owner-only cancellation of an **uncommitted** stage. Returns \`{stage_id,status:"cancelled"}\`; frees a staging slot immediately and does not change any books, accepted translations or jobs. A committed stage cannot be cancelled (409); unknown/foreign stage is 404; expired is 410. The operation intentionally requires explicit editor confirmation in the browser.
+4. \`POST /v1/imports/stages/{stage_id}/confirm\`: owner only, under
    \`BEGIN IMMEDIATE\`, one atomic transaction over book creation, chapter
    revisions, optional preserved preface and stage receipt. Every original
    sequence number must have exactly one choice. Any invalid or stale choice
    rolls the entire confirmation back; replays of the exact same confirmation
    return the original receipt. A different confirmation after commit yields 409.
-4. \`GET /v1/imports/books/{book_id}/unassigned\`: authenticated shared-team
+5. \`GET /v1/imports/books/{book_id}/unassigned\`: authenticated shared-team
    retrieval of explicitly preserved pre-chapter text. The text is not
    automatically assigned a chapter number, translated or published.
 
