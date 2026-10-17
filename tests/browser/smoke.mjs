@@ -197,7 +197,7 @@ try{
   assert.match(await page.locator('#editor-text').inputValue(),/Русский литературный перевод/);
   assert.equal(await page.locator('#editor-draft-stale').isVisible(),true);
   await page.locator('.editor-revision').filter({hasText:'Ревизия 1'}).getByText('Посмотреть').click();
-  assert.match(await page.locator('#editor-history-preview').innerText(),/Русский литературный перевод/);
+  await page.locator('#editor-history-preview').getByText(/Русский литературный перевод/).waitFor({timeout:15000});
   page.once('dialog',d=>void d.accept());
   await page.locator('.editor-revision').filter({hasText:'Ревизия 1'}).getByText('Восстановить').click();
   await page.locator('#editor-accepted-rev').getByText('rev 3').waitFor();
