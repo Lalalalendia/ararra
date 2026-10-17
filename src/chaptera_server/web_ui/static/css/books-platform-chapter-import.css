@@ -1,0 +1,346 @@
+/* Vendored unchanged from books_platform: backend/app/web/static/css/components/chapter-import.css; 2026-10-17 dump. */
+.chapter-import-upload,
+.chapter-import-job-card {
+  display: grid;
+  gap: 22px;
+  padding: 22px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  box-shadow: 0 16px 42px color-mix(in srgb, var(--text-main) 7%, transparent);
+}
+.chapter-import-upload__section {
+  display: grid;
+  gap: 16px;
+}
+.chapter-import-upload__section + .chapter-import-upload__section {
+  padding-top: 22px;
+  border-top: 1px solid var(--border-color);
+}
+.chapter-import-upload__field {
+  min-width: 0;
+}
+.chapter-import-upload__field--price {
+  max-width: 280px;
+}
+.chapter-import-upload__file {
+  min-height: 48px;
+  padding: 9px 12px;
+}
+.chapter-import-upload__options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.chapter-import-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  cursor: pointer;
+}
+.chapter-import-option input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+}
+.chapter-import-option > span {
+  display: grid;
+  gap: 3px;
+}
+.chapter-import-option strong {
+  color: var(--text-main);
+  font-size: 14px;
+}
+.chapter-import-option small {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.chapter-import-upload__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border-color);
+}
+.chapter-import-upload__actions p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.chapter-import-upload__actions > div,
+.chapter-import-page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chapter-import-trace-error {
+  display: grid;
+  gap: 5px;
+  padding: 12px 14px;
+  border: 1px solid var(--error-border);
+  border-radius: var(--radius-md);
+  background: var(--error-bg);
+  color: var(--error-text);
+  font-size: 13px;
+}
+.chapter-import-live-note {
+  margin: -8px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.chapter-import-job-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.chapter-import-file {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.chapter-import-file__icon {
+  display: grid;
+  flex: 0 0 auto;
+  width: 46px;
+  height: 46px;
+  place-items: center;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--primary-color) 9%, var(--bg-secondary));
+  font-size: 22px;
+}
+.chapter-import-file > div:last-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.chapter-import-file small {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.chapter-import-file strong {
+  overflow: hidden;
+  color: var(--text-main);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chapter-import-position {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-size: 13px;
+  font-weight: 800;
+}
+.chapter-import-position__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.chapter-import-progress {
+  display: grid;
+  gap: 8px;
+}
+.chapter-import-progress__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.chapter-import-progress__bar {
+  width: 100%;
+  height: 12px;
+  accent-color: var(--primary-color);
+}
+.chapter-import-stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+.chapter-import-stat {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+.chapter-import-stat strong {
+  overflow: hidden;
+  color: var(--text-main);
+  font-size: 20px;
+  text-overflow: ellipsis;
+}
+.chapter-import-stat span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+.chapter-import-preview,
+.chapter-import-trace {
+  display: grid;
+  gap: 14px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-color);
+}
+.chapter-import-preview__summary,
+.chapter-import-preview__more,
+.chapter-import-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.chapter-import-preview__list,
+.chapter-import-trace-list,
+.chapter-import-queue__list {
+  display: grid;
+  gap: 9px;
+}
+.chapter-import-preview__item {
+  display: grid;
+  gap: 5px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+.chapter-import-preview__meta,
+.chapter-import-preview__length {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+.chapter-import-preview__chapter-title {
+  margin: 0;
+  color: var(--text-main);
+  font-size: 15px;
+}
+.chapter-import-preview__body {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.chapter-import-trace-step {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+.chapter-import-trace-step__status {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--primary-color) 10%, var(--bg-surface));
+  color: var(--primary-color);
+  font-weight: 900;
+}
+.chapter-import-trace-step__tool {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+}
+.chapter-import-trace-step__state {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+.chapter-import-error {
+  display: grid;
+  gap: 4px;
+}
+.chapter-import-history {
+  display: grid;
+  gap: 14px;
+}
+.chapter-import-queue__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.16s ease, transform 0.16s ease;
+}
+.chapter-import-queue__item:hover,
+.chapter-import-queue__item:focus-visible {
+  border-color: color-mix(in srgb, var(--primary-color) 42%, var(--border-color));
+  transform: translateY(-1px);
+  text-decoration: none;
+}
+.chapter-import-queue__item.is-active {
+  border-color: color-mix(in srgb, var(--primary-color) 55%, var(--border-color));
+  background: color-mix(in srgb, var(--primary-color) 5%, var(--bg-surface));
+}
+.chapter-import-queue__main,
+.chapter-import-queue__meta {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.chapter-import-queue__main strong {
+  overflow: hidden;
+  color: var(--text-main);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chapter-import-queue__main small,
+.chapter-import-queue__meta small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.chapter-import-queue__meta {
+  flex: 0 0 auto;
+  justify-items: end;
+}
+@media (max-width: 780px) {
+  .chapter-import-upload__options,
+  .chapter-import-stats {
+    grid-template-columns: 1fr;
+  }
+  .chapter-import-upload__field--price {
+    max-width: none;
+  }
+  .chapter-import-upload__actions,
+  .chapter-import-job-card__top,
+  .chapter-import-queue__item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .chapter-import-queue__meta {
+    justify-items: start;
+  }
+}
