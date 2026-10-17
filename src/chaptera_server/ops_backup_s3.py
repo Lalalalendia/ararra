@@ -235,13 +235,18 @@ def _client(region: str, endpoint: str | None):
     except ImportError as exc:
         raise OffhostRejected("Install optional 'offsite-s3' dependencies") from exc
     # Credential resolution is boto3's standard protected chain, never CLI args.
-    return boto3.client(
+    client = boto3.client(
         "s3", region_name=region, endpoint_url=validated,
         config=Config(signature_version="s3v4",
                       s3={"addressing_style": "path"},
                       connect_timeout=7, read_timeout=45,
                       retries={"mode": "standard", "max_attempts":3}),
     )
+    # Boto3 also resolves AWS_ENDPOINT_URL_S3 from the environment. It can
+    # silently override the no-custom-endpoint case. Reject plaintext even
+    # when that configuration was supplied outside of our CLI.
+    _validate_endpoint(client.meta.endpoint_url)
+    return client
 
 
 def main(argv: list[str] | None = None) -> int:
