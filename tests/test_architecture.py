@@ -82,6 +82,8 @@ ROUTE_CONTRACT = {
     ('POST', '/v1/source-books/jobs/{job_id}/cancel'),
     ('POST', '/v1/source-books/jobs/{job_id}/stage'),
     ('GET', '/v1/source-books/jobs/{job_id}/assembly'),
+    ('GET', '/v1/source-books/jobs'),
+    ('DELETE', '/v1/source-books/jobs/{job_id}'),
     ('GET', '/v1/source-books/jobs/{job_id}/export.txt'),
 }
 
