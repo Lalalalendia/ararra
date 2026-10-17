@@ -52,6 +52,10 @@ def test_jinja_pages_render_without_credentials_but_never_expose_team_state(tmp_
             model = await client.get("/app-static/js/import-model.mjs")
             assert model.status_code == 200
             assert "validateDraft" in model.text
+            status_js = await client.get("/app-static/js/books-platform-chapter-status.js")
+            assert status_js.status_code == 200
+            assert "ReadEraStatus" in status_js.text
+            assert "renderStatus" in status_js.text
 
     asyncio.run(scenario())
 
