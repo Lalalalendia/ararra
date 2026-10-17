@@ -238,7 +238,11 @@ class TranslationWorker:
             self.store.fail(jid, token, str(exc))
         except Exception as exc:
             logger.error("Unexpected job error in %s: %s", jid, type(exc).__name__)
-            self.store.retry(jid, token, "Unexpected worker error", delay_seconds=15.0)
+            # Desktop finalize_only forbids a second paid translation after
+            # a local HTML/provenance/commit exception. Keep the immutable
+            # proofs and consume only a bounded LOCAL retry budget.
+            if not self.store.defer_atom_local_finalization(jid, token, delay_seconds=2.0):
+                self.store.retry(jid, token, "Unexpected worker error", delay_seconds=15.0)
         finally:
             stop.set()
             await heartbeat_task
