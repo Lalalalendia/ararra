@@ -91,6 +91,7 @@ def test_page_template_uses_books_platform_components_without_paid_features():
     assert "price_amount" not in source
     assert "data-page" in source
     assert "React" not in source
+    assert 'id="gemini-quota-status"' in source
     assert '<dialog id="book-owner-dialog"' in source
     assert 'aria-labelledby="book-owner-title"' in source
     assert 'id="book-owner-target"' in source
