@@ -7,7 +7,7 @@ from .config import Settings
 from .library import BookLibrary
 from .import_sessions import ImportSessions
 from .storage import QueueStore
-from .http.routers import books, health, imports, jobs
+from .http.routers import books, health, identity, imports, jobs
 
 # Keep historical Python imports of request models working for existing callers.
 from .http.schemas import (  # noqa: F401
@@ -28,6 +28,7 @@ def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
     app.state.import_sessions = ImportSessions(repo)
 
     app.include_router(health.router)
+    app.include_router(identity.router)
     app.include_router(books.router)
     app.include_router(imports.router)
     app.include_router(jobs.router)
