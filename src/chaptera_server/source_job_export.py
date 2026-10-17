@@ -62,6 +62,7 @@ class VerifiedSourceTXT:
         failed = 0
         damaged = 0
         issues: list[dict] = []
+        issue_total = 0
         all_count = 0
         with closing(self.repo._connect()) as con:
             # A single SQLite read snapshot protects against a worker updating
@@ -80,7 +81,8 @@ class VerifiedSourceTXT:
             seen_digests: set[str] = set()
 
             def note(ordinal: int | None, code: str, detail: str = "") -> None:
-                nonlocal damaged
+                nonlocal damaged, issue_total
+                issue_total += 1
                 if code in ("corrupted", "unexpected_checkpoint", "duplicate_body"):
                     damaged += 1
                 if len(issues) < MAX_REPORT_ISSUES:
@@ -173,11 +175,9 @@ class VerifiedSourceTXT:
                 "missing_count": missing,
                 "failed_count": failed,
                 "damaged_count": damaged,
-                "issue_count": (len(selected)-checked) + (
-                    1 if job["status"] != "complete" else 0
-                ),
+                "issue_count": issue_total,
                 "issues": issues,
-                "issues_truncated": (len(selected)-checked) > MAX_REPORT_ISSUES,
+                "issues_truncated": issue_total > len(issues),
                 "content_sha256": digest.hexdigest() if ready else None,
                 "content_bytes": byte_length if ready else None,
             }
