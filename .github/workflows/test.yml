@@ -33,6 +33,8 @@ jobs:
       - name: Validate Jinja2 / vanilla JavaScript without Vite or npm install
         run: |
           node --check src/chaptera_server/web_ui/static/js/readera.mjs
+          node --check src/chaptera_server/web_ui/static/js/login-view.mjs
+          node --check src/chaptera_server/web_ui/static/js/session-client.mjs
           node --check src/chaptera_server/web_ui/static/js/library-view.mjs
           node --check src/chaptera_server/web_ui/static/js/book-export-view.mjs
           node --check src/chaptera_server/web_ui/static/js/jobs-view.mjs

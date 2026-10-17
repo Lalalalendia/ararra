@@ -102,6 +102,21 @@ class TeamCredentials:
             ).fetchone()
             return str(match["member_id"]) if match and match["active"] else None
 
+    def active_credential_digest(self, member_id: str, settings: Settings) -> str | None:
+        """Get active token fingerprint for session invalidation, never raw secrets."""
+        if member_id == settings.admin_member_id:
+            key = settings.team_tokens.get(member_id)
+            return self._digest(key) if key else None
+        with self.store._connect() as con:
+            row = con.execute(
+                "SELECT token_sha256,active FROM team_access_credentials WHERE member_id=?",
+                (member_id,),
+            ).fetchone()
+        if row is not None:
+            return str(row["token_sha256"]) if row["active"] and row["token_sha256"] else None
+        key = settings.team_tokens.get(member_id)
+        return self._digest(key) if key else None
+
     def matches_credential_digest(self, member_id: str, digest: str,
                                   settings: Settings) -> bool:
         """Reject browser sessions tied to rotated, disabled or changed team keys."""

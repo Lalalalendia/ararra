@@ -1,8 +1,7 @@
-"""Durable, transaction-atomic abuse guard for browser key exchange.
+"""Atomic SQLite login admission for team keys and moderator passwords.
 
-For a closed workspace, rate limit by the ASGI peer IP; never trust raw
-X-Forwarded-For supplied by an unauthenticated client. The reverse proxy must
-supply a trustworthy client address before Internet exposure.
+Rate limits per ASGI peer and, for password login, per member identifier.
+Do not trust unverified X-Forwarded-For: proxy/client identity is an ops gate.
 """
 from __future__ import annotations
 
@@ -15,6 +14,8 @@ from .storage import QueueStore
 WINDOW_SECONDS = 15 * 60
 MAX_ATTEMPTS = 30
 LOCK_AFTER_FAILURES = 8
+MAX_MEMBER_ATTEMPTS = 10
+LOCK_AFTER_MEMBER_FAILURES = 6
 LOCK_SECONDS = 15 * 60
 
 
@@ -24,8 +25,19 @@ class BrowserLoginThrottled(RuntimeError):
         super().__init__("Too many authentication attempts")
 
 
-def _peer_digest(remote_ip: str | None) -> str:
-    return hashlib.sha256(("readera:login:ip:" + str(remote_ip or "unknown")).encode()).hexdigest()
+def _digest(domain: str, identifier: str) -> str:
+    return hashlib.sha256(
+        ("readera:login:" + domain + ":" + identifier).encode("utf-8")
+    ).hexdigest()
+
+
+def _keys(remote_ip: str | None, member_id: str | None = None):
+    result = [(_digest("ip", str(remote_ip or "unknown")),
+               MAX_ATTEMPTS, LOCK_AFTER_FAILURES)]
+    if member_id is not None:
+        result.append((_digest("member", member_id),
+                       MAX_MEMBER_ATTEMPTS, LOCK_AFTER_MEMBER_FAILURES))
+    return result
 
 
 class BrowserLoginThrottle:
@@ -45,68 +57,75 @@ class BrowserLoginThrottle:
                     ON browser_login_rate(updated_at);
             """)
 
-    def begin(self, remote_ip: str | None) -> None:
-        """Charge every attempt before checking the credential, atomically."""
+    def begin(self, remote_ip: str | None, member_id: str | None = None) -> None:
+        """Charge BOTH counters before checking credentials; fail atomically."""
         now = time.time()
-        peer = _peer_digest(remote_ip)
+        keys = _keys(remote_ip, member_id)
         with self.store._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             con.execute(
                 "DELETE FROM browser_login_rate WHERE updated_at<?",
                 (now - 24 * 60 * 60,),
             )
-            row = con.execute(
-                "SELECT * FROM browser_login_rate WHERE peer_sha256=?",
-                (peer,),
-            ).fetchone()
-            if row is not None and row["locked_until"] > now:
-                raise BrowserLoginThrottled(math.ceil(row["locked_until"] - now))
-            in_window = bool(row is not None and now - row["window_started"] < WINDOW_SECONDS)
-            attempts = int(row["attempts"]) if in_window else 0
-            failures = int(row["failures"]) if in_window else 0
-            if attempts >= MAX_ATTEMPTS:
-                raise BrowserLoginThrottled(math.ceil(
-                    WINDOW_SECONDS - (now - row["window_started"])
-                ))
-            con.execute(
-                """INSERT INTO browser_login_rate
-                   (peer_sha256,window_started,attempts,failures,locked_until,updated_at)
-                   VALUES(?,?,?,?,0,?)
-                   ON CONFLICT(peer_sha256) DO UPDATE SET
-                       window_started=excluded.window_started,
-                       attempts=excluded.attempts,
-                       failures=excluded.failures,
-                       locked_until=0,
-                       updated_at=excluded.updated_at""",
-                (peer, float(row["window_started"]) if in_window else now,
-                 attempts + 1, failures, now),
-            )
+            prepared = []
+            for key, maximum, _failures in keys:
+                row = con.execute(
+                    "SELECT * FROM browser_login_rate WHERE peer_sha256=?",
+                    (key,),
+                ).fetchone()
+                if row is not None and row["locked_until"] > now:
+                    raise BrowserLoginThrottled(math.ceil(row["locked_until"] - now))
+                in_window = bool(row is not None and now - row["window_started"] < WINDOW_SECONDS)
+                attempts = int(row["attempts"]) if in_window else 0
+                failures = int(row["failures"]) if in_window else 0
+                if attempts >= maximum:
+                    raise BrowserLoginThrottled(math.ceil(
+                        WINDOW_SECONDS - (now - row["window_started"])
+                    ))
+                prepared.append((key, float(row["window_started"]) if in_window else now,
+                                 attempts + 1, failures, now))
+            for params in prepared:
+                con.execute(
+                    """INSERT INTO browser_login_rate
+                       (peer_sha256,window_started,attempts,failures,locked_until,updated_at)
+                       VALUES(?,?,?,?,0,?)
+                       ON CONFLICT(peer_sha256) DO UPDATE SET
+                         window_started=excluded.window_started,
+                         attempts=excluded.attempts,
+                         failures=excluded.failures,
+                         locked_until=0,
+                         updated_at=excluded.updated_at""",
+                    params,
+                )
 
-    def failure(self, remote_ip: str | None) -> None:
+    def failure(self, remote_ip: str | None, member_id: str | None = None) -> None:
         now = time.time()
-        peer = _peer_digest(remote_ip)
         with self.store._connect() as con:
             con.execute("BEGIN IMMEDIATE")
-            row = con.execute(
-                "SELECT failures FROM browser_login_rate WHERE peer_sha256=?",
-                (peer,),
-            ).fetchone()
-            if row is None:
-                # A failed uncharged authentication must never bypass limits.
-                raise RuntimeError("Browser login attempt not recorded")
-            failures = int(row["failures"]) + 1
-            lock = now + LOCK_SECONDS if failures >= LOCK_AFTER_FAILURES else 0
-            con.execute(
-                """UPDATE browser_login_rate SET failures=?,locked_until=?,updated_at=?
-                   WHERE peer_sha256=?""",
-                (failures, lock, now, peer),
-            )
+            for key, _max, threshold in _keys(remote_ip, member_id):
+                row = con.execute(
+                    "SELECT failures FROM browser_login_rate WHERE peer_sha256=?",
+                    (key,),
+                ).fetchone()
+                if row is None:
+                    raise RuntimeError("Browser login attempt not recorded")
+                failures = int(row["failures"]) + 1
+                lock = now + LOCK_SECONDS if failures >= threshold else 0
+                con.execute(
+                    """UPDATE browser_login_rate
+                       SET failures=?,locked_until=?,updated_at=? WHERE peer_sha256=?""",
+                    (failures, lock, now, key),
+                )
 
-    def success(self, remote_ip: str | None) -> None:
-        """Retain the attempt budget; success cannot reset flood protection."""
+    def success(self, remote_ip: str | None, member_id: str | None = None) -> None:
+        """Success clears failures but NOT attempts, preventing budget reset."""
+        now = time.time()
         with self.store._connect() as con:
-            con.execute(
-                """UPDATE browser_login_rate SET failures=0,locked_until=0,updated_at=?
-                   WHERE peer_sha256=?""",
-                (time.time(), _peer_digest(remote_ip)),
-            )
+            con.execute("BEGIN IMMEDIATE")
+            for key, _max, _threshold in _keys(remote_ip, member_id):
+                con.execute(
+                    """UPDATE browser_login_rate
+                       SET failures=0,locked_until=0,updated_at=?
+                       WHERE peer_sha256=?""",
+                    (now, key),
+                )

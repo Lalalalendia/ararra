@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from ...auth import role_for
 from ...team_credentials import MemberConflict, MemberMissing
+from ...team_passwords import PasswordBusy
 from ..dependencies import require_admin, require_member
 from ..schemas import InviteModerator
 
@@ -72,6 +73,23 @@ def rotate_moderator(member_id: str, request: Request, response: Response,
         return request.app.state.team_credentials.rotate(
             admin_actor, member_id, request.app.state.settings,
         )
+    except (MemberMissing, MemberConflict, ValueError) as exc:
+        raise _failed(exc) from exc
+
+
+@router.post("/v1/admin/members/{member_id}/password")
+def issue_temporary_password(member_id: str, request: Request, response: Response,
+                             actor: str = Depends(require_member),
+                             admin_actor: str = Depends(require_admin)):
+    _private(response)
+    try:
+        return request.app.state.team_passwords.issue_temporary(
+            actor_id=admin_actor, member_id=member_id,
+            settings=request.app.state.settings,
+        )
+    except PasswordBusy as exc:
+        raise HTTPException(status_code=503, detail="Парольный движок занят",
+                            headers={"Retry-After": "1", "Cache-Control": "no-store"}) from exc
     except (MemberMissing, MemberConflict, ValueError) as exc:
         raise _failed(exc) from exc
 

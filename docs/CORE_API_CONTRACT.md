@@ -5,7 +5,7 @@ This is a **server-only contract**. `full_cycle_app` and the Windows executable 
 ## Runtime and inputs
 
 - Python 3.11 and 3.12; headless import without PyQt, Windows runtime or desktop SQLite.
-- `GET /healthz` is the sole public endpoint; all `/v1/*` methods require the team member's `X-API-Key`. Missing or invalid keys return 401. Team members share one workspace.
+- `GET /healthz` is public. `POST /v1/session` and `POST /v1/session/password` accept team key or existing-moderator password under rate limits. Other protected `/v1/*` routes require `X-API-Key` or an authenticated HttpOnly cookie; state-changing cookie requests require `X-ReadEra-CSRF`. Invalid/missing auth returns 401.
 - Exactly two **global** team roles: `admin` (one member selected by `CHAPTERA_ADMIN_MEMBER_ID`) and `moderator` (every other valid team token). No book-local role table or permissions. Without explicit admin configuration, no caller gains admin controls.
 - `GET /v1/me` returns only `{"member_id":"...","role":"admin|moderator"}` for any authenticated member.
 - \`GET /v1/admin/members\`: administrator-only. Returns \`{members:[{member_id,role,status,credential_source}]}\`, never a token/digest. Existing static credentials remain supported; managed overrides show \`credential_source=managed\`.
@@ -46,9 +46,18 @@ Ownership is a separate accountability attribute, not per-book access control.
 - Only **moderators** may be issued/rotated/disabled over authenticated admin API. New tokens have >=256 random bits (\`secrets.token_urlsafe(32)\`); SQLite stores **only SHA-256 digests**, never the bearer secret. The issue/rotation response displays the token once; subsequent GET/list/reload cannot recover it.
 - Static configured moderator keys remain compatible until an admin rotates or disables that member. At that point a DB override rejects the old static key immediately, including without a process restart. Existing administrator key is exempt from DB overrides.
 - Moderator credentials persist across API restarts in the same SQLite database (back it up). Revocation and job cancellation are committed in one SQLite transaction, with audit events that contain only member IDs/actions, **no token bytes**. An already-running provider request may have been billed before cancellation is observed; do not promise network-level abort.
-- UI at \`/app/team\` requires manual administrator key entry **per browser tab**. The key stays in JavaScript memory and is never persisted in browser storage, cookies or URLs. The Jinja2 UI uses the authenticated request helper in \`src/chaptera_server/web_ui/static/js/readera.mjs\` to access \`/v1\`. A browser UI is not a substitute for HTTPS or a locked-down VPN/tunnel in deployment.
-- Sending invitations by email, public signup, account password reset, cookie sessions, one-time magic links, rotating the administrator credential, and production deployment are **not** part of this package.
+- The Jinja `/app` UI exchanges entered team keys or moderator passwords for revocable `Secure; HttpOnly; SameSite=Strict` sessions and never persists credentials in browser storage, URLs or templates. Authentication network access belongs to `session-client.mjs`; TLS/restricted ingress are separate production gates.
+- Email invitations, public signup, host-admin password login, one-time magic links, host-admin key rotation and VPS deployment are still out of scope. RE-03-AUTH-SESSION-01 now provides cookie sessions; RE-03-AUTH-PASSWORD-02 provides admin-issued moderator passwords.
 
+
+### Browser sessions and moderator password endpoints (RE-03-AUTH-SESSION-01/02)
+
+- `POST /v1/session` accepts a team key and creates a hashed, revocable SQLite cookie session. `POST /v1/session/password` accepts `member_id` + `password` for an existing active moderator only; host administrator passwords are not supported. Both return 201 with `member_id`, `role`, `auth_kind`, `csrf_token`, and `must_change_password`.
+- `GET /v1/session` reports a live cookie session, `POST /v1/session/logout` revokes it; live cookie logout requires CSRF. `POST /v1/admin/members/{member_id}/password` issues/resets a one-time random temporary password for an active moderator under administrator auth.
+- `POST /v1/session/password/change` requires password cookie + CSRF, valid old password, and a new password of 12–128 characters (up to 256 UTF-8 bytes). First-login temporary sessions cannot access protected book/job APIs until password change. On successful change, all previous password sessions are revoked and browser login must be repeated.
+- Only Argon2id salted hashes are stored: 19 MiB, t=2, p=1; maximum four simultaneous verifiers per process, otherwise 503 with Retry-After. Sessions are version-bound to the password hash and the current member key, so resetting password, rotating team key or disabling a moderator makes old password sessions invalid. Existing team key API and historical cookie database rows migrate without changing behavior.
+- SQLite admission: 30 attempts/15 min and lock after 8 failures per ASGI peer, 10 attempts/15 min and lock after 6 failures per moderator ID. Password-change old-password verification is throttled. Do not use untrusted `X-Forwarded-For` as an identity. See [password security spec](RE03_PASSWORD_AUTH.md) and CI tests.
+- **Not production deployed.** Production must verify HTTPS, proxy client-IP trust, memory limits, systemd bootstrap, backup/restart, reverse proxy, and access controls.
 
 - `POST /v1/jobs` accepts a single chapter (`chapter_id`, `source_html`), optionally source/target language, scoped glossary, context and protocol. Omitting `transport` preserves **`html_v0`** for existing clients. `atoms_v1` must be selected explicitly.
 - `Idempotency-Key` is scoped to a team member. A second identical request returns the same job; reusing the key with changed input produces 409.

@@ -31,6 +31,7 @@ REQUIRED_UI_FILES = (
     'static/css/books-platform-chapter-import.css',
     'static/js/readera.mjs',
     'static/js/session-client.mjs',
+    'static/js/login-view.mjs',
     'static/js/library-view.mjs',
     'static/js/editor.mjs',
     'static/js/editorial-panels.mjs',
