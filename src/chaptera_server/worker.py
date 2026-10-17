@@ -48,6 +48,20 @@ class TranslationWorker:
                 break
         return "unconfigured"
 
+    def _uncheckpointed_completed_work(self, calls_before: int,
+                                      checkpoint: SQLiteAtomCheckpoint | None,
+                                      context_durable_calls: int) -> bool:
+        """Only undurable successful responses count as expensive replay risk.
+
+        Every packet saved by the existing desktop CoverageMap gate and every
+        *fully persisted* context preflight remains reusable next day.
+        Unvalidated 200 replies and incomplete context windows remain at risk.
+        """
+        completed = max(0, int(getattr(self.provider, "completed_calls", calls_before)) -
+                        int(calls_before))
+        durable_packets = checkpoint.saved_this_run if checkpoint is not None else 0
+        return completed > durable_packets + context_durable_calls
+
     async def _heartbeat(self, job_id: str, token: str, stop: asyncio.Event) -> None:
         while not stop.is_set():
             try:
@@ -68,6 +82,7 @@ class TranslationWorker:
         jid = job["id"]
         data = job["input"]
         calls_before = getattr(self.provider, "completed_calls", 0)
+        context_durable_calls = 0
         stop = asyncio.Event()
         heartbeat_task = asyncio.create_task(self._heartbeat(jid, token, stop))
         checkpoint = (SQLiteAtomCheckpoint(self.store, jid, token,
@@ -89,6 +104,7 @@ class TranslationWorker:
                 predecessor = managed.predecessor
                 if snapshot is None:
                     self.store.record_event(jid, token, 'context_preparing', 'server-owned windowed preflight')
+                    context_calls_before = getattr(self.provider, "completed_calls", 0)
                     snapshot = await generate_chapter_context(
                         self.provider, managed,
                         on_event=lambda stage, detail: self.store.record_event(jid, token, stage, detail),
@@ -97,6 +113,9 @@ class TranslationWorker:
                     if self.store.cancellation_requested(jid, token):
                         raise TranslationCancelled('Translation cancelled during context preflight')
                     self.library.save_context(managed, snapshot)
+                    context_durable_calls = max(
+                        0, getattr(self.provider, "completed_calls", 0) - context_calls_before,
+                    )
                     self.store.record_event(jid, token, 'context_generated', 'complete snapshot persisted')
                 else:
                     self.store.record_event(jid, token, 'context_cache_hit', 'fresh snapshot reused')
@@ -133,7 +152,9 @@ class TranslationWorker:
             # A quota pause is NOT one of the finite transient/provider retries.
             # If the job already sent multiple requests, avoid an unbounded
             # paid replay every day without durable sub-request checkpoints.
-            partial_work = getattr(self.provider, "completed_calls", calls_before) > calls_before
+            partial_work = self._uncheckpointed_completed_work(
+                calls_before, checkpoint, context_durable_calls,
+            )
             self.store.defer_for_daily_quota(
                 jid, token, reset_at=exc.reset_at, made_calls=partial_work,
             )
@@ -143,7 +164,9 @@ class TranslationWorker:
             # A configured QuotaControlledProvider additionally blocks other
             # attempts for the same project/model until reset.
             reset = pacific_window(time.time())[1]
-            partial_work = getattr(self.provider, "completed_calls", calls_before) > calls_before
+            partial_work = self._uncheckpointed_completed_work(
+                calls_before, checkpoint, context_durable_calls,
+            )
             self.store.defer_for_daily_quota(
                 jid, token, reset_at=reset, made_calls=partial_work,
             )
