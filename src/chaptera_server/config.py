@@ -43,6 +43,8 @@ class Settings:
     gemini_rpm: int = 5
     gemini_tpm: int = 250_000
     gemini_reserved_output_tokens: int = 65_536
+    # Desktop-compatible streaming transport is opt-in for atom packets only.
+    gemini_stream_atoms: bool = False
     worker_poll_seconds: float = 1.0
     bind: str = "127.0.0.1"
     port: int = 8000
@@ -82,6 +84,8 @@ class Settings:
             gemini_rpm=int(os.environ.get("CHAPTERA_GEMINI_RPM", "5")),
             gemini_tpm=int(os.environ.get("CHAPTERA_GEMINI_TPM", "250000")),
             gemini_reserved_output_tokens=int(os.environ.get("CHAPTERA_GEMINI_RESERVED_OUTPUT_TOKENS", "65536")),
+            gemini_stream_atoms=os.environ.get("CHAPTERA_GEMINI_STREAM_ATOMS", "0").strip().lower()
+                                in {"1", "true", "yes", "on"},
             worker_poll_seconds=max(0.1, float(os.environ.get("CHAPTERA_WORKER_POLL_SECONDS", "1.0"))),
             bind=os.environ.get("CHAPTERA_BIND", "127.0.0.1"),
             port=int(os.environ.get("CHAPTERA_PORT", "8000")),

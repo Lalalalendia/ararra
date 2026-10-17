@@ -29,7 +29,8 @@ async def _run_worker(settings: Settings) -> None:
     output_tokens = (max(1, int(settings.gemini_reserved_output_tokens * 0.98))
                      if settings.gemini_reserved_output_tokens else None)
     provider = GeminiProvider(settings.gemini_api_key, settings.gemini_model,
-                              max_output_tokens=output_tokens)
+                              max_output_tokens=output_tokens,
+                              stream_atoms=settings.gemini_stream_atoms)
     if settings.gemini_requests_per_day:
         ledger = DailyQuotaLedger(
             store, settings.gemini_quota_project,

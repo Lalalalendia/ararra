@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import email.utils
+import json
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -75,7 +76,8 @@ def _retry_after(raw: str | None) -> float | None:
 
 class GeminiProvider:
     def __init__(self, api_key: str, model: str, *, client: httpx.AsyncClient | None = None,
-                 timeout_seconds: float = 180.0, max_output_tokens: int | None = None):
+                 timeout_seconds: float = 180.0, max_output_tokens: int | None = None,
+                 stream_atoms: bool = False):
         if not api_key:
             raise ValueError("Gemini API key is required")
         if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}", model):
@@ -87,6 +89,7 @@ class GeminiProvider:
             raise ValueError("max_output_tokens must be positive")
         self.timeout_seconds = timeout_seconds
         self.max_output_tokens = max_output_tokens
+        self.stream_atoms = bool(stream_atoms)
         self.completed_calls = 0
 
     async def generate(self, request: ProviderRequest) -> str:
@@ -98,6 +101,8 @@ class GeminiProvider:
             "contents": [{"role": "user", "parts": [{"text": request.prompt}]}],
             "generationConfig": generation_config,
         }
+        if self.stream_atoms and request.transport == "atoms_v1":
+            return await self._generate_stream(url, payload, request)
         try:
             if self.client is None:
                 async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
@@ -162,5 +167,161 @@ class GeminiProvider:
             raise PartialGenerationError(
                 "Gemini answer stopped at MAX_TOKENS", text, "MAX_TOKENS",
             )
+        self.completed_calls += 1
+        return text
+
+    async def _generate_stream(self, url: str, payload: dict, request: ProviderRequest) -> str:
+        """Read Gemini SSE frames like desktop, without persisting unproved text.
+
+        Physical interruption retains only the accumulated answer in the
+        desktop's PartialGenerationError. TranslationCore then performs the
+        existing source-owned CoverageMap validation and targeted repair.
+        """
+        stream_url = url.replace(":generateContent", ":streamGenerateContent") + "?alt=sse"
+        if self.client is None:
+            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+                return await self._read_stream(client, stream_url, payload, request)
+        return await self._read_stream(self.client, stream_url, payload, request)
+
+    async def _read_stream(self, client: httpx.AsyncClient, url: str,
+                           payload: dict, request: ProviderRequest) -> str:
+        answer: list[str] = []
+        answer_chars = 0
+        finish_reason: str | None = None
+        last_usage: dict | None = None
+        frame_count = 0
+
+        def parse_frame(text: str) -> None:
+            nonlocal answer_chars, finish_reason, last_usage, frame_count
+            if not text or text == "[DONE]":
+                return
+            if len(text) > 1_000_000:
+                raise ProviderFailure("Gemini SSE frame exceeds bounded size")
+            try:
+                frame = json.loads(text)
+            except (ValueError, TypeError) as exc:
+                raise TransientProviderFailure("Gemini SSE contained malformed JSON") from exc
+            if not isinstance(frame, dict):
+                raise TransientProviderFailure("Gemini SSE contained invalid frame type")
+            frame_count += 1
+            if frame_count > 4096:
+                raise ProviderFailure("Gemini SSE exceeded frame limit")
+            feedback = frame.get("promptFeedback")
+            if isinstance(feedback, dict) and feedback.get("blockReason"):
+                raise ProviderFailure("Gemini SSE content blocked", finish_reason="SAFETY")
+            if "error" in frame:
+                err = frame.get("error") if isinstance(frame.get("error"), dict) else {}
+                code = err.get("code") if isinstance(err.get("code"), int) else None
+                if code == 429:
+                    if answer:
+                        raise PartialGenerationError(
+                            "Gemini SSE interrupted by provider quota", "".join(answer), "NETWORK_ERROR",
+                        )
+                    # Daily limits are recognized by structured quota IDs.
+                    if "perday" in str(err.get("details", "")).lower():
+                        raise DailyProviderQuotaFailure("Gemini streaming daily quota exhausted")
+                    raise TransientProviderFailure(
+                        "Gemini SSE temporarily rate limited", status_code=429,
+                    )
+                if answer and code in {408, 500, 502, 503, 504}:
+                    raise PartialGenerationError(
+                        "Gemini SSE interrupted by provider", "".join(answer), "NETWORK_ERROR",
+                    )
+                if code in {408, 500, 502, 503, 504}:
+                    raise TransientProviderFailure(
+                        "Gemini SSE provider unavailable", status_code=code,
+                    )
+                raise ProviderFailure("Gemini streaming provider reported a terminal error")
+            usage = frame.get("usageMetadata")
+            if isinstance(usage, dict):
+                last_usage = usage
+            candidates = frame.get("candidates")
+            if not isinstance(candidates, list) or not candidates:
+                return
+            first = candidates[0] if isinstance(candidates[0], dict) else {}
+            if first.get("finishReason"):
+                finish_reason = str(first["finishReason"])
+            content = first.get("content")
+            parts = content.get("parts") if isinstance(content, dict) else []
+            for part in parts if isinstance(parts, list) else []:
+                if not isinstance(part, dict) or part.get("thought") is True:
+                    continue
+                value = part.get("text")
+                if not isinstance(value, str) or not value:
+                    continue
+                answer_chars += len(value)
+                if answer_chars > 2_000_000:
+                    raise ProviderFailure("Gemini SSE answer exceeded bounded size")
+                answer.append(value)
+
+        try:
+            async with client.stream(
+                "POST", url, headers={"x-goog-api-key": self.api_key}, json=payload,
+            ) as response:
+                if response.status_code != 200:
+                    await response.aread()
+                    if response.status_code == 429 and _daily_quota_violation(response):
+                        raise DailyProviderQuotaFailure("Gemini streaming daily quota exhausted")
+                    if response.status_code in (408, 429, 500, 502, 503, 504):
+                        raise TransientProviderFailure(
+                            f"Gemini streaming temporarily unavailable (HTTP {response.status_code})",
+                            retry_after_seconds=_retry_after(response.headers.get("Retry-After")),
+                            status_code=response.status_code,
+                        )
+                    raise ProviderFailure(
+                        f"Gemini streaming request failed (HTTP {response.status_code})",
+                        status_code=response.status_code,
+                    )
+                lines: list[str] = []
+                async for line in response.aiter_lines():
+                    if len(line) > 1_000_000:
+                        raise ProviderFailure("Gemini SSE data line exceeded bounded size")
+                    if line.startswith("data:"):
+                        lines.append(line[5:].lstrip())
+                    elif not line and lines:
+                        parse_frame("\n".join(lines))
+                        lines.clear()
+                    elif line and not line.startswith(":"):
+                        # Ignore SSE event/id/retry metadata, never user content.
+                        continue
+                if lines:
+                    parse_frame("\n".join(lines))
+        except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError) as exc:
+            if answer:
+                raise PartialGenerationError(
+                    "Gemini stream interrupted after answer text",
+                    "".join(answer), "STREAM_TRUNCATED",
+                ) from exc
+            raise TransientProviderFailure(
+                "Gemini stream network failure before answer", is_network_error=True,
+            ) from exc
+        text = "".join(answer)
+        # An explicit policy/safety stop always overrides accumulated text.
+        if finish_reason and finish_reason not in {"STOP", "MAX_TOKENS"}:
+            raise ProviderFailure(
+                "Gemini SSE response stopped without successful completion",
+                finish_reason=finish_reason if finish_reason in
+                {"SAFETY", "PROHIBITED_CONTENT", "RECITATION", "SPII"} else None,
+            )
+        if finish_reason != "STOP":
+            if text.strip():
+                raise PartialGenerationError(
+                    "Gemini SSE stopped before successful completion",
+                    text, finish_reason or "STREAM_TRUNCATED",
+                )
+            raise TransientProviderFailure("Gemini SSE ended without a complete answer")
+        if not text.strip():
+            raise ProviderFailure("Gemini SSE returned empty answer")
+        if request.on_usage is not None and isinstance(last_usage, dict):
+            safe = {
+                name: int(last_usage[name]) for name in
+                ("promptTokenCount", "candidatesTokenCount", "totalTokenCount",
+                 "thoughtsTokenCount", "cachedContentTokenCount")
+                if isinstance(last_usage.get(name), int)
+                and not isinstance(last_usage[name], bool)
+                and last_usage[name] >= 0
+            }
+            if safe:
+                request.on_usage(safe)
         self.completed_calls += 1
         return text
