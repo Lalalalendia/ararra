@@ -4,6 +4,8 @@
  * Source HTML is read from a trusted team API but is NEVER rendered as
  * innerHTML. Draft text is kept only in browser memory until accepted.
  */
+import {initEditorialPanels} from './editorial-panels.mjs';
+
 const $ = id => document.getElementById(id);
 const richPattern = /<(?:a|strong|em|b|i|span|img|table|ul|ol|li|blockquote)\b/i;
 
@@ -31,14 +33,20 @@ function option(value,label) {
 
 export function initChapterEditor({request,flash,getBooks}) {
   let chosenBook='', chosenChapter='', chapter=null, toc=[];
-  let savedText='',hasRich=false,busy=false,sequence=0;
+  let savedText='',acceptedText='',hasRich=false,busy=false,sequence=0;
+  let draftRevision=0,draftSourceRevision=0,draftAcceptedRevision=0;
+  let panels;
 
   const edit=$('editor-text');
   const bookChoice=$('editor-book');
   const chapterChoice=$('editor-chapter');
 
   function dirty(){return Boolean(chapter)&&edit.value!==savedText;}
+  function draftStale(){return Boolean(chapter&&draftRevision>0)&&(
+    draftSourceRevision!==chapter.source_revision ||
+    draftAcceptedRevision!==chapter.accepted_revision);}
   function canLeave(){
+    if(busy){flash('Дождитесь завершения сохранения главы.',true);return false;}
     return !dirty() || window.confirm('У текущей главы есть несохранённые изменения. Отменить их?');
   }
   function dropUnsaved() {
@@ -48,17 +56,28 @@ export function initChapterEditor({request,flash,getBooks}) {
     dropUnsaved(); chosenBook=''; toc=[]; ++sequence; clearChapter();
   }
   function adjust() {
-    const unsaved=dirty();
+    const unsaved=dirty(),stale=draftStale();
     $('editor-unsaved').hidden=!unsaved;
-    $('editor-accept').disabled=busy || !unsaved || !edit.value.trim()
-      || (hasRich&&!$('editor-format-ack').checked);
+    $('editor-draft-stale').hidden=!stale;
+    $('editor-rebase-wrap').hidden=!stale;
+    $('editor-save-draft').disabled=busy || (!unsaved&&!stale) ||
+      (stale&&!$('editor-rebase').checked);
+    $('editor-accept').disabled=busy || !edit.value.trim() ||
+      edit.value===acceptedText || stale ||
+      (hasRich&&!$('editor-format-ack').checked);
   }
   function clearChapter(){
-    chapter=null;chosenChapter='';savedText='';hasRich=false;
+    chapter=null;chosenChapter='';savedText='';acceptedText='';
+    draftRevision=0;draftSourceRevision=0;draftAcceptedRevision=0;hasRich=false;
     edit.value='';$('editor-source').textContent='';
     $('editor-workspace').hidden=true;$('editor-empty').hidden=false;
-    $('editor-accept').disabled=true;$('editor-unsaved').hidden=true;
-    $('editor-format-warning').hidden=true;
+    $('editor-accept').disabled=true;$('editor-save-draft').disabled=true;
+    $('editor-unsaved').hidden=true;$('editor-format-warning').hidden=true;
+    $('editor-rebase-wrap').hidden=true;$('editor-draft-stale').hidden=true;
+    $('editor-rebase').checked=false;
+    $('editor-draft-status').textContent='Черновик ещё не сохранён.';
+    $('editor-draft-rev').textContent='—';
+    panels?.blank();
   }
   function revState(){
     if(!chapter)return;
@@ -83,8 +102,13 @@ export function initChapterEditor({request,flash,getBooks}) {
   function displayChapter(data){
     chapter=data;chosenChapter=data.chapter_id;
     $('editor-source').textContent=sourceAsText(data.source_html);
-    savedText=sourceAsText(data.accepted_html);
-    edit.value=savedText;
+    acceptedText=sourceAsText(data.accepted_html);
+    savedText=acceptedText;
+    edit.value=acceptedText;
+    draftRevision=0;draftSourceRevision=data.source_revision;
+    draftAcceptedRevision=data.accepted_revision;
+    $('editor-draft-rev').textContent='—';
+    $('editor-draft-status').textContent='Черновик ещё не сохранён.';
     hasRich=Boolean(data.accepted_html&&richPattern.test(data.accepted_html));
     $('editor-format-warning').hidden=!hasRich;
     $('editor-format-ack').checked=false;
@@ -100,6 +124,23 @@ export function initChapterEditor({request,flash,getBooks}) {
     displayChapter(data);
     chapterChoice.value=id;
     syncNav();
+    const base='/v1/books/'+encodeURIComponent(chosenBook)
+      +'/chapters/'+encodeURIComponent(id);
+    const draft=await request(base+'/draft');
+    if(ticket!==sequence)return;
+    draftRevision=draft.revision;
+    draftSourceRevision=draft.source_revision;
+    draftAcceptedRevision=draft.accepted_revision;
+    if(draft.revision>0){
+      // Never overwrite text typed while the draft request was in flight.
+      if(edit.value===savedText)edit.value=draft.body_text;
+      savedText=draft.body_text;
+      $('editor-draft-rev').textContent='rev '+draft.revision;
+      $('editor-draft-status').textContent='Сохранён '+new Date(draft.updated_at*1000)
+        .toLocaleString('ru-RU')+' · '+draft.actor_id;
+    }
+    adjust();
+    await panels.load();
   }
   function syncNav(){
     const idx=toc.findIndex(r=>r.chapter_id===chosenChapter);
@@ -158,6 +199,36 @@ export function initChapterEditor({request,flash,getBooks}) {
     });
   }
   edit.addEventListener('input',adjust);
+  $('editor-rebase').addEventListener('change',adjust);
+  $('editor-save-draft').addEventListener('click',()=>{
+    if(!chapter||busy||!edit.value.trim()||(!dirty()&&!draftStale()))return;
+    if(draftStale()&&!$('editor-rebase').checked){
+      flash('Подтвердите осознанную перепривязку черновика к текущим ревизиям.',true);
+      return;
+    }
+    const id=chosenChapter,bookId=chosenBook,body=edit.value;
+    const base='/v1/books/'+encodeURIComponent(bookId)+'/chapters/'+encodeURIComponent(id);
+    const previous=draftRevision;
+    busy=true;adjust();
+    void request(base+'/draft',{
+      method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        body_text:body,expected_revision:previous,
+        expected_source_revision:chapter.source_revision,
+        expected_accepted_revision:chapter.accepted_revision,
+        rebase:$('editor-rebase').checked,
+      }),
+    }).then(data=>{
+      if(bookId!==chosenBook||id!==chosenChapter)return;
+      draftRevision=data.revision;draftSourceRevision=data.source_revision;
+      draftAcceptedRevision=data.accepted_revision;savedText=body;
+      $('editor-draft-rev').textContent='rev '+data.revision;
+      $('editor-draft-status').textContent='Сохранено на сервере · '+data.actor_id;
+      $('editor-rebase').checked=false;
+      flash('Черновик сохранён. Принятая редакция не изменена.');
+    }).catch(e=>flash(e.message+' Текущий текст не заменён.',true))
+      .finally(()=>{busy=false;adjust();});
+  });
   $('editor-format-ack').addEventListener('change',adjust);
   $('editor-reload').addEventListener('click',()=>{
     if(!chapter||!canLeave())return;
@@ -166,7 +237,7 @@ export function initChapterEditor({request,flash,getBooks}) {
   });
   $('chapter-editor').addEventListener('submit',event=>{
     event.preventDefault();
-    if(!chapter||busy||!dirty()||!edit.value.trim())return;
+    if(!chapter||busy||edit.value===acceptedText||!edit.value.trim()||draftStale())return;
     if(hasRich&&!$('editor-format-ack').checked){
       flash('Подтвердите преобразование сложного форматирования в текстовые абзацы.',true);
       return;
@@ -186,6 +257,7 @@ export function initChapterEditor({request,flash,getBooks}) {
       // An in-flight save must not replace a different chapter's editor.
       if(bookId===chosenBook&&chapterId===chosenChapter){
         displayChapter(data);
+        void readChapter(chapterId).catch(e=>flash(e.message,true));
         flash('Принята редакция '+data.accepted_revision+
           '. История предыдущих редакций сохранена.');
       }
@@ -195,6 +267,16 @@ export function initChapterEditor({request,flash,getBooks}) {
   });
   window.addEventListener('beforeunload',event=>{
     if(dirty()){event.preventDefault();event.returnValue='';}
+  });
+  panels=initEditorialPanels({
+    request,flash,toText:sourceAsText,
+    current:()=>chapter?{
+      bookId:chosenBook,chapterId:chosenChapter,
+      sourceRevision:chapter.source_revision,
+      acceptedRevision:chapter.accepted_revision,
+      draftRevision,dirty,outdated:draftStale,
+    }:null,
+    reloadChapter:()=>readChapter(chosenChapter),
   });
   clearChapter();syncNav();
   return {activate,canLeave,dropUnsaved,reset};

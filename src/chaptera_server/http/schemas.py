@@ -41,6 +41,36 @@ class AcceptTranslation(BaseModel):
     expected_source_revision: int = Field(ge=1)
 
 
+class SaveEditorDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    body_text: str = Field(max_length=1_000_000)
+    expected_revision: int = Field(ge=0)
+    expected_source_revision: int = Field(ge=1)
+    expected_accepted_revision: int = Field(ge=0)
+    rebase: bool = False
+
+
+class CreateEditorNote(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    body_text: str = Field(min_length=1, max_length=4000)
+    expected_source_revision: int = Field(ge=1)
+    expected_draft_revision: int = Field(ge=0)
+    expected_accepted_revision: int = Field(ge=0)
+
+
+class SetEditorNoteStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    status: Literal["open", "resolved"]
+    expected_revision: int = Field(ge=1)
+
+
+class RestoreEditorAccepted(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revision: int = Field(ge=1)
+    expected_current_revision: int = Field(ge=0)
+    expected_source_revision: int = Field(ge=1)
+
+
 class TranslateBookChapter(BaseModel):
     source_language: str = Field(default="auto", max_length=64)
     target_language: str = Field(default="Russian", min_length=1, max_length=64)

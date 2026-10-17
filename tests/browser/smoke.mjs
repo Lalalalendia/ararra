@@ -122,6 +122,47 @@ try{
   assert.equal(await page.locator('#editor-accept').isEnabled(),false);
   await screenshot(page,'07-editor-empty-ru.png');
   await page.locator('#editor-text').fill('Глава 12. Первая\n\nРусский литературный перевод.');
+  await page.locator('#editor-save-draft').click();
+  await page.locator('#editor-draft-rev').getByText('rev 1').waitFor();
+  const firstDraft=await api('/v1/books/browser-novel/chapters/12/draft',issued);
+  assert.equal(firstDraft.status,200);
+  assert.equal(firstDraft.data.body_text,'Глава 12. Первая\n\nРусский литературный перевод.');
+
+  // Notes are separate from chapter text and must not execute attacker HTML.
+  const poisoned='Проверить термин <img src=x onerror="window.__unsafe=1">';
+  await page.locator('#editor-note-body').fill(poisoned);
+  await page.locator('#editor-note-form button[type="submit"]').click();
+  await page.locator('.editor-note').getByText(poisoned,{exact:true}).waitFor();
+  assert.equal(await page.locator('#editor-notes-list img').count(),0);
+  assert.equal(await page.evaluate(()=>window.__unsafe??0),0);
+  assert.equal((await api('/v1/books/browser-novel/chapters/12',issued)).data.accepted_html,null);
+  await page.locator('.editor-note button').first().click();
+  await page.locator('.editor-note strong').getByText(/Решено/).waitFor();
+
+  // Another editor updates shared draft; stale browser cannot overwrite it.
+  const parallelDraft=await api('/v1/books/browser-novel/chapters/12/draft',issued,'PUT',{
+    body_text:'Другой модератор сохранил правки.',expected_revision:1,
+    expected_source_revision:1,expected_accepted_revision:0,
+  });
+  assert.equal(parallelDraft.status,200);
+  await page.locator('#editor-text').fill('Локальное изменение после ревизии 1');
+  await page.locator('#editor-save-draft').click();
+  await page.locator('#flash').getByText(/Конфликт версий/).waitFor({timeout:15000});
+  assert.match(await page.locator('#editor-text').inputValue(),/Локальное изменение/);
+  page.once('dialog',d=>void d.accept());
+  await page.locator('#editor-reload').click();
+  await page.locator('#editor-draft-rev').getByText('rev 2').waitFor();
+  assert.match(await page.locator('#editor-text').inputValue(),/Другой модератор/);
+
+  await page.locator('#editor-text').fill('Глава 12. Первая\n\nРусский литературный перевод.');
+  await page.locator('#editor-save-draft').click();
+  await page.locator('#editor-draft-rev').getByText('rev 3').waitFor();
+  await screenshot(page,'07-editor-durable-draft.png');
+  await page.reload();
+  await login(page,issued);
+  await page.locator('#editor-draft-rev').getByText('rev 3').waitFor();
+  assert.match(await page.locator('#editor-text').inputValue(),/Русский литературный перевод/);
+  assert.match(await page.locator('#editor-notes-list').innerText(),/Проверить термин/);
   assert.equal(await page.locator('#editor-accept').isEnabled(),true);
   await page.locator('#editor-accept').click();
   await page.locator('#editor-accepted-rev').getByText('rev 1').waitFor();
@@ -132,6 +173,12 @@ try{
   assert.equal(await page.locator('#editor-accept').isEnabled(),false);
   await screenshot(page,'08-editor-accepted.png');
 
+  // The saved draft was based on accepted rev 0; deliberate rebase is required
+  // before editing against accepted rev 1.
+  await page.locator('#editor-rebase-wrap').waitFor({state:'visible'});
+  await page.locator('#editor-rebase').check();
+  await page.locator('#editor-save-draft').click();
+  await page.locator('#editor-draft-rev').getByText('rev 4').waitFor();
   await page.locator('#editor-text').fill('Вторая редакция модератора.');
   const elsewhere=await api('/v1/books/browser-novel/chapters/12/accepted-translation',
     issued,'PUT',{translated_html:'<p>Редакция другого редактора.</p>',
@@ -145,7 +192,20 @@ try{
   page.once('dialog',d=>void d.accept());
   await page.locator('#editor-reload').click();
   await page.locator('#editor-accepted-rev').getByText('rev 2').waitFor();
-  assert.match(await page.locator('#editor-text').inputValue(),/Редакция другого редактора/);
+  // Shared draft remains intact; it is marked stale instead of replacing
+  // the last accepted translation silently.
+  assert.match(await page.locator('#editor-text').inputValue(),/Русский литературный перевод/);
+  assert.equal(await page.locator('#editor-draft-stale').isVisible(),true);
+  await page.locator('.editor-revision').filter({hasText:'Ревизия 1'}).getByText('Посмотреть').click();
+  await page.locator('#editor-history-preview').getByText(/Русский литературный перевод/).waitFor({timeout:15000});
+  page.once('dialog',d=>void d.accept());
+  await page.locator('.editor-revision').filter({hasText:'Ревизия 1'}).getByText('Восстановить').click();
+  await page.locator('#editor-accepted-rev').getByText('rev 3').waitFor();
+  const history=await api('/v1/books/browser-novel/chapters/12/accepted-revisions',issued);
+  assert.equal(history.status,200);
+  assert.deepEqual(history.data.revisions.map(x=>x.revision),[3,2,1]);
+  assert.equal((await api('/v1/books/browser-novel/chapters/12/draft',issued)).data.revision,4);
+  await screenshot(page,'09-editor-history-rollback.png');
   await fit(page,'editor desktop');
 
   await choose(page,'jobs');
@@ -154,7 +214,10 @@ try{
 
   // Parallel author updates source after checked replacement; transaction rejects all.
   await choose(page,'import');
-  await page.locator('#import-another').click();
+  // A reload intentionally discards browser-only import state, not committed books.
+  if(await page.locator('#import-another').isVisible()){
+    await page.locator('#import-another').click();
+  }
   await upload(page,'replace.txt','Глава 12. Первая\nНовый текст после обновления.\n');
   await page.locator('#import-map input[name="book_mode"][value="existing"]').check();
   await page.locator('#import-existing').selectOption('browser-novel');
