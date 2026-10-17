@@ -174,6 +174,27 @@ textarea.ui-input {resize:vertical;}
   }
 }
 
+/* Reassignment is an explicit, keyboard-accessible action, not a browser prompt. */
+.readera-modal {
+  border:1px solid var(--border-color);
+  border-radius:var(--radius-lg);
+  background:#fff;
+  color:var(--text-main);
+  padding:24px;
+  width:min(470px,calc(100vw - 24px));
+  max-height:calc(100dvh - 30px);
+  overflow:auto;
+  box-shadow:0 20px 65px #142f4070;
+}
+.readera-modal::backdrop { background:#132d3e9c; }
+.readera-modal form { display:grid;gap:15px; }
+.readera-modal h2,.readera-modal p { margin:0;overflow-wrap:anywhere; }
+.readera-modal-actions { display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap; }
+@media(max-width:540px) {
+  .readera-modal { padding:16px; }
+  .readera-modal-actions .ui-button { flex:1 1 145px; }
+}
+
 /* The library displays only data backed by SQLite, not Canva placeholder
  * authors, publishing status or synthetic chapter counts. */
 .library-book-row td:first-child strong {display:block;overflow-wrap:anywhere;}
