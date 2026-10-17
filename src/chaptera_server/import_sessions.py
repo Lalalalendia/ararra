@@ -188,6 +188,23 @@ class ImportSessions:
         with self.store._connect() as con:
             return self._public(self._owned(con, actor, stage_id), include_prefix=True)
 
+    def cancel(self, actor: str, stage_id: str) -> dict:
+        """Explicitly free a member's staged upload and its quota.
+
+        No effect on books, accepted history, translations or committed receipts.
+        Non-members see the same 404 as an unknown stage ID.
+        """
+        with self.store._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            stage = self._owned(con, actor, stage_id)
+            if stage["status"] != "staged":
+                raise StageConflict("Committed import cannot be cancelled")
+            con.execute(
+                "DELETE FROM book_import_stages WHERE id=? AND actor_id=? AND status='staged'",
+                (stage_id, actor),
+            )
+            return {"stage_id": stage_id, "status": "cancelled"}
+
     def prefixes(self, book_id: str) -> list[dict]:
         """Expose preserved, explicitly unassigned prefaces to team editors."""
         with self.store._connect() as con:
