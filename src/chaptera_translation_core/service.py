@@ -189,7 +189,8 @@ class TranslationCore:
                     chapter.chapter_id, prompt, payload, len(domain), 'atoms_v1',
                     lambda usage: self._emit(chapter.chapter_id, 'gemini_repair_usage',
                         f'prompt_tokens={usage.get("promptTokenCount", 0)} '
-                        f'output_tokens={usage.get("totalTokenCount", 0)}'),
+                        f'output_tokens={usage.get("candidatesTokenCount", 0)} '
+                        f'total_tokens={usage.get("totalTokenCount", 0)}'),
                 )
                 step = f'atom_repair:{round_index + 1}:{domain_index}'
                 cached = self.checkpoints.load(step, request) if self.checkpoints else None
