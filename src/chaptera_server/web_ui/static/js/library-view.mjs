@@ -19,7 +19,7 @@ export function selectBooks(catalog, query, selection, memberId) {
 
 export function createLibraryView({
   body,filter,ownerFilter,empty,request,openEditor,showError,
-  currentMember,canReassign,activeModerators,reassignOwner,
+  currentMember,canReassign,activeModerators,chooseOwner,reassignOwner,
 }) {
   let catalog=[];
 
@@ -102,17 +102,13 @@ export function createLibraryView({
   async function changeOwner(book,button) {
     const available=activeModerators().filter(m=>m.member_id!==book.owner_member_id);
     if(!available.length){showError(new Error('Других активных модераторов нет.'));return;}
-    const choices=available.map(m=>m.member_id);
-    const answer=window.prompt(
-      'Новый ответственный за «'+book.title+'»:\\n'+choices.join(', '),
-      choices[0],
-    );
-    if(answer===null)return;
-    const next=answer.trim();
-    if(!choices.includes(next)){showError(new Error('Выберите активного модератора из списка.'));return;}
-    if(!window.confirm('Передать ответственность за «'+book.title+'» модератору '+next+'?'))return;
     button.disabled=true;
     try {
+      const next=await chooseOwner(book,available);
+      if(next===null)return;
+      if(!available.some(m=>m.member_id===next)){
+        throw new Error('Выберите активного модератора из списка.');
+      }
       await reassignOwner(book,next);
     } catch(error) {
       showError(error);
