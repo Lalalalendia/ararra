@@ -27,6 +27,8 @@
     <div class="editor-versions">
       <span>Исходник <strong id="editor-source-rev">—</strong></span>
       <span>Принятая редакция <strong id="editor-accepted-rev">—</strong></span>
+      <span>Черновик <strong id="editor-draft-rev">—</strong></span>
+      <span id="editor-draft-stale" class="editor-stale" hidden>Черновик основан на старой ревизии</span>
       <span id="editor-stale" class="editor-stale" hidden>Принятый перевод устарел относительно исходника</span>
     </div>
     <div class="editor-columns">
@@ -49,17 +51,27 @@
                     spellcheck="true" placeholder="Русский перевод главы..." required></textarea>
         </label>
         <p id="editor-unsaved" class="editor-warning" hidden>
-          Есть несохранённые изменения. При переходе на другую главу они будут потеряны.
+          Есть изменения, ещё не сохранённые на сервере. При переходе на другую главу они будут потеряны.
         </p>
         <label id="editor-format-warning" class="editor-warning" hidden>
           <input type="checkbox" id="editor-format-ack">
           В исходной редакции есть HTML-форматирование; подтверждаю преобразование в текстовые абзацы.
         </label>
-        <p class="muted">Принятие создаёт следующую ревизию в SQLite. При изменении
-          оригинала или параллельной правке сервер вернёт конфликт, без потери прежней версии.</p>
+        <label id="editor-rebase-wrap" class="editor-warning" hidden>
+          <input type="checkbox" id="editor-rebase">
+          Я сверил черновик с актуальным оригиналом и принятым переводом.
+          Перепривязать черновик к новым ревизиям.
+        </label>
+        <p id="editor-draft-status" class="muted">Черновик ещё не сохранён.</p>
+        <p class="muted">«Сохранить черновик» записывает рабочий текст отдельно от
+          принятого перевода. «Принять редакцию» создаёт новую принятую ревизию.
+          Чужие параллельные изменения приводят к 409, без перезаписи.</p>
         <div class="chapter-authoring-actions">
           <button type="button" class="ui-button ui-button--ghost" id="editor-reload">
             Перезагрузить главу
+          </button>
+          <button type="button" class="ui-button ui-button--ghost" id="editor-save-draft" disabled>
+            Сохранить черновик
           </button>
           <button type="submit" class="ui-button ui-button--primary" id="editor-accept" disabled>
             Принять редакцию
@@ -71,11 +83,29 @@
           <h2>Замечания</h2>
           <p>Контроль качества и редакционные примечания.</p>
         </div>
-        <p class="muted">Сохранение заметок отдельным объектом, обсуждения и статусы
-          Draft / Accepted будут подключены следующим этапом. Не помещайте
-          служебные заметки внутрь текста перевода.</p>
+        <p class="muted">Замечания хранятся отдельно от литературного текста.
+          Они привязаны к версиям оригинала, черновика и принятого перевода.</p>
+        <form id="editor-note-form">
+          <label class="ui-field">
+            <span>Новое замечание или находка QA</span>
+            <textarea id="editor-note-body" class="ui-input" rows="3"
+              maxlength="4000" required placeholder="Уточнить термин, стиль или пунктуацию..."></textarea>
+          </label>
+          <button type="submit" class="ui-button ui-button--ghost">Добавить замечание</button>
+        </form>
+        <div id="editor-notes-list" class="editor-note-list" aria-live="polite"></div>
         <div id="editor-info" class="editor-info"></div>
       </aside>
     </div>
+    <section class="ui-card editor-history">
+      <div class="ui-section-header">
+        <h2>История принятых редакций</h2>
+        <p>Исторические версии доступны для чтения. Откат создаёт новую
+          принятую ревизию и не стирает прошлое.</p>
+      </div>
+      <div id="editor-history-list" class="editor-history-list"></div>
+      <pre id="editor-history-preview" class="editor-history-preview" hidden
+           aria-label="Просмотр исторического перевода"></pre>
+    </section>
   </section>
 </section>
