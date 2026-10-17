@@ -7,6 +7,7 @@ There are no network calls, translation jobs or publication side effects.
 from __future__ import annotations
 
 import hashlib
+from html import escape as escape_html
 import json
 import sqlite3
 import time
@@ -128,7 +129,12 @@ class ImportSessions:
                 "title": item.title,
                 "detected_number": item.number,
                 "source_path": item.path,
-                "source_html": item.html,
+                # The preview extractor separates detected headings from
+                # bodies; restore the original heading in canonical source HTML.
+                "source_html": (
+                    "<h1>" + escape_html(item.title) + "</h1>\n" + item.html
+                    if item.number is not None else item.html
+                ),
             } for n, item in enumerate(candidates, start=1)]
         }
         packed = _packed(payload)
