@@ -7,6 +7,7 @@ Server-first, closed-team translation backend based on the existing Chaptera lit
 - Standalone `chaptera_translation_core` package with source-unit segmentation, structural/provenance markers, deterministic completeness checks, request packing, source preparation and HTML finalization from the prior extraction.
 - Async `TranslationCore` abstraction: transport-independent translation provider, glossary/context inputs, status events, cooperative cancellation.
 - `chaptera_server` backend: authenticated REST API, SQLite-backed durable job queue, separate async worker, Gemini `generateContent` REST adapter, finite backoff for 429/5xx, `Retry-After`, event log, idempotency and lease ownership tokens.
+- **RE-06 opt-in RPD gate:** conservative project+model daily Gemini request reservation persisted in SQLite (not per API key), Pacific-midnight reset, and pause/resume for quota-exhausted jobs without consuming normal retry attempts. Context preparation and repair each consume additional generate calls. [Policy and limitations](docs/RE06_GEMINI_DAILY_QUOTA.md).
 - **ReadEra team roles:** exactly two GLOBAL roles: one explicitly configured administrator and all other authorized members as moderators. Both work in the same book library and translation queue; there are no per-book owner/editor/reviewer/viewer roles. Team tokens remain separate. No public signup.
 - Translation is only marked completed after deterministic QA. Partial or missing segment responses are rejected.
 - Chapter-scoped glossary bindings and version-map overrides (`scope` + `override`), separate required/session/advisory authority, terminology enforcement classes and source-only matching.
@@ -200,6 +201,25 @@ See [architecture decisions](docs/ARCHITECTURE.md) and
 ```
 
 The server does not embed or change the desktop app. The source-algorithm baseline comes from the earlier isolated `chaptera_translation_core` extraction; it is now part of **this independent repository**, so subsequent server changes cannot unexpectedly affect the Windows build.
+
+## Gemini project daily request quota (RE-06)
+
+If your Google AI Studio project/model has a small free daily cap
+(e.g. 21 calls, **not** a universal value), explicitly set:
+
+```sh
+export CHAPTERA_GEMINI_QUOTA_PROJECT='your-google-project-id'
+export CHAPTERA_GEMINI_REQUESTS_PER_DAY='21'
+```
+
+This gates **every** `generateContent` attempt, not every chapter.
+The same project shares quota across all its API keys and every model
+has its own limit. Daily RPD resets at Pacific midnight including DST;
+RPM/TPM and paid billing limits remain separate. The default `0` means
+disabled for backwards compatibility. The local counter cannot see
+Google requests from other applications; a structured daily 429 blocks
+this worker's project/model until the next reset. See
+[RE-06 quota policy](docs/RE06_GEMINI_DAILY_QUOTA.md).
 
 ## Safety and limits
 
