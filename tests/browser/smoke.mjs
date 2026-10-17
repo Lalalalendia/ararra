@@ -271,6 +271,12 @@ try{
 
   await choose(page,'jobs');
   await page.locator('#jobs-refresh').click();
+  await page.waitForFunction(()=>document.querySelector('#gemini-quota-status')
+    ?.textContent.includes('Локальный суточный лимит не настроен'));
+  const offlineQuota=await api('/v1/quota/gemini',issued);
+  assert.equal(offlineQuota.status,200);
+  assert.equal(offlineQuota.data.enabled,false);
+  assert.equal((await api('/v1/quota/gemini','invalid')).status,401);
   await screenshot(page,'07-jobs-desktop.png');
 
   // Parallel author updates source after checked replacement; transaction rejects all.
