@@ -57,8 +57,24 @@ def _read_only(database: Path) -> sqlite3.Connection:
     return sqlite3.connect(uri, uri=True, timeout=15)
 
 
+def _normalize_snapshot(path: Path) -> None:
+    # The source database can be in WAL mode. A recovery image must stand on
+    # its own without an external -wal or -shm file; deleting those sidecars
+    # without checkpointing could discard already committed changes.
+    with closing(sqlite3.connect(str(path), timeout=15, isolation_level=None)) as con:
+        state = con.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        if state is None or state[0] != 0:
+            raise BackupRejected("SQLite WAL checkpoint did not complete")
+        mode = con.execute("PRAGMA journal_mode=DELETE").fetchone()
+        if mode is None or str(mode[0]).lower() != "delete":
+            raise BackupRejected("Snapshot did not enter standalone journal mode")
+
+
 def _healthy(path: Path) -> None:
     with closing(_read_only(path)) as con:
+        mode = con.execute("PRAGMA journal_mode").fetchone()
+        if mode is None or str(mode[0]).lower() != "delete":
+            raise BackupRejected("Backup must be standalone without WAL sidecars")
         if [row[0] for row in con.execute("PRAGMA integrity_check")] != ["ok"]:
             raise BackupRejected("SQLite integrity_check failed")
         con.execute("PRAGMA foreign_keys=ON")
@@ -114,6 +130,7 @@ def snapshot(database: str | Path, directory: str | Path) -> Path:
         with closing(_read_only(source.resolve(strict=True))) as source_db:
             with closing(sqlite3.connect(str(incomplete), timeout=15)) as destination_db:
                 source_db.backup(destination_db, pages=128, sleep=0.05)
+        _normalize_snapshot(incomplete)
         _healthy(incomplete)
         digest, size = _sha_and_size(incomplete)
         if size < 512:
