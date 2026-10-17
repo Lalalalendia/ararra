@@ -163,6 +163,26 @@ def test_index_or_path_collision_with_other_chapter_aborts_batch(tmp_path):
     assert sessions.confirm("alice", staged["stage_id"], selected)["imported_count"] == 2
 
 
+
+def test_actual_sqlite_write_failure_rolls_back_book_and_first_chapter(tmp_path):
+    store, _, sessions = make_store(tmp_path)
+    staged = sessions.stage("alice", "transaction.txt", source())
+    with store._connect() as db:
+        db.execute("""CREATE TRIGGER simulate_second_write_failure
+                      BEFORE INSERT ON book_chapters
+                      WHEN NEW.chapter_id='b'
+                      BEGIN SELECT RAISE(ABORT, 'injected'); END""")
+    payload = request([decision(1, "a", 12), decision(2, "b", 13)])
+    with pytest.raises(LibraryConflict, match="unavailable"):
+        sessions.confirm("alice", staged["stage_id"], payload)
+    with store._connect() as db:
+        assert db.execute("SELECT COUNT(*) FROM books").fetchone()[0] == 0
+        assert db.execute("SELECT COUNT(*) FROM book_chapters").fetchone()[0] == 0
+        assert db.execute("SELECT status FROM book_import_stages").fetchone()[0] == "staged"
+        db.execute("DROP TRIGGER simulate_second_write_failure")
+    assert sessions.confirm("alice", staged["stage_id"], payload)["imported_count"] == 2
+
+
 def test_idempotency_replay_upload_and_confirmation_conflict(tmp_path):
     _, _, sessions = make_store(tmp_path)
     first = sessions.stage("alice", "book.txt", source(), idempotency_key="k")
