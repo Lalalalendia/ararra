@@ -5,11 +5,13 @@ import sqlite3
 from dataclasses import asdict
 from hashlib import sha256
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from ...import_sessions import StageTooLarge
 from ...source_job_store import SourceJobConflict, SourceJobMissing
+from ...source_job_export import VerifiedSourceTXT, SourceExportNotReady
 from ...source_site_storage import SourceCatalogMissing, SourceCatalogExpired
 from ..dependencies import require_member, get_import_sessions
 
@@ -128,3 +130,62 @@ def stage_job(
     except (SourceJobMissing,SourceJobConflict,SourceCatalogMissing,
             sqlite3.IntegrityError,StageTooLarge,ValueError) as exc:
         raise _errors(exc) from exc
+
+
+def _stream_source_txt(handle):
+    """Always release spool space on normal delivery or early disconnect."""
+    try:
+        while True:
+            part = handle.read(128 * 1024)
+            if not part:
+                break
+            yield part
+    finally:
+        handle.close()
+
+
+@router.get("/{job_id}/assembly")
+def inspect_source_txt(
+    job_id: str, request: Request, actor: str = Depends(require_member),
+) -> dict:
+    """Completeness receipt for exactly the selected source TOC interval."""
+    try:
+        return VerifiedSourceTXT(request.app.state.store).inspect(actor,job_id)
+    except (SourceJobMissing,SourceJobConflict,ValueError) as exc:
+        raise _errors(exc) from exc
+
+
+@router.get("/{job_id}/export.txt")
+def download_source_txt(
+    job_id: str, request: Request,
+    expected_manifest_sha256: str = Query(pattern=r"^[a-f0-9]{64}$"),
+    expected_content_sha256: str = Query(pattern=r"^[a-f0-9]{64}$"),
+    actor: str = Depends(require_member),
+):
+    """Only ship a complete, identical original after exact preview receipt."""
+    try:
+        report, result = VerifiedSourceTXT(request.app.state.store).render(
+            actor,job_id,expected_manifest_sha256,expected_content_sha256,
+        )
+    except (SourceJobMissing,SourceJobConflict,ValueError) as exc:
+        raise _errors(exc) from exc
+    except SourceExportNotReady as exc:
+        raise HTTPException(status_code=409,detail={
+            "message":"Original source collection incomplete or changed after preview",
+            "report":exc.report,
+        }) from exc
+    safe_source = "".join(c for c in result.source if c.isascii() and c.isalnum())[:25] or "source"
+    name=f"readera-source-{safe_source}-{result.start_ordinal}-{result.end_ordinal}.txt"
+    return StreamingResponse(
+        _stream_source_txt(result.file),media_type="text/plain; charset=utf-8",
+        headers={
+            "Content-Disposition":f'attachment; filename="{name}"',
+            "Content-Length":str(result.byte_length),
+            "Cache-Control":"no-store, private",
+            "X-Content-Type-Options":"nosniff",
+            "X-ReadEra-Manifest-SHA256":result.manifest_sha256,
+            "X-ReadEra-Content-SHA256":result.content_sha256,
+            "X-ReadEra-Source-Scope":"selected_catalog_range_only",
+            "ETag":f'"{result.content_sha256}"',
+        },
+    )
