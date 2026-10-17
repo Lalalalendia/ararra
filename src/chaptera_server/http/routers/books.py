@@ -1,9 +1,12 @@
 """Book, glossary and chapter endpoints with revision-safe updates."""
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Query, Response
+from typing import Literal
+import re
 
 from chaptera_translation_core.prompt_policy import GlossaryVersionConflict, scoped_glossary
 
 from ...library import BookLibrary, LibraryConflict, LibraryNotFound
+from ...book_export import ExportNotReady, VerifiedBookExport
 from ...storage import IdempotencyConflict, QueueStore
 from ..dependencies import get_library, get_store, map_library_error, require_member, require_admin
 from ..schemas import AcceptTranslation, CreateBook, ReassignBookOwner, SaveChapter, SaveGlossary, TranslateBookChapter
@@ -63,6 +66,46 @@ def reassign_book_owner(book_id: str, body: ReassignBookOwner, request: Request,
         )
     except (LibraryNotFound, LibraryConflict, ValueError) as exc:
         raise map_library_error(exc) from exc
+
+
+@router.get("/{book_id}/export/preview")
+def preview_book_export(book_id: str, expected_last_chapter: int = Query(ge=1, le=2000),
+                        actor: str = Depends(require_member),
+                        repo: QueueStore = Depends(get_store)):
+    """Read-only manifest/diagnostics, never accepted manuscript text."""
+    try:
+        return VerifiedBookExport(repo).inspect(book_id, expected_last_chapter)[0]
+    except LibraryNotFound as exc:
+        raise map_library_error(exc) from exc
+
+
+@router.get("/{book_id}/export")
+def download_book_export(book_id: str, expected_last_chapter: int = Query(ge=1, le=2000),
+                         expected_manifest_sha256: str = Query(pattern=r"^[a-f0-9]{64}$"),
+                         format: Literal["txt", "html"] = Query(),
+                         actor: str = Depends(require_member),
+                         repo: QueueStore = Depends(get_store)):
+    """Require preview's exact revision receipt; never silently ship stale RU."""
+    try:
+        result = VerifiedBookExport(repo).render(
+            book_id, expected_last_chapter, expected_manifest_sha256, format,
+        )
+    except LibraryNotFound as exc:
+        raise map_library_error(exc) from exc
+    except ExportNotReady as exc:
+        raise HTTPException(status_code=409, detail={
+            "message": "Book export is incomplete or changed after preview",
+            "preview": exc.preview,
+        }) from exc
+    filename = re.sub(r"[^A-Za-z0-9_-]", "_", book_id)[:50] or "book"
+    return Response(content=result.data, media_type=result.content_type, headers={
+        "Content-Disposition": f'attachment; filename="readera-{filename}.{result.extension}"',
+        "Cache-Control": "no-store, private",
+        "X-Content-Type-Options": "nosniff",
+        "X-ReadEra-Manifest-SHA256": result.manifest_sha256,
+        "X-ReadEra-Content-SHA256": result.content_sha256,
+        "ETag": f'"{result.content_sha256}"',
+    })
 
 
 @router.get("/{book_id}")
