@@ -18,7 +18,8 @@ from chaptera_translation_core.chapter_context import (
     build_chapter_context_prompt, make_snapshot, sha256_text, validate_context_response,
 )
 from chaptera_translation_core.prompt_policy import scoped_glossary, select_source_bindings
-from chaptera_translation_core.ports import ProviderRequest, TranslationCancelled
+from chaptera_translation_core.ports import ProviderRequest, TranslationCancelled, AtomCheckpoint
+from chaptera_translation_core.atom_transport import atom_checkpoint_key
 from .library import ContextInputs
 
 
@@ -164,7 +165,8 @@ def _merge_windows(rows: list[dict], *, source_text: str) -> tuple[dict, list[di
 
 
 async def generate_chapter_context(provider, inputs: ContextInputs, *, on_event: ContextEvent | None = None,
-                                   is_cancelled: Callable[[], bool] | None = None) -> dict:
+                                   is_cancelled: Callable[[], bool] | None = None,
+                                   checkpoint: AtomCheckpoint | None = None) -> dict:
     source_text = BeautifulSoup(inputs.source_html, 'html.parser').get_text(' ', strip=True)
     windows = source_windows(source_text)
     glossary = scoped_glossary(inputs.glossary, inputs.glossary_versions,
@@ -206,12 +208,37 @@ async def generate_chapter_context(provider, inputs: ContextInputs, *, on_event:
                          f'window={window}/{total} prompt_tokens={usage.get("promptTokenCount", 0)} '
                          f'output_tokens={usage.get("candidatesTokenCount", 0)} '
                          f'total_tokens={usage.get("totalTokenCount", 0)}')
-        raw = await provider.generate(ProviderRequest(
-            chapter_id=f'context:{inputs.book_id}:{inputs.chapter_id}:w{index}of{total}',
-            prompt=prompt, source_html_with_markers='', unit_count=0,
-            on_usage=capture_usage,
-            request_role='glossary', is_cancelled=is_cancelled,
-        ))
+        # Reuse the proven subrequest checkpoint port already used for
+        # desktop CoverageMap atom packets. The payload fences the ENTIRE
+        # source/glossary/predecessor revisions (not only this window), so
+        # changing material outside the window invalidates reuse as well.
+        scope = json.dumps({
+            'policy': 'context_window_v1',
+            'book_id': inputs.book_id, 'chapter_id': inputs.chapter_id,
+            'chapter_path': inputs.chapter_path,
+            'source_hash': inputs.source_hash,
+            'chapter_revision': inputs.chapter_revision,
+            'glossary_hash': inputs.glossary_hash,
+            'glossary_revision': inputs.glossary_revision,
+            'predecessor': inputs.predecessor,
+            'predecessor_anchor': inputs.predecessor_anchor if index == 1 else {},
+            'window_index': index, 'window_total': total,
+            'window_start': start, 'window_end': end,
+            'window_source_hash': doc['source_hash'],
+        }, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
+        key = atom_checkpoint_key(prompt, scope, 'glossary')
+        cached = checkpoint.load(key) if checkpoint is not None else None
+        if cached is not None:
+            if on_event is not None:
+                on_event('context_window_checkpoint_hit', f'{index}/{total}')
+            raw = cached
+        else:
+            raw = await provider.generate(ProviderRequest(
+                chapter_id=f'context:{inputs.book_id}:{inputs.chapter_id}:w{index}of{total}',
+                prompt=prompt, source_html_with_markers='', unit_count=0,
+                on_usage=capture_usage,
+                request_role='glossary', is_cancelled=is_cancelled,
+            ))
         if is_cancelled is not None and is_cancelled():
             raise TranslationCancelled('Cancelled during context window request')
         parsed = _decode_context(raw)
@@ -225,6 +252,12 @@ async def generate_chapter_context(provider, inputs: ContextInputs, *, on_event:
         if index == 1:
             evidence += ' ' + str(inputs.predecessor_anchor.get('source') or '')
         entry['context'] = _ground_entities(entry['context'], evidence)
+        # Durable only AFTER full schema + source-identity validation; replay
+        # always repeats that validation before trusting a cached response.
+        if checkpoint is not None and cached is None:
+            checkpoint.save(key, raw)
+            if on_event is not None:
+                on_event('context_window_checkpoint_saved', f'{index}/{total}')
         rows.append(entry)
         audit_windows.append({'index': index, 'start': start, 'end': end,
                               'source_hash': sha256_text(fragment)})

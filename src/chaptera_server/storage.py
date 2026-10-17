@@ -124,6 +124,15 @@ class QueueStore:
                     created_at REAL NOT NULL,
                     PRIMARY KEY(job_id, request_fingerprint)
                 );
+                -- Regardless of how a job ends (book commit, expired lease,
+                -- cancellation, daily failure), remove private subrequest text
+                -- in the SAME SQLite transaction as the terminal transition.
+                CREATE TRIGGER IF NOT EXISTS trg_checkpoint_cleanup_terminal
+                AFTER UPDATE OF status ON jobs
+                WHEN NEW.status IN ('completed','failed','cancelled')
+                BEGIN
+                    DELETE FROM atom_job_checkpoints WHERE job_id=NEW.id;
+                END;
             """)
             # Existing v0.2/v0.3 databases have no provenance column; upgrade in place.
             columns = {row['name'] for row in con.execute('PRAGMA table_info(jobs)')}

@@ -260,3 +260,44 @@ def test_only_confirmed_durable_context_or_atom_calls_are_excluded(tmp_path):
     assert worker._uncheckpointed_completed_work(0, checkpoint, 3)
     assert not worker._uncheckpointed_completed_work(0, checkpoint, 4)
     assert worker._uncheckpointed_completed_work(0, None, 5)
+
+
+def test_terminal_job_checkpoint_cleanup_for_cancelled_retry(tmp_path):
+    """Even an explicit cancel outside QueueStore._finish must erase raw text."""
+    store = QueueStore(tmp_path / "cancel.db")
+    job = store.create_job("moderator", JobSpec("chapter", "<p>世界。</p>"))
+    _, token = store.claim_next()
+    key = atom_checkpoint_key("context prompt", "original window", "glossary")
+    SQLiteAtomCheckpoint(store, job["id"], token).save(key, '{"c0":"example"}')
+    assert store.retry(job["id"], token, "temporary", delay_seconds=100)
+    assert store.get_job(job["id"])["status"] == "retry_wait"
+    with store._connect() as con:
+        assert con.execute(
+            "SELECT COUNT(*) FROM atom_job_checkpoints WHERE job_id=?", (job["id"],)
+        ).fetchone()[0] == 1
+    assert store.request_cancel(job["id"])["status"] == "cancelled"
+    with store._connect() as con:
+        assert con.execute(
+            "SELECT COUNT(*) FROM atom_job_checkpoints WHERE job_id=?", (job["id"],)
+        ).fetchone()[0] == 0
+
+
+def test_terminal_job_checkpoint_cleanup_after_expired_final_lease(
+    tmp_path, monkeypatch,
+):
+    clock = [1000.0]
+    monkeypatch.setattr(storage, "time", SimpleNamespace(time=lambda: clock[0]))
+    store = QueueStore(tmp_path / "expired.db")
+    job = store.create_job("moderator", JobSpec(
+        "chapter", "<p>世界。</p>", max_attempts=1,
+    ))
+    _, token = store.claim_next(lease_seconds=2)
+    key = atom_checkpoint_key("prompt", "payload", "translation")
+    SQLiteAtomCheckpoint(store, job["id"], token).save(key, "validated raw text")
+    clock[0] += 3
+    assert store.claim_next() is None
+    assert store.get_job(job["id"])["status"] == "failed"
+    with store._connect() as con:
+        assert con.execute(
+            "SELECT COUNT(*) FROM atom_job_checkpoints WHERE job_id=?", (job["id"],)
+        ).fetchone()[0] == 0

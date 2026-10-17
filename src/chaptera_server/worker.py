@@ -85,14 +85,16 @@ class TranslationWorker:
         context_durable_calls = 0
         stop = asyncio.Event()
         heartbeat_task = asyncio.create_task(self._heartbeat(jid, token, stop))
-        checkpoint = (SQLiteAtomCheckpoint(self.store, jid, token,
-                                           model_id=self._model_identity())
-                      if data.get("transport") == "atoms_v1" else None)
+        # One already-proven, lease-fenced SQLite checkpoint adapter serves
+        # BOTH context windows and desktop atom/repair packets for this job.
+        checkpoint = SQLiteAtomCheckpoint(
+            self.store, jid, token, model_id=self._model_identity(),
+        )
         core = TranslationCore(
             self.provider,
             is_cancelled=lambda: self.store.cancellation_requested(jid, token),
             on_event=lambda event: self.store.record_event(jid, token, event.stage, event.detail),
-            atom_checkpoint=checkpoint,
+            atom_checkpoint=checkpoint if data.get("transport") == "atoms_v1" else None,
         )
         try:
             managed = None
@@ -109,12 +111,20 @@ class TranslationWorker:
                         self.provider, managed,
                         on_event=lambda stage, detail: self.store.record_event(jid, token, stage, detail),
                         is_cancelled=lambda: self.store.cancellation_requested(jid, token),
+                        checkpoint=checkpoint,
                     )
                     if self.store.cancellation_requested(jid, token):
                         raise TranslationCancelled('Translation cancelled during context preflight')
                     self.library.save_context(managed, snapshot)
-                    context_durable_calls = max(
+                    # Window replies were already durably saved in checkpoint.
+                    # Only count any *other* successfully stored context reply
+                    # as durable, avoiding double subtraction from the actual
+                    # sent-to-Gemini count when translation later partially fails.
+                    context_completed = max(
                         0, getattr(self.provider, "completed_calls", 0) - context_calls_before,
+                    )
+                    context_durable_calls = max(
+                        0, context_completed - checkpoint.saved_this_run,
                     )
                     self.store.record_event(jid, token, 'context_generated', 'complete snapshot persisted')
                 else:
