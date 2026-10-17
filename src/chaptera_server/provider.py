@@ -16,9 +16,12 @@ class ProviderFailure(RuntimeError):
 
 
 class TransientProviderFailure(ProviderFailure):
-    def __init__(self, message: str, *, retry_after_seconds: float | None = None):
+    def __init__(self, message: str, *, retry_after_seconds: float | None = None,
+                 status_code: int | None = None, is_network_error: bool = False):
         super().__init__(message)
         self.retry_after_seconds = retry_after_seconds
+        self.status_code = status_code
+        self.is_network_error = is_network_error
 
 
 class DailyProviderQuotaFailure(TransientProviderFailure):
@@ -91,13 +94,14 @@ class GeminiProvider:
             else:
                 response = await self.client.post(url, headers={"x-goog-api-key": self.api_key}, json=payload)
         except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError) as exc:
-            raise TransientProviderFailure("Gemini network failure") from exc
+            raise TransientProviderFailure("Gemini network failure", is_network_error=True) from exc
         if response.status_code == 429 and _daily_quota_violation(response):
             raise DailyProviderQuotaFailure("Gemini daily quota exhausted (HTTP 429)")
         if response.status_code in (408, 429, 500, 502, 503, 504):
             raise TransientProviderFailure(
                 f"Gemini temporarily unavailable (HTTP {response.status_code})",
                 retry_after_seconds=_retry_after(response.headers.get("Retry-After")),
+                status_code=response.status_code,
             )
         if not (200 <= response.status_code < 300):
             # Do not leak response bodies, API keys, prompt text or paid chapters to logs.
