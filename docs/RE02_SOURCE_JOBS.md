@@ -19,6 +19,7 @@ Reference implementation principles: uploaded `book_crawler.zip` modules `chapte
 - `source_collect_items` contains a unique row per manifest index and ordinal, original source IDs/URLs, checked source text, SHA-256 and explicit failure receipts.
 - `BEGIN IMMEDIATE` serializes claims and item commits. If the process crashes before committing the chapter, its timed-out lease allows re-fetch of that single item. A stale token cannot overwrite the new holder. Verified items are never fetched again by ordinary resume or manual retry.
 - A cancellation revokes the lease and prevents further claims. A failed item is not silently retried; explicit actor action is required. Failure of a larger job does not make its partial text a complete book.
+- Source text storage is capped at **1 MiB per chapter** and **256 MiB per collection job**. Over-budget text receives a failure receipt without discarding previously checkpointed chapters. The per-actor active-job cap is 3; total historical disk usage still needs explicit operational monitoring and a future retention/delete workflow.
 - Both worker and API use the **same SQLite file**. A separate service/process is required; running only `chaptera-server serve` will not execute jobs.
 
 ## API contracts
