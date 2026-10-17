@@ -9,6 +9,7 @@ from .config import Settings
 from .library import BookLibrary
 from .import_sessions import ImportSessions
 from .editorial import EditorialStore
+from .chapter_qa import ChapterQaStore
 from .team_credentials import TeamCredentials
 from .storage import QueueStore
 from .http.routers import books, health, identity, imports, jobs, quota, ui, editorial
@@ -32,6 +33,7 @@ def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
     app.state.library = BookLibrary(repo)
     app.state.import_sessions = ImportSessions(repo)
     app.state.editorial = EditorialStore(repo)
+    app.state.chapter_qa = ChapterQaStore(repo)
     app.state.team_credentials = TeamCredentials(repo)
 
     app.include_router(health.router)
