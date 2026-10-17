@@ -202,48 +202,8 @@
       footerNote.className = "chapter-import-note";
     }
   }
-  function init(root) {
-    const statusUrl = root.getAttribute("data-import-status-url");
-    if (!statusUrl) {
-      return;
-    }
-    let stopped = false;
-    async function poll() {
-      if (stopped) {
-        return;
-      }
-      try {
-        const response = await fetch(statusUrl, {
-          method: "GET",
-          credentials: "same-origin",
-          headers: {
-            "Accept": "application/json"
-          }
-        });
-        if (!response.ok) {
-          window.setTimeout(poll, 5000);
-          return;
-        }
-        const data = await response.json();
-        renderStatus(root, data);
-        if (data.is_terminal) {
-          stopped = true;
-          return;
-        }
-      } catch (_error) {
-        window.setTimeout(poll, 5000);
-        return;
-      }
-      window.setTimeout(poll, 2500);
-    }
-    poll();
-  }
-  document.addEventListener("DOMContentLoaded", function () {
-    document
-      .querySelectorAll("[data-import-status-root]")
-      .forEach(init);
-  });
-  // ReadEra binding: use the original safe DOM renderer with existing API data.
-  // Polling is not started on the anonymous shell; /v1 requires X-API-Key.
+  // ReadEra: expose ONLY the safe renderer. Status data comes from the
+  // authenticated controller. The original anonymous, implicit polling
+  // behavior was intentionally removed; /v1 requires X-API-Key.
   window.ReadEraStatus = Object.freeze({ renderStatus });
 })();
