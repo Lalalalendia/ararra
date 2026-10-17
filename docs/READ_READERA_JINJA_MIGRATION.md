@@ -31,7 +31,7 @@ admin ID задаётся на хосте, без автоматического
 |---|---|---|
 | \`backend/app/web/static/css/components/chapter-import.css\` | \`src/chaptera_server/web_ui/static/css/books-platform-chapter-import.css\` | **Дословная CSS-копия** с добавленным заголовком происхождения |
 | \`backend/app/web/templates/books/import_chapters.html\` | \`src/chaptera_server/web_ui/templates/shell.html\` | **Адаптация структуры**: \`chapter-import-upload\`, секции файла, пояснения, действия, история загрузок |
-| \`backend/app/web/static/js/chapter-import-status.js\` | \`src/chaptera_server/web_ui/static/js/readera.mjs\` | **Переиспользование идеи DOM-status и исходных классов**, без несовместимого cookie polling: новые API используют командные ключи и атомарный stage |
+| \`backend/app/web/static/js/chapter-import-status.js\` | \`src/chaptera_server/web_ui/static/js/books-platform-chapter-status.js\` + \`readera.mjs\` | **Перенесён оригинальный DOM renderer**, вызывается для авторизованных данных \`/v1/jobs\`; встроенный анонимный polling не используется |
 | \`backend/app/web/routes/books_chapter_import.py\` | \`src/chaptera_server/http/routers/ui.py\` + существующие \`http/routers/imports.py\` | **Не копировать backend напрямую:** зависим от старого пользователя, YDB, монетизации и очереди импорта |
 | \`backend/app/web/templates/books/chapter_form.html\` | **Отложено до RE-04** — отдельный редактор глав и переводов | Базу форм можно адаптировать позже, но платные главы, публикация и сценовый редактор не нужны |
 | \`backend/app/web/static/js/chapter-import-form.js\` | **Не переносить:** переключает поля платных глав | Не соответствует техническому сайту |
