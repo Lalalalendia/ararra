@@ -214,3 +214,18 @@ textarea.ui-input {resize:vertical;}
   .library-toc li {align-items:flex-start;}
   .library-row-actions {min-width:175px;}
 }
+
+/* Actor-scoped source job list: long labels must never overflow phones. */
+#source-job-history {min-width:0;max-width:100%;}
+#source-job-history .ui-section-header,
+#source-job-history .ui-field,
+#source-job-history-status {min-width:0;max-width:100%;overflow-wrap:anywhere;}
+#source-job-history .ui-input {max-width:100%;min-width:0;}
+#source-job-history .ui-button {
+  max-width:100%;
+  min-width:0;
+  white-space:normal;
+  overflow-wrap:anywhere;
+  text-align:center;
+}
+#source-job-history-status {flex:1 1 100%;}
