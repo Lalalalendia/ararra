@@ -13,7 +13,7 @@ SERVER = Path('src/chaptera_server')
 CORE = Path('src/chaptera_translation_core')
 ROUTER_DIR = SERVER / 'http' / 'routers'
 HTTP_METHODS = {'get', 'post', 'put', 'patch', 'delete', 'options', 'head', 'api_route', 'websocket'}
-EXPECTED_ROUTERS = {'books.py', 'jobs.py', 'imports.py', 'health.py', 'identity.py', 'ui.py'}
+EXPECTED_ROUTERS = {'books.py', 'jobs.py', 'imports.py', 'health.py', 'identity.py', 'ui.py', 'editorial.py'}
 FILE_CEILINGS = {
     SERVER / 'api.py': 90,
     SERVER / 'http' / 'schemas.py': 200,
