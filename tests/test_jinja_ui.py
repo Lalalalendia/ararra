@@ -59,6 +59,10 @@ def test_jinja_pages_render_without_credentials_but_never_expose_team_state(tmp_
             editor_js = await client.get("/app-static/js/editor.mjs")
             assert editor_js.status_code == 200
             assert "initChapterEditor" in editor_js.text
+            panels_js = await client.get("/app-static/js/editorial-panels.mjs")
+            assert panels_js.status_code == 200
+            assert "initEditorialPanels" in panels_js.text
+            assert "innerHTML =" not in panels_js.text
             assert ".innerHTML =" not in editor_js.text
             assert "insertAdjacentHTML(" not in editor_js.text
             editor_css = await client.get("/app-static/css/chapter-editor.css")
