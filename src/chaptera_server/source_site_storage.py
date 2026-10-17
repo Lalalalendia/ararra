@@ -71,6 +71,14 @@ class SourceCatalogStore:
     def _public(row: sqlite3.Row) -> dict:
         chapters = json.loads(row["chapters_json"])
         ordinals = [ch["ordinal"] for ch in chapters]
+        sorted_ordinals = sorted(set(ordinals))
+        gaps = []
+        for left, right in zip(sorted_ordinals, sorted_ordinals[1:]):
+            if right - left > 1:
+                remaining = 200 - len(gaps)
+                gaps.extend(range(left + 1, left + 1 + min(remaining, right - left - 1)))
+                if len(gaps) >= 200:
+                    break
         return {
             "catalog_id": row["id"],
             "source": row["source"],
@@ -81,15 +89,14 @@ class SourceCatalogStore:
             "first_ordinal": min(ordinals),
             "last_ordinal": max(ordinals),
             "chapters": chapters,
-            "catalog_gaps": [
-                n for n in range(min(ordinals),max(ordinals)+1)
-                if n not in set(ordinals)
-            ][:200],
+            "catalog_gaps": gaps,
         }
 
     def save(self, actor: str, catalog: SourceCatalog) -> dict:
         if not catalog.chapters or len(catalog.chapters) > MAX_CATALOG_CHAPTERS:
             raise SourceCatalogConflict("Catalog must contain 1..2000 chapters")
+        if any(type(ch.ordinal) is not int or not 1 <= ch.ordinal <= 10_000_000 for ch in catalog.chapters):
+            raise SourceCatalogConflict("Chapter number outside supported range")
         if catalog.catalog_sha256 != _fingerprint(catalog.chapters):
             raise SourceCatalogConflict("Source catalog fingerprint mismatch")
         now = time.time()
@@ -138,6 +145,8 @@ class SourceCatalogStore:
                     raise ValueError("Foreign book in catalog")
             if not chapters or len(chapters) > MAX_CATALOG_CHAPTERS:
                 raise ValueError("Invalid catalog cardinality")
+            if any(type(ch.ordinal) is not int or not 1 <= ch.ordinal <= 10_000_000 for ch in chapters):
+                raise ValueError("Invalid catalog chapter number")
             if _fingerprint(chapters) != row["catalog_sha256"]:
                 raise ValueError("Catalog data changed")
             if len({c.ordinal for c in chapters}) != len(chapters):
