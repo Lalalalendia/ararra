@@ -24,7 +24,7 @@ RPD = `requests per day`; также существуют `requests per minute` 
 [Gemini token counting](https://ai.google.dev/gemini-api/docs/tokens),
 [Google AI Studio usage/rate limits](https://aistudio.google.com/).
 
-## Настройка только на worker-хосте
+## Настройка worker и read-only API
 
 ```ini
 CHAPTERA_GEMINI_MODEL=gemini-3.8-flash
@@ -101,6 +101,16 @@ RE-01 VPS/HTTPS и добровольное подтверждение бюдж�
 
 
 ## RE-06B-QUOTA-READ-01: безопасное отображение дневной квоты
+
+**Раздельные процессы:** для отображения статуса API должен получить
+те же три несекретных параметра `CHAPTERA_GEMINI_MODEL`,
+`CHAPTERA_GEMINI_QUOTA_PROJECT` и `CHAPTERA_GEMINI_REQUESTS_PER_DAY`,
+что и worker, и использовать ту же SQLite-базу. `CHAPTERA_GEMINI_API_KEY`
+для чтения квоты в API **не нужен** и не должен туда передаваться.
+Если параметры настроены только у worker, API честно вернёт
+`enabled=false`, даже если worker ведёт дневной счётчик.
+Не запрашивать и не угадывать project ID по содержимому базы.
+
 
 - `GET /v1/quota/gemini` требует аутентификацию участника команды и не вызывает Gemini. Ответ не содержит идентификатор Google-проекта или секреты.
 - `enabled=false` означает, что локальный лимит не настроен. Это **не** утверждение о безлимитном тарифе.
