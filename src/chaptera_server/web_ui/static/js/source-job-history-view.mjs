@@ -49,6 +49,16 @@ export function createSourceJobHistoryView({request,flash,onOpen,onDelete}) {
     controls();
   }
 
+  function clear() {
+    jobs.clear();
+    picker.replaceChildren();
+    const empty=document.createElement('option');
+    empty.value='';empty.textContent='Получите список заданий';
+    picker.append(empty);
+    status.textContent='Список доступен после входа в Эриду.';
+    controls();
+  }
+
   async function refresh() {
     if(busy)return;
     busy=true;controls();
@@ -58,6 +68,7 @@ export function createSourceJobHistoryView({request,flash,onOpen,onDelete}) {
         throw new Error('Сервер не вернул список заданий.');
       render(result.jobs);
     }catch(err){
+      clear();
       status.textContent='Не удалось загрузить мои сборки.';
       flash(err.message,true);
     }finally{
@@ -105,5 +116,5 @@ export function createSourceJobHistoryView({request,flash,onOpen,onDelete}) {
       }
     })();
   });
-  return {refresh};
+  return {refresh,clear};
 }
