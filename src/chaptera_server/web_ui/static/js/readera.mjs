@@ -6,10 +6,13 @@ import {
   createDraft, changeAction, destinationEdited, verifiedReplacement,
   validateDraft, confirmation,
 } from './import-model.mjs';
+import {initChapterEditor} from './editor.mjs';
 
 const $ = id => document.getElementById(id);
 const sections = Array.from(document.querySelectorAll('[data-page]'));
-const knownPages = new Set(['overview','books','import','team','jobs']);
+const knownPages = new Set(['overview','books','import','team','jobs','editor']);
+let editor=null;
+let shownPage=null;
 let apiKey = '';
 let identity = null;
 let books = [];
@@ -73,8 +76,16 @@ function currentPage() {
 }
 function showPage(page, push=false) {
   if (!knownPages.has(page)) page='overview';
+  if(shownPage==='editor' && page!=='editor' && editor){
+    if(!editor.canLeave()){
+      if(!push) history.pushState({},'', '/app/editor');
+      return false;
+    }
+    editor.dropUnsaved();
+  }
   if (push && location.pathname !== '/app/'+page) history.pushState({},'', '/app/'+page);
   sections.forEach(s => s.hidden = s.dataset.page !== page);
+  shownPage=page;
   document.querySelectorAll('[data-page-link]').forEach(link => {
     const selected=link.dataset.pageLink === page;
     link.classList.toggle('is-active',selected);
@@ -82,7 +93,8 @@ function showPage(page, push=false) {
     else link.removeAttribute('aria-current');
   });
   clearSecret();
-  if (!identity) return;
+  if (!identity) return true;
+  if (page==='editor' && editor) void editor.activate().catch(e=>flash(e.message,true));
   if (page==='books') void refreshBooks().catch(e => flash(e.message,true));
   if (page==='team') void refreshMembers().catch(e => flash(e.message,true));
   if (page==='jobs') void refreshJobs().catch(e => flash(e.message,true));
@@ -90,10 +102,11 @@ function showPage(page, push=false) {
     $('metric-books').textContent=String(books.length);
     $('metric-role').textContent=identity.role==='admin'?'Администратор':'Модератор';
   }
+  return true;
 }
 document.querySelectorAll('[data-page-link]').forEach(link=>link.addEventListener('click',event=>{
   if (!identity || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button!==0) return;
-  event.preventDefault(); flash(''); showPage(link.dataset.pageLink,true);
+  event.preventDefault(); if(showPage(link.dataset.pageLink,true))flash('');
 }));
 window.addEventListener('popstate',()=>showPage(currentPage()));
 
@@ -127,6 +140,8 @@ $('login-form').addEventListener('submit',event=>{
   });
 });
 $('logout').addEventListener('click',()=>{
+  if(shownPage==='editor' && editor && !editor.canLeave())return;
+  editor?.reset();
   apiKey='';identity=null;books=[];members=[];staged=null;rows=[];confirmed=null;
   clearSecret();$('identity-label').hidden=true;
   $('authenticated').hidden=true;$('login-form').hidden=false;$('login-form').reset();
@@ -521,5 +536,6 @@ function showReceipt(receipt){
   $('import-map').hidden=true;$('import-review').hidden=true;$('import-success').hidden=false;markStep(3);
 }
 $('import-another').addEventListener('click',()=>{hideImportSteps();$('chapters_file').value='';selectedFile=null;flash('');});
+editor=initChapterEditor({request,flash,getBooks:()=>books});
 hideImportSteps();
 showPage(currentPage());
