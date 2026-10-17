@@ -35,6 +35,14 @@ class ProviderRequest:
     is_cancelled: Callable[[], bool] | None = None
 
 
+class AtomCheckpoint(Protocol):
+    """Optional durable I/O port, injected by the server's fenced job store."""
+
+    def load(self, request_fingerprint: str) -> str | None: ...
+
+    def save(self, request_fingerprint: str, validated_response: str) -> None: ...
+
+
 class TranslationProvider(Protocol):
     """API transport injected by server/desktop. No network or credentials in core."""
 

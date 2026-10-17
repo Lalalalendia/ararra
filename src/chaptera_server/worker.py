@@ -11,6 +11,7 @@ from chaptera_translation_core import (
 
 from .provider import ProviderFailure, TransientProviderFailure, DailyProviderQuotaFailure
 from .quota import DailyQuotaExhausted, pacific_window
+from .atom_checkpoints import SQLiteAtomCheckpoint, AtomCheckpointConflict
 from chaptera_translation_core.prompt_policy import GlossaryVersionConflict
 from .storage import QueueStore
 from .library import BookLibrary, LibraryNotFound, StaleBookJob
@@ -27,6 +28,19 @@ class TranslationWorker:
         self.provider = provider
         self.lease_seconds = lease_seconds
         self.heartbeat_seconds = heartbeat_seconds
+
+    def _model_identity(self) -> str:
+        # Resolve only the non-secret model name through the RPD/scheduler
+        # decorators; the Gemini credential is never a cache key.
+        provider = self.provider
+        for _ in range(4):
+            model = getattr(provider, "model", "")
+            if model:
+                return str(model)
+            provider = getattr(provider, "provider", None)
+            if provider is None:
+                break
+        return "unconfigured"
 
     async def _heartbeat(self, job_id: str, token: str, stop: asyncio.Event) -> None:
         while not stop.is_set():
@@ -46,10 +60,14 @@ class TranslationWorker:
         calls_before = getattr(self.provider, "completed_calls", 0)
         stop = asyncio.Event()
         heartbeat_task = asyncio.create_task(self._heartbeat(jid, token, stop))
+        checkpoint = (SQLiteAtomCheckpoint(self.store, jid, token,
+                                           model_id=self._model_identity())
+                      if data.get("transport") == "atoms_v1" else None)
         core = TranslationCore(
             self.provider,
             is_cancelled=lambda: self.store.cancellation_requested(jid, token),
             on_event=lambda event: self.store.record_event(jid, token, event.stage, event.detail),
+            atom_checkpoint=checkpoint,
         )
         try:
             managed = None
@@ -127,7 +145,8 @@ class TranslationWorker:
             self.store.fail(jid, token, str(exc))
         except ContextPrepassRejected as exc:
             self.store.retry(jid, token, str(exc), delay_seconds=3.0)
-        except (ProviderFailure, TranslationRejected, GlossaryVersionConflict, StaleBookJob, LibraryNotFound) as exc:
+        except (ProviderFailure, TranslationRejected, GlossaryVersionConflict,
+                StaleBookJob, LibraryNotFound, AtomCheckpointConflict) as exc:
             self.store.fail(jid, token, str(exc))
         except Exception as exc:
             logger.error("Unexpected job error in %s: %s", jid, type(exc).__name__)

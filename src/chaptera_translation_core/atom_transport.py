@@ -5,6 +5,7 @@ This module only adapts those algorithms to a headless, chapter-scoped provider.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from typing import Iterable
@@ -15,6 +16,16 @@ from .core.translation_units import (
     build_source_atoms, expected_render_domain_rows, reconcile_coverage_response,
     serialize_source_atoms_for_prompt,
 )
+
+def atom_checkpoint_key(prompt: str, payload: str, role: str) -> str:
+    """Bind a result to exact model instructions, source atom scope and role."""
+    digest = hashlib.sha256()
+    for part in ("atoms-v1-checkpoint-1", role, prompt, payload):
+        raw = part.encode("utf-8")
+        digest.update(len(raw).to_bytes(8, "big"))
+        digest.update(raw)
+    return digest.hexdigest()
+
 
 MAX_BATCH_ATOMS = 24
 MAX_BATCH_SOURCE_CHARS = 7000
