@@ -124,14 +124,36 @@ try{
   await screenshot(page,'05-import-success.png');
 
   await choose(page,'books');
-  await page.locator('#book-list').getByText('Браузерная проверка').waitFor();
-  assert.match(await page.locator('#book-list').innerText(),/writer/);
+  const libraryRow=page.locator('#book-list .library-book-row')
+    .filter({hasText:'Браузерная проверка'});
+  await libraryRow.waitFor();
+  assert.match(await libraryRow.innerText(),/writer/);
+  assert.equal((await libraryRow.locator('td').nth(1).innerText()).trim(),'2');
+  assert.equal((await libraryRow.locator('td').nth(2).innerText()).trim(),'0 / 2');
+  assert.equal(await page.locator('#book-list').getByText('Опубликовано').count(),0);
   await screenshot(page,'06-library-desktop.png');await fit(page,'books desktop');
+
+  // Expand the real TOC lazily and navigate to a selected chapter. Never
+  // pretend the Canva mockup's sample author, published state or PDF quota.
+  await libraryRow.getByRole('button',{name:'Оглавление книги Браузерная проверка'}).click();
+  const chapters=page.locator('#book-list .library-chapters-row .library-toc li');
+  await chapters.first().waitFor();
+  assert.equal(await chapters.count(),2);
+  await chapters.filter({hasText:'Глава 13'}).getByRole('button',{name:/Открыть главу 13/}).click();
+  await page.locator('[data-page="editor"]').waitFor({state:'visible'});
+  await page.locator('#editor-chapter').waitFor({state:'visible'});
+  await page.waitForFunction(()=>document.querySelector('#editor-chapter')?.value==='13');
+  await choose(page,'books');
+  const rowAgain=page.locator('#book-list .library-book-row')
+    .filter({hasText:'Браузерная проверка'});
+  await rowAgain.getByRole('button',{name:'Редактировать книгу Браузерная проверка'}).click();
+  await page.locator('[data-page="editor"]').waitFor({state:'visible'});
+  await page.locator('#editor-chapter').selectOption('12');
 
   // Bookplatform-derived editor: safe original view, RU accepted revisions,
   // never replacing source or losing another editor's accepted revision.
-  await choose(page,'editor');
   await page.locator('#editor-workspace').waitFor({state:'visible',timeout:15000});
+  await page.locator('#editor-source').getByText(/Первое предложение/).waitFor();
   assert.equal(await page.locator('#editor-book').inputValue(),'browser-novel');
   assert.equal(await page.locator('#editor-chapter').inputValue(),'12');
   assert.match(await page.locator('#editor-source').innerText(),/Первое предложение/);
