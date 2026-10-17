@@ -45,10 +45,12 @@ class TranslationCore:
     """
 
     def __init__(self, provider: TranslationProvider, *, on_event: TranslationEventHandler | None = None,
-                 is_cancelled: Callable[[], bool] | None = None):
+                 is_cancelled: Callable[[], bool] | None = None, checkpoints=None):
         self.provider = provider
         self.on_event = on_event
         self.is_cancelled = is_cancelled
+        # Optional injected I/O: core stays storage/framework independent.
+        self.checkpoints = checkpoints
 
     def _emit(self, chapter_id: str, stage: str, detail: str = '') -> None:
         if self.on_event is not None:
@@ -82,13 +84,17 @@ class TranslationCore:
         if diagnostics.context_conflicts:
             self._emit(chapter.chapter_id, 'context_conflict', f'count={diagnostics.context_conflicts}')
         self._emit(chapter.chapter_id, 'provider_request', f'units={len(units)}')
-        raw = await self.provider.generate(ProviderRequest(
+        request = ProviderRequest(
             chapter.chapter_id, prompt, marked_source, len(units), 'html_v0',
             lambda usage: self._emit(chapter.chapter_id, 'gemini_usage',
                 f'prompt_tokens={usage.get("promptTokenCount", 0)} '
                 f'output_tokens={usage.get("candidatesTokenCount", 0)} '
                 f'total_tokens={usage.get("totalTokenCount", 0)}'),
-        ))
+        )
+        cached = self.checkpoints.load('html_full', request) if self.checkpoints else None
+        if cached is not None:
+            self._emit(chapter.chapter_id, 'subrequest_reused', 'html_full')
+        raw = cached if cached is not None else await self.provider.generate(request)
         self._cancel_check()
         if not isinstance(raw, str) or not raw.strip():
             raise TranslationRejected(chapter.chapter_id, 'provider', 'empty response')
@@ -103,6 +109,8 @@ class TranslationCore:
         if not cleaned or not cleaned.strip():
             raise TranslationRejected(chapter.chapter_id, 'finalize', 'empty final HTML')
         self._cancel_check()
+        if self.checkpoints and cached is None:
+            self.checkpoints.save('html_full', request, raw)
         self._emit(chapter.chapter_id, 'completed')
         return ChapterResult(
             chapter_id=chapter.chapter_id,
