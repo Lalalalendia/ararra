@@ -164,6 +164,7 @@ def test_local_upload_requires_gcm_magic_owner_only_and_safe_basename(tmp_path):
     evil.unlink()
     broken = archive.with_name("readera-20261018T060000Z-aaaaaaaaaaaaaaaa.sqlite3.rbe")
     broken.write_bytes(b"not an encrypted format")
+    broken.chmod(0o600)
     with pytest.raises(OffhostRejected):
         store.push(broken)
     with pytest.raises(OffhostRejected):
