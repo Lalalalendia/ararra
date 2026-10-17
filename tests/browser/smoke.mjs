@@ -532,7 +532,8 @@ try{
   await page.waitForFunction(()=>document.body?.dataset.authReady==='1');
   await page.locator('#authenticated').waitFor({state:'visible'});
   await choose(page,'books');
-  assert.match(await page.locator('#book-list').innerText(),/Браузерная проверка/);
+  await page.locator('#book-list').getByText('Браузерная проверка').first()
+    .waitFor({state:'visible',timeout:15000});
   const noKeys=await page.evaluate(()=>({
     local:Object.keys(localStorage),session:Object.keys(sessionStorage),
   }));
