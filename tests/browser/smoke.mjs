@@ -94,6 +94,8 @@ try{
   assert.equal(await page.locator('#import-dropzone').evaluate(el=>el.classList.contains('is-over')),false);
   assert.match(await page.locator('#import-file-state').innerText(),/dropped.txt/);
   assert.equal(await page.locator('#chapters_file').evaluate(el=>el.files[0].name),'dropped.txt');
+  await screenshot(page,'02-import-dropzone-desktop.png');
+  await fit(page,'import upload desktop');
   await droppedFile.dispose();
   // Native selection must update the same visible status and continue the
   // existing staged-upload workflow; drag/drop does not auto-import.
@@ -139,6 +141,8 @@ try{
   const chapters=page.locator('#book-list .library-chapters-row .library-toc li');
   await chapters.first().waitFor();
   assert.equal(await chapters.count(),2);
+  await screenshot(page,'06-library-toc-desktop.png');
+  await fit(page,'library TOC desktop');
   await chapters.filter({hasText:'Глава 13'}).getByRole('button',{name:/Открыть главу 13/}).click();
   await page.locator('[data-page="editor"]').waitFor({state:'visible'});
   await page.locator('#editor-chapter').waitFor({state:'visible'});
