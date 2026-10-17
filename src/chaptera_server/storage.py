@@ -124,6 +124,24 @@ class QueueStore:
                     created_at REAL NOT NULL,
                     PRIMARY KEY(job_id, request_fingerprint)
                 );
+                -- A desktop-style recovery checkpoint tracks only guarded
+                -- phase and debt counts. Source/target text stays in the already
+                -- verified atom_job_checkpoints, never in a second debt store.
+                CREATE TABLE IF NOT EXISTS atom_recovery_state (
+                    job_id TEXT PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
+                    model_id TEXT NOT NULL,
+                    source_sha256 TEXT NOT NULL,
+                    phase TEXT NOT NULL CHECK(phase IN ('debt_repair', 'finalize_only')),
+                    remaining_debts INTEGER NOT NULL DEFAULT 0 CHECK(remaining_debts >= 0),
+                    debt_passes INTEGER NOT NULL DEFAULT 0 CHECK(debt_passes >= 0),
+                    updated_at REAL NOT NULL
+                );
+                CREATE TRIGGER IF NOT EXISTS trg_recovery_cleanup_terminal
+                AFTER UPDATE OF status ON jobs
+                WHEN NEW.status IN ('completed','failed','cancelled')
+                BEGIN
+                    DELETE FROM atom_recovery_state WHERE job_id=NEW.id;
+                END;
                 -- Regardless of how a job ends (book commit, expired lease,
                 -- cancellation, daily failure), remove private subrequest text
                 -- in the SAME SQLite transaction as the terminal transition.
@@ -319,6 +337,53 @@ class QueueStore:
             return self.fail(job_id, lease_owner, message)
         return self._finish(job_id, lease_owner, "retry_wait", message=message,
                             run_after=time.time() + max(0.0, delay_seconds))
+
+    def defer_atom_debt_handoff(self, job_id: str, lease_owner: str, *,
+                                delay_seconds: float = 1.0) -> bool:
+        """Yield after one bounded wave of source-owned repairs, not a failed job.
+
+        Mirrors desktop's deferred debt-parent handoff: a single immutable job
+        retains its SQLite proofs and gets a new lease; no extra full translation
+        is authorized. Max 32 waves prevents indefinite hot looping.
+        """
+        if not 0 <= delay_seconds <= 60:
+            raise ValueError("Invalid source-debt handoff delay")
+        now = time.time()
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            row = con.execute("""
+                SELECT j.attempts, j.cancel_requested, r.phase, r.debt_passes
+                FROM jobs AS j JOIN atom_recovery_state AS r ON r.job_id=j.id
+                WHERE j.id=? AND j.status='running' AND j.lease_owner=?
+            """, (job_id, lease_owner)).fetchone()
+            if row is None or row["phase"] != "debt_repair":
+                con.execute("ROLLBACK")
+                return False
+            passes = int(row["debt_passes"]) + 1
+            cancelled = bool(row["cancel_requested"])
+            state = "cancelled" if cancelled else "failed" if passes > 32 else "retry_wait"
+            con.execute("""
+                UPDATE atom_recovery_state SET debt_passes=?, updated_at=?
+                WHERE job_id=?
+            """, (passes, now, job_id))
+            con.execute("""
+                UPDATE jobs SET status=?, attempts=?, run_after=?,
+                    lease_owner=NULL, lease_until=NULL, updated_at=?,
+                    last_error=?
+                WHERE id=? AND status='running' AND lease_owner=?
+            """, (
+                state,
+                max(0, int(row["attempts"]) - 1) if state == "retry_wait" else int(row["attempts"]),
+                now + delay_seconds if state == "retry_wait" else now,
+                now,
+                "Source-owned repair wave deferred" if state == "retry_wait" else
+                "Atom debt handoff exhausted" if state == "failed" else "",
+                job_id, lease_owner,
+            ))
+            self._event(con, job_id, "debt_wait" if state == "retry_wait" else state,
+                        "Source-owned repair wave deferred" if state == "retry_wait" else "", now)
+            con.execute("COMMIT")
+            return True
 
     def defer_desktop_transient(self, job_id: str, lease_owner: str, *,
                                 kind: str, initial_delay_seconds: float) -> bool:
