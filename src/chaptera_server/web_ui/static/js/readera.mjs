@@ -99,8 +99,9 @@ window.addEventListener('popstate',()=>showPage(currentPage()));
 
 $('login-form').addEventListener('submit',event=>{
   event.preventDefault();
+  const form=event.currentTarget;
   void busyDuring(async()=>{
-    const secret=new FormData(event.currentTarget).get('api_key');
+    const secret=new FormData(form).get('api_key');
     apiKey=String(secret || '').trim();
     try {
       const [me,catalog]=await Promise.all([
@@ -197,9 +198,10 @@ function revealSecret(reply) {
 }
 $('member-invite').addEventListener('submit',event=>{
   event.preventDefault();clearSecret();flash('');
+  const form=event.currentTarget;
   void busyDuring(async()=>{
     try {
-      const memberId=String(new FormData(event.currentTarget).get('member_id')||'').trim();
+      const memberId=String(new FormData(form).get('member_id')||'').trim();
       if (!/^[A-Za-z][A-Za-z0-9._-]{0,63}$/.test(memberId)) throw new Error('Некорректный ID модератора.');
       const issued=await request('/v1/admin/members',{
         method:'POST',body:JSON.stringify({member_id:memberId}),
@@ -434,9 +436,10 @@ $('import-upload').addEventListener('drop',event=>{
 });
 $('import-resume').addEventListener('submit',event=>{
   event.preventDefault();
+  const form=event.currentTarget;
   void busyDuring(async()=>{
     try {
-      const stageId=String(new FormData(event.currentTarget).get('stage_id')||'').trim();
+      const stageId=String(new FormData(form).get('stage_id')||'').trim();
       stageShown(await request('/v1/imports/stages/'+encodeURIComponent(stageId)));
       flash('Сессия восстановлена. Неподтверждённые назначения глав нужно проверить заново.');
     } catch(e){flash(e.message,true);}
