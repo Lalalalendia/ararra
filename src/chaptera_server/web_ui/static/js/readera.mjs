@@ -1,0 +1,512 @@
+/* ReadEra browser controller. Jinja2 supplies markup (ported from
+ * books_platform), vanilla JS binds it to the existing authenticated API.
+ * No React, client-side template library or persistent credential storage.
+ */
+import {
+  createDraft, changeAction, destinationEdited, verifiedReplacement,
+  validateDraft, confirmation,
+} from './import-model.mjs';
+
+const $ = id => document.getElementById(id);
+const sections = Array.from(document.querySelectorAll('[data-page]'));
+const knownPages = new Set(['overview','books','import','team','jobs']);
+let apiKey = '';
+let identity = null;
+let books = [];
+let members = [];
+let staged = null;
+let rows = [];
+let selectedFile = null;
+let uploadNonce = '';
+let confirmed = null;
+let busy = false;
+let targetBook = {book_mode:'create',book_id:'',title:'',owner_member_id:'',prefix_policy:'reject'};
+
+function flash(text, danger=false) {
+  const node = $('flash');
+  node.textContent = text || '';
+  node.hidden = !text;
+  node.classList.toggle('ui-alert--danger', Boolean(danger));
+}
+function text(parent, value, tag='span') {
+  const el = document.createElement(tag);
+  el.textContent = String(value ?? '');
+  parent.append(el);
+  return el;
+}
+function td(row, value) { return text(row,String(value ?? ''),'td'); }
+function shorten(s, limit=280) { return String(s || '').slice(0,limit); }
+function clearSecret() {
+  $('member-secret-code').textContent = '';
+  $('member-secret').hidden = true;
+}
+function busyDuring(work) {
+  if (busy) return;
+  busy = true;
+  return Promise.resolve().then(work).finally(() => {busy=false;});
+}
+async function request(path, {method='GET', body, headers={}, ...rest}={}) {
+  if (!apiKey) throw new Error('Сначала выполните вход в команду.');
+  const response=await fetch(path,{
+    ...rest, method, body, cache:'no-store', credentials:'omit',
+    headers:{'X-API-Key':apiKey,...headers},
+  });
+  if (!response.ok) {
+    let detail='';
+    try {
+      const json=await response.json();
+      detail=typeof json.detail==='string'?shorten(json.detail):'';
+    } catch { /* Untrusted HTTP bodies are deliberately ignored. */ }
+    if (response.status===401) throw new Error('Ключ недействителен или был отключён.');
+    if (response.status===403) throw new Error('Недостаточно прав для этой операции.');
+    if (response.status===404) throw new Error('Запись не найдена или недоступна.');
+    if (response.status===409) throw new Error('Конфликт версий или назначений: '+detail);
+    if (response.status===410) throw new Error('Срок хранения загрузки истёк.');
+    if (response.status===413) throw new Error('Превышен разрешённый размер или квота загрузок.');
+    throw new Error('Ошибка '+response.status+': '+(detail||'запрос отклонён'));
+  }
+  return response.json();
+}
+function currentPage() {
+  const page=location.pathname.slice('/app/'.length);
+  return knownPages.has(page)?page:'overview';
+}
+function showPage(page, push=false) {
+  if (!knownPages.has(page)) page='overview';
+  if (push && location.pathname !== '/app/'+page) history.pushState({},'', '/app/'+page);
+  sections.forEach(s => s.hidden = s.dataset.page !== page);
+  document.querySelectorAll('[data-page-link]').forEach(link => {
+    const selected=link.dataset.pageLink === page;
+    link.classList.toggle('is-active',selected);
+    if (selected) link.setAttribute('aria-current','page');
+    else link.removeAttribute('aria-current');
+  });
+  clearSecret();
+  if (!identity) return;
+  if (page==='books') void refreshBooks().catch(e => flash(e.message,true));
+  if (page==='team') void refreshMembers().catch(e => flash(e.message,true));
+  if (page==='jobs') void refreshJobs().catch(e => flash(e.message,true));
+  if (page==='overview') {
+    $('metric-books').textContent=String(books.length);
+    $('metric-role').textContent=identity.role==='admin'?'Администратор':'Модератор';
+  }
+}
+document.querySelectorAll('[data-page-link]').forEach(link=>link.addEventListener('click',event=>{
+  if (!identity || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button!==0) return;
+  event.preventDefault(); flash(''); showPage(link.dataset.pageLink,true);
+}));
+window.addEventListener('popstate',()=>showPage(currentPage()));
+
+$('login-form').addEventListener('submit',event=>{
+  event.preventDefault();
+  void busyDuring(async()=>{
+    const secret=new FormData(event.currentTarget).get('api_key');
+    apiKey=String(secret || '').trim();
+    try {
+      const [me,catalog]=await Promise.all([
+        request('/v1/me'),request('/v1/books'),
+      ]);
+      identity=me; books=catalog.books || [];
+      members=identity.role==='admin'
+        ? (await request('/v1/admin/members')).members : [];
+      $('login-form').hidden=true;
+      $('authenticated').hidden=false;
+      $('identity-label').textContent=identity.member_id+' · '+
+        (identity.role==='admin'?'Администратор':'Модератор');
+      $('identity-label').hidden=false;
+      $('login-form').reset();
+      $('metric-books').textContent=String(books.length);
+      $('metric-role').textContent=identity.role==='admin'?'Администратор':'Модератор';
+      showPage(currentPage());
+      flash('');
+    } catch(e) {
+      apiKey=''; identity=null;
+      flash(e.message,true);
+    }
+  });
+});
+$('logout').addEventListener('click',()=>{
+  apiKey='';identity=null;books=[];members=[];staged=null;rows=[];confirmed=null;
+  clearSecret();$('identity-label').hidden=true;
+  $('authenticated').hidden=true;$('login-form').hidden=false;$('login-form').reset();
+  hideImportSteps();flash('');
+});
+
+async function refreshBooks() {
+  const reply=await request('/v1/books');
+  books=reply.books || [];
+  const needle=$('book-filter').value.trim().toLocaleLowerCase('ru-RU');
+  const body=$('book-list');body.replaceChildren();
+  const filtered=books.filter(book=>
+    [book.title,book.book_id,book.owner_member_id].join(' ')
+      .toLocaleLowerCase('ru-RU').includes(needle));
+  for (const book of filtered) {
+    const tr=document.createElement('tr');
+    td(tr,book.title);td(tr,book.book_id);
+    td(tr,book.owner_member_id || 'Не назначен');
+    td(tr,book.owner_revision);
+    body.append(tr);
+  }
+  $('books-empty').hidden=filtered.length>0;
+  $('metric-books').textContent=String(books.length);
+  fillBooksSelect();
+}
+$('book-filter').addEventListener('input',()=>{
+  const body=$('book-list');body.replaceChildren();
+  const q=$('book-filter').value.trim().toLocaleLowerCase('ru-RU');
+  const matching=books.filter(b=>
+    [b.title,b.book_id,b.owner_member_id].join(' ').toLocaleLowerCase('ru-RU').includes(q));
+  matching.forEach(b=>{
+    const tr=document.createElement('tr');
+    [b.title,b.book_id,b.owner_member_id||'Не назначен',b.owner_revision]
+      .forEach(x=>td(tr,x));
+    body.append(tr);
+  });
+  $('books-empty').hidden=matching.length>0;
+});
+
+async function refreshMembers() {
+  $('team-admin-only').hidden=identity.role!=='admin';
+  $('team-no-admin').hidden=identity.role==='admin';
+  if (identity.role!=='admin') return;
+  members=(await request('/v1/admin/members')).members;
+  const root=$('members-list');root.replaceChildren();
+  for (const member of members) {
+    const tr=document.createElement('tr');
+    td(tr,member.member_id);
+    td(tr,member.role==='admin'?'Администратор':'Модератор');
+    td(tr,member.status==='active'?'Активен':'Отключён');
+    const actions=document.createElement('td');
+    if (member.role==='moderator') {
+      const rotate=text(actions,'Перевыпустить','button');
+      rotate.type='button';rotate.className='ui-button ui-button--ghost';
+      rotate.addEventListener('click',()=>void modifyMember(member.member_id,'rotate'));
+      if (member.status==='active') {
+        const disable=text(actions,'Отключить','button');
+        disable.type='button';disable.className='ui-button ui-button--danger';
+        disable.addEventListener('click',()=>void modifyMember(member.member_id,'disable'));
+      }
+    } else text(actions,'Управляется на сервере');
+    tr.append(actions);root.append(tr);
+  }
+  fillOwnerSelect();
+}
+function revealSecret(reply) {
+  $('member-secret-code').textContent=reply.access_token;
+  $('member-secret').hidden=false;
+}
+$('member-invite').addEventListener('submit',event=>{
+  event.preventDefault();clearSecret();flash('');
+  void busyDuring(async()=>{
+    try {
+      const memberId=String(new FormData(event.currentTarget).get('member_id')||'').trim();
+      if (!/^[A-Za-z][A-Za-z0-9._-]{0,63}$/.test(memberId)) throw new Error('Некорректный ID модератора.');
+      const issued=await request('/v1/admin/members',{
+        method:'POST',body:JSON.stringify({member_id:memberId}),
+        headers:{'Content-Type':'application/json'},
+      });
+      revealSecret(issued);$('member-invite').reset();await refreshMembers();
+      flash('Сохраните новый ключ и передайте модератору по защищённому каналу.');
+    } catch(e){flash(e.message,true);}
+  });
+});
+$('member-secret-hide').addEventListener('click',clearSecret);
+async function modifyMember(memberId,action) {
+  if (identity?.role!=='admin') return;
+  const message=action==='rotate'
+    ? 'Перевыпустить ключ «'+memberId+'»? Предыдущий перестанет работать.'
+    : 'Отключить «'+memberId+'»? Ожидающие задания будут отменены. Все книги сначала должны быть переназначены.';
+  if (!window.confirm(message)) return;
+  clearSecret();flash('');
+  await busyDuring(async()=>{
+    try {
+      const result=await request('/v1/admin/members/'+encodeURIComponent(memberId)+'/'+action,{method:'POST'});
+      await refreshMembers();
+      if (result.access_token) revealSecret(result);
+      flash(action==='rotate'?'Новый ключ выдан однократно.':'Доступ модератора отключён.');
+    } catch(e){flash(e.message,true);}
+  });
+}
+async function refreshJobs() {
+  const reply=await request('/v1/jobs?limit=50');
+  const jobs=reply.jobs || [];
+  const root=$('jobs-list');root.replaceChildren();
+  for(const job of jobs) {
+    const item=document.createElement('article');item.className='chapter-import-queue__item';
+    const main=document.createElement('div');main.className='chapter-import-queue__main';
+    text(main,'Задание '+shorten(job.id,80),'strong');
+    text(main,shorten(job.chapter_id,80)+' · '+shorten(job.status,40),'small');
+    const meta=document.createElement('div');meta.className='chapter-import-queue__meta';
+    text(meta,job.status,'span');
+    item.append(main,meta);root.append(item);
+  }
+  $('metric-jobs').textContent=String(jobs.filter(j=>['queued','retry_wait','running'].includes(j.status)).length);
+  if (!jobs.length) text(root,'Заданий пока нет.','p');
+}
+$('jobs-refresh').addEventListener('click',()=>void refreshJobs().catch(e=>flash(e.message,true)));
+
+function hideImportSteps() {
+  $('import-upload').hidden=false;$('import-resume').hidden=false;
+  $('import-map').hidden=true;$('import-review').hidden=true;$('import-success').hidden=true;
+  $('import-ack').checked=false;$('import-confirm').disabled=true;
+  staged=null;rows=[];confirmed=null;
+  markStep(1);
+}
+function markStep(n) {
+  document.querySelectorAll('#import-steps li').forEach(el=>{
+    el.classList.toggle('is-current',Number(el.dataset.step)===n);
+    el.classList.toggle('is-done',Number(el.dataset.step)<n);
+  });
+}
+function fillOwnerSelect() {
+  const select=$('import-owner');select.replaceChildren();
+  const empty=document.createElement('option');empty.value='';empty.textContent='Выберите модератора';select.append(empty);
+  if (identity?.role==='admin') {
+    for (const m of members.filter(x=>x.role==='moderator'&&x.status==='active')) {
+      const option=document.createElement('option');option.value=m.member_id;option.textContent=m.member_id;
+      select.append(option);
+    }
+  } else if (identity) {
+    const option=document.createElement('option');option.value=identity.member_id;option.textContent=identity.member_id;
+    select.append(option);select.value=identity.member_id;
+  }
+}
+function fillBooksSelect() {
+  const select=$('import-existing');select.replaceChildren();
+  const empty=document.createElement('option');empty.value='';empty.textContent='Выберите книгу';select.append(empty);
+  for(const b of books){
+    const opt=document.createElement('option');opt.value=b.book_id;opt.textContent=b.title+' · '+b.book_id;
+    select.append(opt);
+  }
+}
+function currentTarget() {
+  const mode=document.querySelector('input[name="book_mode"]:checked')?.value || 'create';
+  const id=mode==='existing' ? $('import-existing').value : $('import-book-id').value.trim();
+  const pre=document.querySelector('input[name="prefix_policy"]:checked');
+  return {
+    book_mode:mode,book_id:id,title: mode==='create'?$('import-book-title').value:'',
+    owner_member_id:mode==='create'
+      ? (identity?.role==='admin' ? $('import-owner').value : identity?.member_id||'') : null,
+    prefix_policy: staged?.unassigned_prefix_saved ? (pre?.value || 'reject') : 'reject',
+  };
+}
+function stageShown(stage) {
+  staged=stage;
+  rows=createDraft(stage.preview);
+  confirmed=stage.commit_result || null;
+  $('import-upload').hidden=true;$('import-resume').hidden=true;
+  $('import-map').hidden=Boolean(confirmed);$('import-review').hidden=true;
+  $('import-success').hidden=!confirmed;
+  $('import-book-id').value='book-'+stage.stage_id.slice(0,8);
+  $('import-book-title').value=stage.preview.title || '';
+  $('stage-details').textContent=stage.preview.filename+' · '+stage.preview.chapter_count+
+    ' глав · ID временной сессии: '+stage.stage_id+
+    ' · истекает '+new Date(stage.expires_at*1000).toLocaleString('ru-RU');
+  $('prefix-fieldset').hidden=!stage.unassigned_prefix_saved;
+  $('prefix-preview').value=stage.unassigned_prefix_html || stage.preview.unassigned_prefix_sample || '';
+  document.querySelectorAll('input[name="prefix_policy"]').forEach(x=>x.checked=false);
+  document.querySelector('input[name="book_mode"][value="create"]').checked=true;
+  $('import-warnings').hidden=!(stage.preview.warnings||[]).length;
+  $('import-warnings').replaceChildren();
+  for(const w of stage.preview.warnings || [])text($('import-warnings'),w,'p');
+  fillOwnerSelect();fillBooksSelect();syncBookMode();renderMapping();
+  $('import-resume').elements.stage_id.value=stage.stage_id;
+  if(confirmed) showReceipt(confirmed);else markStep(2);
+}
+function syncBookMode() {
+  const existing=document.querySelector('input[name="book_mode"]:checked')?.value==='existing';
+  $('import-existing-wrap').hidden=!existing;
+  $('import-title-wrap').hidden=existing;
+  $('import-owner-wrap').hidden=existing;
+  $('import-book-id').closest('label').hidden=existing;
+  if (existing) {
+    const selected=$('import-existing').value;
+    $('import-book-id').value=selected;
+  }
+  rows=rows.map(row=>row.action==='replace'
+    ? {...row,expected_revision:null,verified_book_id:null,verified_chapter_id:null} : row);
+  renderMapping();
+}
+document.querySelectorAll('input[name="book_mode"]').forEach(el=>el.addEventListener('change',syncBookMode));
+$('import-existing').addEventListener('change',()=>{
+  $('import-book-id').value=$('import-existing').value;
+  rows=rows.map(row=>row.action==='replace'
+    ? {...row,expected_revision:null,verified_book_id:null,verified_chapter_id:null} : row);
+  renderMapping();
+});
+function rowInput(type,value,label,change) {
+  const el=document.createElement(type);
+  if(type==='input'){el.type='text';el.value=value;el.setAttribute('aria-label',label);el.addEventListener('input',e=>change(e.target.value));}
+  return el;
+}
+function renderMapping() {
+  const body=$('chapter-map');body.replaceChildren();
+  if(!staged)return;
+  for(const row of rows){
+    const tr=document.createElement('tr');
+    const info=document.createElement('td');
+    text(info,'#'+row.sequence+' · '+row.title,'strong');
+    text(info,row.detected_number===null?'Без номера':'Глава '+row.detected_number,'small');
+    text(info,shorten(row.sample,90),'small');
+    tr.append(info);
+    const cellAction=document.createElement('td');
+    const select=document.createElement('select');select.className='ui-input';
+    select.setAttribute('aria-label','Действие главы '+row.sequence);
+    for (const [value,label] of [['create','Создать'],['replace','Заменить'],['skip','Пропустить']]){
+      const option=document.createElement('option');option.value=value;option.textContent=label;
+      option.selected=value===row.action;
+      option.disabled=value==='replace'&&document.querySelector('input[name="book_mode"]:checked')?.value==='create';
+      select.append(option);
+    }
+    select.addEventListener('change',()=>{
+      rows=rows.map(r=>r.sequence===row.sequence?changeAction(r,select.value):r);
+      renderMapping();
+    });
+    cellAction.append(select);tr.append(cellAction);
+    for(const key of ['chapter_id','chapter_index','chapter_path']){
+      const tdEl=document.createElement('td');
+      const input=rowInput('input',row[key],key+' для главы '+row.sequence,value=>{
+        rows=rows.map(r=>r.sequence===row.sequence?destinationEdited(r,key,value):r);
+        if(row.action==='replace'){
+          const latest=rows.find(r=>r.sequence===row.sequence);
+          if(latest){const note=tr.querySelector('[data-rev-note]');if(note)note.textContent='Не проверена';}
+        }
+      });
+      input.disabled=row.action==='skip';
+      if(key==='chapter_index') input.inputMode='numeric';
+      tdEl.append(input);tr.append(tdEl);
+    }
+    const revision=document.createElement('td');
+    const status=text(revision,row.action==='replace'
+      ? (row.expected_revision===null?'Не проверена':'rev '+row.expected_revision)
+      : 'Новая','span');
+    status.dataset.revNote='';
+    if(row.action==='replace') {
+      const check=text(revision,'Проверить','button');
+      check.type='button';check.className='ui-button ui-button--ghost';
+      check.addEventListener('click',()=>void verifyRow(row.sequence));
+    }
+    tr.append(revision);body.append(tr);
+  }
+}
+async function verifyRow(sequence) {
+  const row=rows.find(r=>r.sequence===sequence);const target=currentTarget();
+  if(!row||row.action!=='replace'||target.book_mode!=='existing'||!target.book_id||!row.chapter_id.trim()){
+    flash('Для замены нужно выбрать существующую книгу и ID главы.',true);return;
+  }
+  await busyDuring(async()=>{
+    try {
+      const oldBook=target.book_id,oldChapter=row.chapter_id.trim();
+      const remote=await request('/v1/books/'+encodeURIComponent(oldBook)+'/chapters/'+encodeURIComponent(oldChapter));
+      if(currentTarget().book_id!==oldBook)throw new Error('Книга изменилась во время проверки. Проверьте ревизию ещё раз.');
+      rows=rows.map(r=>r.sequence===sequence?verifiedReplacement(r,oldBook,remote):r);
+      renderMapping();flash('Ревизия главы '+sequence+' проверена.');
+    } catch(e){flash(e.message,true);}
+  });
+}
+$('import-upload').addEventListener('submit',event=>{
+  event.preventDefault();
+  void busyDuring(async()=>{
+    const file=selectedFile||$('chapters_file').files[0];
+    if(!file||!/\.(txt|html?|xhtml|epub|docx)$/i.test(file.name)||!file.size||file.size>12*1024*1024){
+      flash('Выберите поддерживаемый непустой файл до 12 МиБ.',true);return;
+    }
+    try {
+      const form=new FormData();form.append('file',file,file.name);
+      const snapshot=await request('/v1/imports/stages',{
+        method:'POST',body:form,headers:{'Idempotency-Key':uploadNonce||crypto.randomUUID()},
+      });
+      stageShown(await request('/v1/imports/stages/'+encodeURIComponent(snapshot.stage_id)));
+      flash('Файл проверен. Пока ничего не сохранено в библиотеку.');
+    }catch(e){flash(e.message,true);}
+  });
+});
+$('chapters_file').addEventListener('change',event=>{
+  selectedFile=event.target.files[0]||null;uploadNonce=crypto.randomUUID();
+});
+$('import-upload').addEventListener('dragover',event=>event.preventDefault());
+$('import-upload').addEventListener('drop',event=>{
+  event.preventDefault();
+  if (event.dataTransfer?.files?.length) {
+    selectedFile=event.dataTransfer.files[0];uploadNonce=crypto.randomUUID();
+    const data=new DataTransfer();data.items.add(selectedFile);$('chapters_file').files=data.files;
+  }
+});
+$('import-resume').addEventListener('submit',event=>{
+  event.preventDefault();
+  void busyDuring(async()=>{
+    try {
+      const stageId=String(new FormData(event.currentTarget).get('stage_id')||'').trim();
+      stageShown(await request('/v1/imports/stages/'+encodeURIComponent(stageId)));
+      flash('Сессия восстановлена. Неподтверждённые назначения глав нужно проверить заново.');
+    } catch(e){flash(e.message,true);}
+  });
+});
+$('import-abort').addEventListener('click',()=>{$('import-abort-confirm').hidden=false;});
+$('import-abort-no').addEventListener('click',()=>{$('import-abort-confirm').hidden=true;});
+$('import-abort-yes').addEventListener('click',()=>{
+  if(!staged||confirmed)return;
+  void busyDuring(async()=>{
+    try{
+      await request('/v1/imports/stages/'+encodeURIComponent(staged.stage_id),{method:'DELETE'});
+      hideImportSteps();flash('Временные данные отменены; слот импорта освобождён.');
+    }catch(e){flash(e.message,true);}
+  });
+});
+$('import-review-button').addEventListener('click',()=>{
+  if(!staged)return;
+  targetBook=currentTarget();
+  const errors=validateDraft(rows,targetBook,staged);
+  if(errors.length){flash(errors.slice(0,12).join(' \n'),true);return;}
+  const root=$('import-summary');root.replaceChildren();
+  const counts={create:0,replace:0,skip:0};
+  rows.forEach(r=>counts[r.action]++);
+  [
+    ['Книга',targetBook.book_id],
+    ['Режим',targetBook.book_mode==='create'?'Создание книги':'Дополнение книги'],
+    ['Создать глав',counts.create],
+    ['Заменить глав',counts.replace],
+    ['Пропустить глав',counts.skip],
+    ['Предисловие',staged.unassigned_prefix_saved?targetBook.prefix_policy:'Не обнаружено'],
+    ['Хеш файла',staged.file_sha256],
+  ].forEach(([label,value])=>{
+    const div=document.createElement('p');
+    text(div,label+': ','strong');text(div,value);root.append(div);
+  });
+  $('import-map').hidden=true;$('import-review').hidden=false;markStep(3);flash('');
+  $('import-ack').checked=false;$('import-confirm').disabled=true;
+});
+$('import-ack').addEventListener('change',event=>{$('import-confirm').disabled=!event.currentTarget.checked;});
+$('import-back').addEventListener('click',()=>{
+  $('import-review').hidden=true;$('import-map').hidden=false;
+  $('import-ack').checked=false;markStep(2);
+});
+$('import-confirm').addEventListener('click',()=>{
+  if(!staged||!$('import-ack').checked||confirmed)return;
+  const errors=validateDraft(rows,targetBook,staged);
+  if(errors.length){flash(errors.slice(0,12).join(' \n'),true);return;}
+  void busyDuring(async()=>{
+    try {
+      const receipt=await request('/v1/imports/stages/'+encodeURIComponent(staged.stage_id)+'/confirm',{
+        method:'POST',body:JSON.stringify(confirmation(rows,targetBook,staged)),
+        headers:{'Content-Type':'application/json'},
+      });
+      showReceipt(receipt);await refreshBooks();flash('Сервер подтвердил атомарный импорт.');
+    }catch(e){flash(e.message,true);}
+  });
+});
+function showReceipt(receipt){
+  confirmed=receipt;
+  const el=$('import-receipt');el.replaceChildren();
+  [
+    ['Книга',receipt.book_id],
+    ['Создано/заменено',receipt.imported_count],
+    ['Пропущено',receipt.skipped_count],
+    ['Предисловие',receipt.unassigned_prefix_preserved?'Сохранено':'Не сохранялось'],
+    ['ID операции',receipt.stage_id],
+  ].forEach(([label,value])=>{const p=document.createElement('p');text(p,label+': ','strong');text(p,value);el.append(p);});
+  $('import-map').hidden=true;$('import-review').hidden=true;$('import-success').hidden=false;markStep(3);
+}
+$('import-another').addEventListener('click',()=>{hideImportSteps();$('chapters_file').value='';selectedFile=null;flash('');});
+hideImportSteps();
+showPage(currentPage());
