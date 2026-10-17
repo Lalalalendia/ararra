@@ -140,38 +140,43 @@ class PublicHtmlFetcher:
 
     async def _raw_fetch(self, url: str, *, allow_robots_missing: bool = False) -> str | None:
         try:
-            async with httpx.AsyncClient(
-                transport=self._transport_factory(), timeout=TIMEOUT,
-                trust_env=False, follow_redirects=False,
-                headers={"User-Agent": USER_AGENT, "Accept": "text/html"},
-            ) as client:
-                async with client.stream("GET", url) as reply:
-                    if allow_robots_missing and reply.status_code in (404, 410):
-                        return None
-                    if reply.status_code != 200:
-                        reason = "blocked" if reply.status_code in (301, 302, 303, 307, 308, 401, 402, 403, 429, 451) else "http_error"
-                        raise IngestError(reason, f"Source HTTP {reply.status_code}")
-                    media = reply.headers.get("content-type", "").lower().split(";", 1)[0].strip()
-                    if media not in ("text/html", "application/xhtml+xml", "text/plain"):
-                        raise IngestError("invalid_response", "Unexpected source MIME type")
-                    if int(reply.headers.get("content-length", "0") or 0) > MAX_RESPONSE_BYTES:
-                        raise IngestError("too_large", "HTTP source exceeds size limit")
-                    buf = bytearray()
-                    async for chunk in reply.aiter_bytes():
-                        if len(buf) + len(chunk) > MAX_RESPONSE_BYTES:
-                            raise IngestError("too_large", "Decoded HTTP source exceeds size limit")
-                        buf.extend(chunk)
-                    raw = bytes(buf)
-                    if not raw:
-                        raise IngestError("missing_body", "Empty source response")
-                    encodings = ("utf-8-sig", "gb18030") if "uukanshu.cc" in urlsplit(url).hostname else ("utf-8-sig",)
-                    for enc in encodings:
+            async with asyncio.timeout(40):
+                async with httpx.AsyncClient(
+                    transport=self._transport_factory(), timeout=TIMEOUT,
+                    trust_env=False, follow_redirects=False,
+                    headers={"User-Agent": USER_AGENT, "Accept": "text/html"},
+                ) as client:
+                    async with client.stream("GET", url) as reply:
+                        if allow_robots_missing and reply.status_code in (404, 410):
+                            return None
+                        if reply.status_code != 200:
+                            reason = "blocked" if reply.status_code in (301, 302, 303, 307, 308, 401, 402, 403, 429, 451) else "http_error"
+                            raise IngestError(reason, f"Source HTTP {reply.status_code}")
+                        media = reply.headers.get("content-type", "").lower().split(";", 1)[0].strip()
+                        if media not in ("text/html", "application/xhtml+xml", "text/plain"):
+                            raise IngestError("invalid_response", "Unexpected source MIME type")
                         try:
-                            return raw.decode(enc)
-                        except UnicodeDecodeError:
-                            continue
-                    raise IngestError("invalid_response", "Unsupported source encoding")
-        except (httpx.HTTPError, OSError, RuntimeError) as exc:
+                            declared_length = int(reply.headers.get("content-length", "0") or 0)
+                        except ValueError as exc:
+                            raise IngestError("invalid_response", "Invalid content length") from exc
+                        if declared_length > MAX_RESPONSE_BYTES:
+                            raise IngestError("too_large", "HTTP source exceeds size limit")
+                        buf = bytearray()
+                        async for chunk in reply.aiter_bytes():
+                            if len(buf) + len(chunk) > MAX_RESPONSE_BYTES:
+                                raise IngestError("too_large", "Decoded HTTP source exceeds size limit")
+                            buf.extend(chunk)
+                        raw = bytes(buf)
+                        if not raw:
+                            raise IngestError("missing_body", "Empty source response")
+                        encodings = ("utf-8-sig", "gb18030") if "uukanshu.cc" in urlsplit(url).hostname else ("utf-8-sig",)
+                        for enc in encodings:
+                            try:
+                                return raw.decode(enc)
+                            except UnicodeDecodeError:
+                                continue
+                        raise IngestError("invalid_response", "Unsupported source encoding")
+        except (httpx.HTTPError, OSError, RuntimeError, TimeoutError) as exc:
             if isinstance(exc, IngestError):
                 raise
             raise IngestError("network_error", type(exc).__name__) from exc
@@ -195,6 +200,8 @@ class PublicHtmlFetcher:
                         raise IngestError("blocked", "Invalid robots policy response")
                     parser.parse(robots_text.splitlines())
                 delay = max(MIN_REQUEST_INTERVAL, float(parser.crawl_delay(USER_AGENT) or 0.0))
+                if delay > 20:
+                    raise IngestError("blocked", "Robots crawl-delay exceeds interactive collection limit")
                 self._robots[host] = (parser, delay, now)
             parser, delay, _ = self._robots[host]
             if not parser.can_fetch(USER_AGENT, url):
