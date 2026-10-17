@@ -64,6 +64,23 @@ class SetEditorNoteStatus(BaseModel):
     expected_revision: int = Field(ge=1)
 
 
+class RunChapterQa(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_source_revision: int = Field(ge=1)
+    expected_accepted_revision: int = Field(ge=1)
+    expected_glossary_revision: int = Field(ge=0)
+
+
+class ReviewChapterQa(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    status: Literal["open", "reviewed", "waived"]
+    expected_review_revision: int = Field(ge=1)
+    expected_source_revision: int = Field(ge=1)
+    expected_accepted_revision: int = Field(ge=1)
+    expected_glossary_revision: int = Field(ge=0)
+    note: str = Field(default="", max_length=1000)
+
+
 class RestoreEditorAccepted(BaseModel):
     model_config = ConfigDict(extra="forbid")
     revision: int = Field(ge=1)
