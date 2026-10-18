@@ -76,6 +76,37 @@ progress after page reload, and HTTP 409 with no extra jobs when a selected
 source is changed after preview. A real paid full-book trial is outside this
 workflow.
 
+## RE-06C local Gemini project budget gate
+
+Each moderator adds a Gemini key in **Личный кабинет** and then explicitly
+sets a conservative **local daily request cap** for that same Google project
+(1–1,000,000 requests/day, normally much lower). This is NOT a Google quota
+lookup, provider-verified entitlement, token-cost ceiling or financial budget.
+The UI shows the locally counted used/remaining requests and always states that
+other applications using the Google project are not measured here.
+
+`PUT /v1/me/gemini-keys/{project_id}/daily-cap` with
+`{"daily_request_cap": 21}` (for example) requires the owning moderator's
+authenticated session and CSRF. The number should be explicitly chosen using
+that moderator's actual project/model allowance, not guessed from the API key.
+Changing the key for the same project does not silently raise its limit; deleting
+the key deletes the associated cap.
+
+The worker will **not make any paid Gemini calls** for an uncapped personal
+project, including context preflight, translation and repair. A configured
+cap is re-read under the same SQLite transaction that reserves each outgoing
+request; quota exhaustion defers the existing job to Pacific midnight without
+burning its normal finite retry attempts. Project/model accounting is durable
+across restarts. A separately configured host limit can only tighten, never
+relax, a moderator's cap.
+
+A batch of 100 chapters is NOT assumed to cost only 100 API calls: context,
+segmentation, retries and repairs may cost many more. The preview checks that
+the moderator has at least one capped project, not that all chapters fit into
+one day's remaining allowance. Any overflow stays queued and resumes under
+the existing worker's Pacific-day handling. This does not grant unlimited
+paid throughput and does not create another scheduler.
+
 ## Safety boundaries
 
 - All source IDs/revisions, the book glossary version and the preview SHA are
@@ -99,9 +130,9 @@ workflow.
 
 ## Remaining RE-06C work
 
-Quota-budget admission based on the configured Google project/model and
-actual token/requests allowance; optional whole-batch cancel; browser visual
-approval against Canva, real-provider literary QA and production acceptance.
+Actual Google-side token allowance and billing awareness remain unverified;
+optional whole-batch cancel, browser visual approval against Canva, real-provider
+literary QA and production acceptance also remain.
 CI's headless Chromium run proves only the isolated local workflow, not
 billable throughput or readiness of permanent VPS services. Root bootstrap for persistent
 translator systemd services is still blocked by chaptera-site issue #46.
