@@ -348,6 +348,50 @@ try{
   await page.unroute(sharedPattern);
   await page.unroute(sharedChapterIndex);
   await page.unroute(sharedBodyPath);
+  // Immutable archived originals survive personal job deletion and remain
+  // readable by another logged-in team member. Prose is never interpreted
+  // as HTML, even if it contains an SVG event-handler-looking string.
+  const archivedBookId='a'.repeat(64),archivedRevision='b'.repeat(64);
+  const archivedBody='<svg/onload=alert(1)> Verified archived example chapter.';
+  const archiveBooksPath='**/v1/source-books/archive?limit=30&offset=0';
+  const archiveChaptersPath='**/v1/source-books/archive/'+archivedBookId+'?limit=50&offset=0';
+  const archiveReadPath='**/v1/source-books/archive/revisions/'+archivedRevision;
+  await page.route(archiveBooksPath,route=>route.fulfill({
+    status:200,contentType:'application/json',
+    body:JSON.stringify({scope:'team_shared_original_archive',read_only:true,
+      books:[{archive_book_id:archivedBookId,source:'royalroad',
+        book_url:sourceCatalogReply.book_url,chapter_count:1,revisions:1}]}),
+  }));
+  await page.route(archiveChaptersPath,route=>route.fulfill({
+    status:200,contentType:'application/json',
+    body:JSON.stringify({scope:'team_shared_original_archive',
+      archive_book_id:archivedBookId,has_more:false,
+      chapters:[{revision_id:archivedRevision,ordinal:1,title:'Archived synthetic',
+        body_sha256:'e'.repeat(64),collector_member_id:'other-member'}]}),
+  }));
+  await page.route(archiveReadPath,route=>route.fulfill({
+    status:200,contentType:'application/json',
+    body:JSON.stringify({scope:'single_verified_archived_original',
+      revision_id:archivedRevision,ordinal:1,title:'Archived synthetic',
+      sha256:'e'.repeat(64),body:archivedBody}),
+  }));
+  await page.locator('#source-archive').evaluate(el=>{el.open=true;});
+  await page.locator('#source-archive-refresh').click();
+  await page.getByText('Книг с сохранёнными оригиналами: 1',{exact:false}).waitFor();
+  await page.locator('#source-archive-books').selectOption(archivedBookId);
+  await page.locator('#source-archive-open').click();
+  await page.locator('#source-archive-reader').waitFor({state:'visible'});
+  await page.locator('#source-archive-chapters').selectOption(archivedRevision);
+  await page.locator('#source-archive-read').click();
+  await page.locator('#source-archive-body').waitFor({state:'visible'});
+  assert.equal(await page.locator('#source-archive-body').textContent(),archivedBody);
+  assert.equal(await page.locator('#source-archive-body svg').count(),0,
+    'Archive original must be escaped from executable HTML');
+  assert.equal(await page.locator('#source-archive [id*=delete]').count(),0,
+    'Team archive does not expose a destructive control');
+  await page.unroute(archiveBooksPath);
+  await page.unroute(archiveChaptersPath);
+  await page.unroute(archiveReadPath);
   // The server history allows restoring without retaining a UUID in localStorage.
   await page.locator('#source-job-history-refresh').click();
   await page.getByText('Доступно своих сборок: 1',{exact:false}).waitFor();
@@ -891,6 +935,7 @@ try{
   await page.locator('#logout').click();
   await page.locator('#login-form').waitFor({state:'visible'});
   assert.equal(await page.locator('#source-shared-body').textContent(),'');
+  assert.equal(await page.locator('#source-archive-body').textContent(),'');
   assert.equal(await page.locator('[name="login_mode"]').count(),0);
   assert.equal(await page.locator('#login-member').count(),0);
   assert.equal(await page.locator('#password-change-form').count(),0);
