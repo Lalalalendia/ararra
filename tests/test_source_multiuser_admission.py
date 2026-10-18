@@ -235,3 +235,72 @@ def test_old_source_schema_migrates_additively(tmp_path):
     with repo._connect() as con:
         fields = {x["name"] for x in con.execute("PRAGMA table_info(source_collect_jobs)")}
     assert {"ready_at","dispatch_turn","defer_reason"} <= fields
+
+
+
+def test_global_queue_limit_counts_all_sites_without_overriding_site_limit(tmp_path):
+    from chaptera_server.source_collect import SourceCatalog, SourceChapter
+    from chaptera_server.source_site_storage import _fingerprint
+    from chaptera_server.source_job_store import MAX_ACTIVE_JOBS_GLOBAL
+
+    def tiny(source, book, chapter, chapter_id):
+        chapters = (SourceChapter(1,"One",chapter_id,chapter),)
+        return SourceCatalog(source,book,chapters,_fingerprint(chapters))
+
+    catalogs = [
+        tiny("royalroad",BOOK,
+             "https://www.royalroad.com/fiction/142007/aura/chapter/60001/1-part","60001"),
+        tiny("webnovel","https://www.webnovel.com/book/story_123456789",
+             "https://www.webnovel.com/book/story_123456789/one_12345678","12345678"),
+        tiny("uukanshu","https://uukanshu.cc/book/456123",
+             "https://uukanshu.cc/book/456123/765432.html","765432"),
+    ]
+    repo = QueueStore(tmp_path/"global.db")
+    jobs = SourceJobStore(repo)
+    active = 0
+    for i,cat in enumerate(catalogs):
+        for j in range((11,11,10)[i]):
+            jobs.create(f"actor-{i}-{j}","cat",cat,[1])
+            active += 1
+    assert active == MAX_ACTIVE_JOBS_GLOBAL
+    with pytest.raises(SourceJobConflict,match="Shared source job queue is full"):
+        jobs.create("actor-extra","cat",catalogs[2],[1])
+    assert jobs.get("actor-0-0",jobs.list_recent("actor-0-0")[0]["job_id"])["status"]=="queued"
+
+
+def test_authenticated_discovery_reports_retry_after_instead_of_fetching(tmp_path):
+    repo = QueueStore(tmp_path/"api429.db")
+    app = create_app(Settings(db_path=repo.db_path,
+                              team_tokens={"alice":"key"}),repo)
+    gate = app.state.source_request_limiter
+    token = gate.reserve("royalroad","royalroad.com",delay=4)
+    class NoNetwork:
+        def __call__(self,_request):
+            raise AssertionError("HTTP must not run before shared admission")
+    app.state.public_source_fetcher = PublicHtmlFetcher(
+        transport_factory=lambda:httpx.MockTransport(NoNetwork()),
+        request_limiter=SourceRequestLimiter(QueueStore(repo.db_path),wait_seconds=0),
+    )
+    async def check():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),base_url="http://test",
+        ) as client:
+            response = await client.post("/v1/source-books/catalogs",
+                headers={"X-API-Key":"key"},
+                json={"source":"royalroad","book_url":BOOK})
+            assert response.status_code == 429
+            assert int(response.headers["retry-after"]) >= 1
+            assert response.json()["detail"].startswith("site_busy:")
+    asyncio.run(check())
+    assert gate.release("royalroad",token)
+
+
+def test_cancelled_job_cannot_be_resurrected_by_stale_deferral(tmp_path):
+    jobs = SourceJobStore(QueueStore(tmp_path/"cancel.db"))
+    job = jobs.create("alice","cat",catalog(),[1])
+    claim = jobs.claim()
+    jobs.cancel("alice",job["job_id"])
+    with pytest.raises(SourceJobConflict,match="Stale"):
+        jobs.defer(job["job_id"],claim["lease_token"],
+                   retry_after=60,reason="request_interval")
+    assert jobs.get("alice",job["job_id"])["status"] == "cancelled"
