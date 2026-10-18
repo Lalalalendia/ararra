@@ -272,19 +272,19 @@ but does **not** restrict access to checksum-verified original text.
 
 ### Read-only source collection endpoints
 
-- GET /v1/source-books/jobs/shared?limit=30 — bounded team index of **only**
+- GET /v1/source-books/shared?limit=30 — bounded team index of **only**
   jobs with at least one stored verified original chapter, including the
   responsible moderator, source URL and number of verified checkpoints.
   No raw prose, private failures, quota of other members or secrets.
-- GET /v1/source-books/jobs/shared/{job_id}?offset=0&limit=50 —
+- GET /v1/source-books/shared/{job_id}?offset=0&limit=50 —
   paginated read-only identities of stored verified chapters.
-- GET /v1/source-books/jobs/shared/{job_id}/chapters/{ordinal} —
+- GET /v1/source-books/shared/{job_id}/chapters/{ordinal} —
   exactly one original chapter, after matching its manifest index,
   source ID, URL, byte count and SHA-256 against SQLite. Return 404 for
   nonexistent/unverified chapters; 409 for corrupted original data.
   Respond with Cache-Control: no-store, private; browser inserts only
   textContent, never executable HTML.
-- GET /v1/source-books/jobs/shared/{job_id}/assembly — original TXT
+- GET /v1/source-books/shared/{job_id}/assembly — original TXT
   completeness/digest preview with no prose. GET the companion
   /export.txt?expected_manifest_sha256=...&expected_content_sha256=...
   only after complete SHA-verified selection. Partial books still permit
