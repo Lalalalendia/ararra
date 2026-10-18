@@ -71,7 +71,8 @@ def recent_jobs(
     actor: str = Depends(require_member),
 ) -> dict:
     """Restore previous source collections without a copied UUID."""
-    return {"jobs":request.app.state.source_job_store.list_recent(actor,limit=limit)}
+    store = request.app.state.source_job_store
+    return {"jobs":store.list_recent(actor,limit=limit), "usage":store.usage(actor)}
 
 
 @router.delete("/{job_id}")
