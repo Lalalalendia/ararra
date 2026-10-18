@@ -114,16 +114,24 @@ def _read_verified_text(
 
 
 def _book_folder(
-    drive: GoogleDriveClient, root: str, *, book_key: str, title: str,
+    drive: GoogleDriveClient, root: str, *, moderator_key: str,
+    moderator_name: str, book_key: str, title: str,
 ) -> str:
-    # A unique synthetic book should own exactly one previously unseen folder
-    # under this exact existing root. Any ambiguity must fail, not overwrite.
-    matches = [
+    moderators = [
         item for item in drive.children(root)
+        if (item.get("appProperties") or {}).get("readeraModeratorKey") == moderator_key
+    ]
+    if (len(moderators) != 1 or moderators[0].get("mimeType") != FOLDER_MIME
+        or moderators[0].get("name") != moderator_name):
+        raise DriveExportError("Synthetic moderator folder is absent or ambiguous")
+    moderator_folder = drive._check_id(moderators[0]["id"])
+    matches = [
+        item for item in drive.children(moderator_folder)
         if (item.get("appProperties") or {}).get("readeraBookKey") == book_key
     ]
     if (len(matches) != 1 or matches[0].get("mimeType") != FOLDER_MIME
-        or matches[0].get("name") != title):
+        or matches[0].get("name") != title
+        or (matches[0].get("appProperties") or {}).get("readeraModeratorKey") != moderator_key):
         raise DriveExportError("Synthetic book folder is absent or ambiguous")
     return drive._check_id(matches[0]["id"])
 
@@ -155,7 +163,7 @@ def run_drive_acceptance(
     """Preflight both existing folders; optionally perform a real safe smoke.
 
     LIVE creates one synthetic job in an isolated, temporary SQLite DB.
-    It writes exactly two TXT files plus one book subfolder under each root,
+    It writes two TXT files in moderator/book subfolders under each root,
     edits only those two newly created files, and proves a second export
     returns the same file IDs without undoing either edit.
     """
@@ -181,8 +189,13 @@ def run_drive_acceptance(
         store, job_id = _create_synthetic_completed_job(Path(temp))
         snapshot = read_completed_job(store, job_id)
         book_key = hashlib.sha256(snapshot.book_id.encode("utf-8")).hexdigest()[:20]
+        moderator_key = hashlib.sha256(
+            snapshot.owner_member_id.encode("utf-8")
+        ).hexdigest()[:20]
+        moderator_name = _clean_name(snapshot.owner_member_id)
         folder_name = f"{_clean_name(snapshot.book_title)} [{book_key[:10]}]"
-        # Abort before writing if our unique identity somehow exists already.
+        # Check BOTH roots before mutating. A previous synthetic moderator
+        # folder is expected after earlier smokes and may be reused.
         for root in (source, translation):
             existing = drive.children(root)
             if any(
@@ -190,15 +203,38 @@ def run_drive_acceptance(
                 (item.get("appProperties") or {}).get("readeraBookKey") == book_key
                 for item in existing
             ):
-                raise DriveExportError("Synthetic book identity collision; no files written")
+                raise DriveExportError("Synthetic legacy book identity collision")
+            moderators = [
+                item for item in existing
+                if (item.get("appProperties") or {}).get("readeraModeratorKey")
+                == moderator_key
+            ]
+            named = [item for item in existing if item.get("name") == moderator_name]
+            if len(moderators) > 1 or len(named) > 1 or (
+                named and (not moderators or named[0]["id"] != moderators[0]["id"])
+            ):
+                raise DriveExportError("Synthetic moderator folder collision")
+            if moderators:
+                if moderators[0].get("mimeType") != FOLDER_MIME:
+                    raise DriveExportError("Synthetic moderator folder is not a folder")
+                if any(
+                    item.get("name") == folder_name or
+                    (item.get("appProperties") or {}).get("readeraBookKey") == book_key
+                    for item in drive.children(drive._check_id(moderators[0]["id"]))
+                ):
+                    raise DriveExportError("Synthetic book identity collision")
 
         first = export_completed_job(
             store, drive, job_id,
             source_folder_id=source, translation_folder_id=translation,
         )
         folders = {
-            "source": _book_folder(drive, source, book_key=book_key, title=folder_name),
-            "translation": _book_folder(drive, translation, book_key=book_key, title=folder_name),
+            "source": _book_folder(drive, source, moderator_key=moderator_key,
+                                   moderator_name=moderator_name,
+                                   book_key=book_key, title=folder_name),
+            "translation": _book_folder(drive, translation, moderator_key=moderator_key,
+                                        moderator_name=moderator_name,
+                                        book_key=book_key, title=folder_name),
         }
         for part, body in (("source", snapshot.source), ("translation", snapshot.translation)):
             _read_verified_text(

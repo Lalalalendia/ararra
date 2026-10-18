@@ -147,7 +147,7 @@ def test_two_folder_upload_and_repeat_are_idempotent(tmp_path):
     receipt=run_export(db,jid,service)
     assert receipt["status"]=="exported_or_already_present"
     assert receipt["source_file_id"] != receipt["translation_file_id"]
-    assert len(service.creates)==4  # two book folders + two plain TXT
+    assert len(service.creates)==6  # two moderator dirs + two book dirs + two TXT
     source=service.bodies[receipt["source_file_id"]]
     ru=service.bodies[receipt["translation_file_id"]]
     assert source==b"<p>Source original text.</p>"
@@ -158,10 +158,18 @@ def test_two_folder_upload_and_repeat_are_idempotent(tmp_path):
         service.files[receipt["translation_file_id"]]["parents"])
     folders=[service.files[k] for k in service.creates
              if service.files[k]["mimeType"]=="application/vnd.google-apps.folder"]
-    assert len(folders)==2
-    assert all("Проверка романа том 1" in x["name"] for x in folders)
+    assert len(folders)==4
+    moderator_dirs = [x for x in folders
+                      if x["appProperties"].get("readeraModeratorKey") and
+                         not x["appProperties"].get("readeraBookKey")]
+    book_dirs = [x for x in folders if x["appProperties"].get("readeraBookKey")]
+    assert len(moderator_dirs)==len(book_dirs)==2
+    assert {x["name"] for x in moderator_dirs}=={"moderator"}
+    assert all("Проверка романа том 1" in x["name"] for x in book_dirs)
+    assert {tuple(x["parents"]) for x in moderator_dirs}=={(SOURCES,), (TRANSLATIONS,)}
+    assert {x["parents"][0] for x in book_dirs}=={x["id"] for x in moderator_dirs}
     assert run_export(db,jid,service)==receipt
-    assert len(service.creates)==4
+    assert len(service.creates)==6
 
 
 def test_both_chatgpt_edits_remain_after_repeat(tmp_path):
@@ -182,7 +190,7 @@ def test_both_chatgpt_edits_remain_after_repeat(tmp_path):
     assert again==receipt
     assert service.bodies[src_id]==b"<p>ChatGPT fixed original.</p>"
     assert "Исправленный перевод" in service.bodies[ru_id].decode()
-    assert len(service.creates)==4
+    assert len(service.creates)==6
 
 
 def test_partial_upload_is_resumable_without_third_file(tmp_path):
@@ -191,9 +199,9 @@ def test_partial_upload_is_resumable_without_third_file(tmp_path):
     service.fail_translation_once=True
     with pytest.raises(DriveExportError,match="503"):
         run_export(db,jid,service)
-    assert len(service.creates)==3  # both book dirs and original TXT
+    assert len(service.creates)==5  # moderator + book on both sides, original TXT
     result=run_export(db,jid,service)
-    assert len(service.creates)==4
+    assert len(service.creates)==6
     assert service.files[result["source_file_id"]]["appProperties"]["readeraPart"]=="source"
     assert service.files[result["translation_file_id"]]["appProperties"]["readeraPart"]=="translation"
 
@@ -283,7 +291,7 @@ def test_drive_acceptance_full_synthetic_edition_and_retry_isolated():
     assert status["stage"]=="live_two_folder_export_verified"
     assert status["both_edits_preserved"] and status["file_ids_unchanged"]
     assert status["no_gemini_requests"] and status["production_db_unchanged"]
-    assert len(service.creates)==4
+    assert len(service.creates)==6
     for part in ("source","translation"):
         root = SOURCES if part=="source" else TRANSLATIONS
         folder_id=status[f"{part}_folder_id"]
@@ -514,3 +522,130 @@ def test_drive_outbox_retry_held_refuses_active_export(tmp_path):
     assert outbox.status()["hold"] == 1
     assert outbox.finish(second_id,second[1],{"status":"ok"})
     assert outbox.retry_held(first_id)
+
+
+def _another_completed_book(db, lib, *, book_id, title, owner, actor):
+    lib.create_book(book_id,title,owner_member_id=owner,actor_id="administrator")
+    chapter = lib.put_chapter(
+        book_id, "ch-1",chapter_index=1,chapter_path="chapters/1.xhtml",
+        source_html=f"<p>{book_id} source</p>",expected_revision=0,
+    )
+    spec = lib.new_job(
+        book_id,"ch-1",source_language="en",target_language="Russian",
+        style_instructions="",max_attempts=1,
+    )
+    job = db.create_job(actor,spec)
+    claim = db.claim_next()
+    assert claim and claim[0]["id"] == job["id"]
+    assert db.complete(
+        job["id"],claim[1],f"<p>{book_id} translation</p>",
+        chapter["source_hash"],1,
+    )
+    return job["id"]
+
+
+def test_two_books_same_moderator_share_moderator_folder(tmp_path):
+    db,lib,jid = make_job(tmp_path)
+    service = FakeDrive()
+    first = run_export(db,jid,service)
+    second_job = _another_completed_book(
+        db,lib,book_id="book-2",title="Ещё одна книга",
+        owner="moderator",actor="different-worker",
+    )
+    second = run_export(db,second_job,service)
+    for part in ("source","translation"):
+        assert first[f"{part}_moderator_folder_id"] == second[f"{part}_moderator_folder_id"]
+        assert first[f"{part}_book_folder_id"] != second[f"{part}_book_folder_id"]
+        assert service.files[second[f"{part}_book_folder_id"]]["parents"] == [
+            first[f"{part}_moderator_folder_id"]
+        ]
+    assert len(service.creates) == 10  # 2 moderator + 4 book + 4 TXT
+    assert run_export(db,second_job,service) == second
+    assert len(service.creates) == 10
+
+
+def test_different_book_owners_get_separate_moderator_folders(tmp_path):
+    db,lib,jid = make_job(tmp_path)
+    service = FakeDrive()
+    original = run_export(db,jid,service)
+    different_id = _another_completed_book(
+        db,lib,book_id="book-new",title="Книга второго",
+        owner="SecondModerator",actor="operator",
+    )
+    second = run_export(db,different_id,service)
+    for part in ("source","translation"):
+        assert original[f"{part}_moderator_folder_id"] != second[f"{part}_moderator_folder_id"]
+        assert service.files[second[f"{part}_moderator_folder_id"]]["name"] == "SecondModerator"
+        assert service.files[second[f"{part}_book_folder_id"]]["parents"] == [
+            second[f"{part}_moderator_folder_id"]
+        ]
+    assert len(service.creates) == 12
+
+
+def test_book_ownership_reassignment_preserves_old_remote_data(tmp_path):
+    db,lib,jid=make_job(tmp_path)
+    service=FakeDrive()
+    first=run_export(db,jid,service)
+    lib.reassign_book_owner(
+        "book-1",new_owner_member_id="other",
+        expected_owner_revision=0,actor_id="operator",
+    )
+    before = len(service.creates)
+    with pytest.raises(DriveExportError,match="reviewed transfer required"):
+        run_export(db,jid,service)
+    assert len(service.creates) == before
+    assert first["source_file_id"] in service.files
+    assert first["translation_file_id"] in service.files
+
+
+def test_book_reassignment_before_first_export_uses_new_owner(tmp_path):
+    db,lib,jid=make_job(tmp_path)
+    lib.reassign_book_owner(
+        "book-1",new_owner_member_id="other",
+        expected_owner_revision=0,actor_id="operator",
+    )
+    service=FakeDrive()
+    result=run_export(db,jid,service)
+    assert result["owner_member_id"] == "other"
+    assert service.files[result["source_moderator_folder_id"]]["name"] == "other"
+
+
+def test_legacy_flat_book_folder_blocks_shadow_copy(tmp_path):
+    import hashlib
+    db,_,jid=make_job(tmp_path)
+    service=FakeDrive()
+    book_key=hashlib.sha256(b"book-1").hexdigest()[:20]
+    service.make(
+        "Проверка романа том 1 ["+book_key[:10]+"]",SOURCES,
+        mime="application/vnd.google-apps.folder",
+        props={"readeraBookKey":book_key},
+    )
+    before=len(service.creates)
+    with pytest.raises(DriveExportError,match="Legacy root-level book"):
+        run_export(db,jid,service)
+    assert len(service.creates)==before
+
+
+def test_foreign_moderator_folder_name_blocks_adoption_before_writes(tmp_path):
+    db,_,jid=make_job(tmp_path)
+    service=FakeDrive()
+    service.make("moderator",TRANSLATIONS,
+                 mime="application/vnd.google-apps.folder")
+    before=len(service.creates)
+    with pytest.raises(DriveExportError,match="different identity"):
+        run_export(db,jid,service)
+    assert len(service.creates)==before
+
+
+def test_two_managed_moderator_folders_are_ambiguous(tmp_path):
+    import hashlib
+    db,_,jid=make_job(tmp_path)
+    service=FakeDrive()
+    key=hashlib.sha256(b"moderator").hexdigest()[:20]
+    for name in ("moderator","renamed moderator"):
+        service.make(name,SOURCES,mime="application/vnd.google-apps.folder",
+                     props={"readeraModeratorKey":key})
+    before=len(service.creates)
+    with pytest.raises(DriveExportError,match="Duplicate managed"):
+        run_export(db,jid,service)
+    assert len(service.creates)==before

@@ -34,6 +34,8 @@ class DriveSource:
     job_id: str
     book_id: str
     book_title: str
+    owner_member_id: str
+    previous_owner_member_ids: tuple[str, ...]
     chapter_index: int
     source: bytes
     translation: bytes
@@ -47,6 +49,32 @@ def _clean_name(value: str) -> str:
     cleaned = re.sub(r'[\\/:*?"<>|\x00-\x1f\x7f]+', " ", value)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" .")
     return (cleaned[:72].rstrip(" .") or "Книга")
+
+
+def _managed_folder(
+    drive: GoogleDriveClient, children: list[dict], *, folder_name: str,
+    marker: str, identity: str, expected_tags: dict[str, str] | None = None,
+) -> str | None:
+    """Find exactly one app-owned folder; never adopt same-name foreign files."""
+    owned = [
+        item for item in children
+        if isinstance(item.get("appProperties"), dict)
+        and item["appProperties"].get(marker) == identity
+    ]
+    named = [item for item in children if item.get("name") == folder_name]
+    if len(owned) > 1 or len(named) > 1:
+        raise DriveExportError("Duplicate managed Google Drive folder identity")
+    if named and (not owned or named[0]["id"] != owned[0]["id"]):
+        raise DriveExportError("Drive folder name belongs to a different identity")
+    if not owned:
+        return None
+    item = owned[0]
+    tags = item["appProperties"]
+    if item.get("mimeType") != FOLDER_MIME or (
+        expected_tags and any(tags.get(k) != v for k, v in expected_tags.items())
+    ):
+        raise DriveExportError("Managed Google Drive folder has invalid ownership tags")
+    return drive._check_id(item["id"])
 
 
 def read_completed_job(store: QueueStore, job_id: str) -> DriveSource:
@@ -76,7 +104,8 @@ def read_completed_job(store: QueueStore, job_id: str) -> DriveSource:
         if not isinstance(book_id,str) or not book_id or not isinstance(chapter_id,str) or not chapter_id:
             raise DriveExportError("Only book-owned translation jobs can be exported")
         book = con.execute(
-            "SELECT title,glossary_revision FROM books WHERE id=?", (book_id,),
+            "SELECT title,glossary_revision,owner_member_id,owner_revision "
+            "FROM books WHERE id=?", (book_id,),
         ).fetchone()
         chapter = con.execute(
             "SELECT chapter_index,source_html,source_hash,source_revision "
@@ -85,6 +114,21 @@ def read_completed_job(store: QueueStore, job_id: str) -> DriveSource:
         ).fetchone()
         if book is None or chapter is None:
             raise DriveExportError("Book or source chapter no longer exists")
+        owner = book["owner_member_id"]
+        if not isinstance(owner, str) or not owner.strip() or owner != owner.strip():
+            raise DriveExportError("Book has no canonical moderator owner")
+        history = con.execute(
+            "SELECT previous_owner_member_id FROM book_owner_events "
+            "WHERE book_id=? AND revision>0 ORDER BY revision",
+            (book_id,),
+        ).fetchall()
+        if len(history) != book["owner_revision"]:
+            raise DriveExportError("Book owner transfer history is incomplete")
+        previous_owners = tuple(dict.fromkeys(
+            str(row["previous_owner_member_id"])
+            for row in history
+            if row["previous_owner_member_id"] and row["previous_owner_member_id"] != owner
+        ))
         if (request.get("book_chapter_revision") != chapter["source_revision"]
                 or request.get("book_glossary_revision") != book["glossary_revision"]
                 or request.get("source_html") != chapter["source_html"]
@@ -97,7 +141,10 @@ def read_completed_job(store: QueueStore, job_id: str) -> DriveSource:
         ru = job["result_html"].encode("utf-8")
         if not original.strip() or not ru.strip() or max(len(original), len(ru)) > MAX_TXT_BYTES:
             raise DriveExportError("Source or machine translation outside 4 MiB export limit")
-        return DriveSource(job_id, book_id, str(book["title"]), index, original, ru)
+        return DriveSource(
+            job_id, book_id, str(book["title"]), owner, previous_owners,
+            index, original, ru,
+        )
 
 
 class GoogleDriveClient:
@@ -269,73 +316,150 @@ def export_completed_job(
     store: QueueStore, drive: GoogleDriveClient, job_id: str,
     *, source_folder_id: str, translation_folder_id: str,
 ) -> dict:
-    """Create only; retries reconcile unchanged files and preserve both edits."""
+    """Create only: roots / moderator / book / chapter, preserving remote edits."""
     if source_folder_id == translation_folder_id:
         raise DriveExportError("Sources and translations must use distinct Drive folders")
-    snapshot = read_completed_job(store,job_id)
-    # Check *both* destinations before first write. Failure doesn't create
-    # a half-complete new pair when access is invalid from the outset.
+    snapshot = read_completed_job(store, job_id)
     drive.check_destination(source_folder_id)
     drive.check_destination(translation_folder_id)
-    book_key=_digest(snapshot.book_id.encode("utf-8"))[:20]
-    title=_clean_name(snapshot.book_title)
-    folder_name=f"{title} [{book_key[:10]}]"
-    receipt:dict[str,str]={}
-    for part,root,data in (
-        ("source",source_folder_id,snapshot.source),
-        ("translation",translation_folder_id,snapshot.translation),
-    ):
-        if read_completed_job(store,job_id) != snapshot:
-            raise DriveExportError("Source or translation changed during Drive export")
-        root_children=drive.children(root)
-        owned_folders=[x for x in root_children if
-            x.get("mimeType")==FOLDER_MIME and
-            (x.get("appProperties") or {}).get("readeraBookKey")==book_key]
-        same_name=[x for x in root_children if x.get("name")==folder_name]
-        if len(owned_folders)>1 or len(same_name)>1:
-            raise DriveExportError("Multiple folders with the same book identity")
-        if same_name and (not owned_folders or same_name[0]["id"]!=owned_folders[0]["id"]):
-            raise DriveExportError("Book folder exists but is not owned by ReadEra")
-        if owned_folders:
-            # Keep the stable Drive folder ID if a human renamed it.
-            folder_id=drive._check_id(owned_folders[0]["id"])
-        else:
-            folder=drive.create_metadata(root,{
-                "name":folder_name,"mimeType":FOLDER_MIME,
-                "appProperties":{"readeraBookKey":book_key},
+
+    book_key = _digest(snapshot.book_id.encode("utf-8"))[:20]
+    moderator_key = _digest(snapshot.owner_member_id.encode("utf-8"))[:20]
+    book_name = f"{_clean_name(snapshot.book_title)} [{book_key[:10]}]"
+    moderator_name = _clean_name(snapshot.owner_member_id)
+    book_tags = {"readeraBookKey": book_key, "readeraModeratorKey": moderator_key}
+    moderator_tags = {"readeraModeratorKey": moderator_key}
+
+    destinations = (
+        ("source", source_folder_id, snapshot.source),
+        ("translation", translation_folder_id, snapshot.translation),
+    )
+
+    # Inspect BOTH sides before the first mutation. The historical layout
+    # root/book must be handled through a separate operator-approved move:
+    # creating root/moderator/book would leave a shadow copy of edited files.
+    plans: list[tuple[str, str, bytes, str | None, str | None]] = []
+    for part, root, data in destinations:
+        root_children = drive.children(root)
+        if any(
+            (item.get("appProperties") or {}).get("readeraBookKey") == book_key
+            or item.get("name") == book_name
+            for item in root_children
+        ):
+            raise DriveExportError("Legacy root-level book requires reviewed folder migration")
+
+        # Reassignment is tracked in SQLite; do not duplicate an existing book
+        # under a new moderator if another owner previously exported it.
+        for prior in snapshot.previous_owner_member_ids:
+            prior_key = _digest(prior.encode("utf-8"))[:20]
+            prior_folder = _managed_folder(
+                drive, root_children, folder_name=_clean_name(prior),
+                marker="readeraModeratorKey", identity=prior_key,
+                expected_tags={"readeraModeratorKey": prior_key},
+            )
+            if prior_folder is None:
+                continue
+            if any(
+                (entry.get("appProperties") or {}).get("readeraBookKey") == book_key
+                or entry.get("name") == book_name
+                for entry in drive.children(prior_folder)
+            ):
+                raise DriveExportError(
+                    "Book was exported by a previous moderator; reviewed transfer required"
+                )
+
+        moderator_folder = _managed_folder(
+            drive, root_children, folder_name=moderator_name,
+            marker="readeraModeratorKey", identity=moderator_key,
+            expected_tags=moderator_tags,
+        )
+        book_folder = None
+        if moderator_folder:
+            book_folder = _managed_folder(
+                drive, drive.children(moderator_folder), folder_name=book_name,
+                marker="readeraBookKey", identity=book_key,
+                expected_tags=book_tags,
+            )
+            if book_folder is not None:
+                existing_chapters = drive.children(book_folder)
+                filename = f"Глава {snapshot.chapter_index:03d}.txt"
+                props = {
+                    "readeraBookKey": book_key, "readeraJobId": snapshot.job_id,
+                    "readeraPart": part, "readeraContentSha256": _digest(data),
+                }
+                # Check a foreign chapter collision on either side BEFORE
+                # creating anything, including the other side's directories.
+                owned = [x for x in existing_chapters if x.get("appProperties") == props]
+                named = [x for x in existing_chapters if x.get("name") == filename]
+                if len(owned) > 1 or len(named) > 1 or (
+                    named and (not owned or named[0]["id"] != owned[0]["id"])
+                ):
+                    raise DriveExportError(
+                        "Existing chapter filename or Drive identity is ambiguous"
+                    )
+                if owned and owned[0].get("mimeType") != TEXT_MIME:
+                    raise DriveExportError("Existing job export has incorrect content type")
+        plans.append((part, root, data, moderator_folder, book_folder))
+
+    receipt: dict[str, str | int | bool] = {}
+    for part, root, data, moderator_folder, book_folder in plans:
+        if read_completed_job(store, job_id) != snapshot:
+            raise DriveExportError("Book, moderator owner, or translation changed during Drive export")
+        if moderator_folder is None:
+            created = drive.create_metadata(root, {
+                "name": moderator_name, "mimeType": FOLDER_MIME,
+                "appProperties": moderator_tags,
             })
-            folder_id=folder["id"]
-        filename=f"Глава {snapshot.chapter_index:03d}.txt"
-        content_sha=_digest(data)
-        props={
-            "readeraBookKey":book_key,"readeraJobId":snapshot.job_id,
-            "readeraPart":part,"readeraContentSha256":content_sha,
+            moderator_folder = created["id"]
+        if book_folder is None:
+            # Re-list to catch collisions if this parent was created earlier
+            # or another writer modified it since the initial preflight.
+            children = drive.children(moderator_folder)
+            book_folder = _managed_folder(
+                drive, children, folder_name=book_name,
+                marker="readeraBookKey", identity=book_key,
+                expected_tags=book_tags,
+            )
+            if book_folder is None:
+                created = drive.create_metadata(moderator_folder, {
+                    "name": book_name, "mimeType": FOLDER_MIME,
+                    "appProperties": book_tags,
+                })
+                book_folder = created["id"]
+
+        filename = f"Глава {snapshot.chapter_index:03d}.txt"
+        props = {
+            "readeraBookKey": book_key, "readeraJobId": snapshot.job_id,
+            "readeraPart": part, "readeraContentSha256": _digest(data),
         }
-        existing=drive.children(folder_id)
-        owned=[x for x in existing if x.get("appProperties")==props]
-        named=[x for x in existing if x.get("name")==filename]
-        if len(owned)>1 or len(named)>1:
+        existing = drive.children(book_folder)
+        owned = [x for x in existing if x.get("appProperties") == props]
+        named = [x for x in existing if x.get("name") == filename]
+        if len(owned) > 1 or len(named) > 1:
             raise DriveExportError("Duplicate chapter filenames or Drive file identity")
-        if named and (not owned or named[0]["id"]!=owned[0]["id"]):
+        if named and (not owned or named[0]["id"] != owned[0]["id"]):
             raise DriveExportError("Existing chapter is not this job's exported file")
         if owned:
-            remote=owned[0]
-            if remote.get("mimeType")!=TEXT_MIME:
+            if owned[0].get("mimeType") != TEXT_MIME:
                 raise DriveExportError("Existing job export has incorrect content type")
-            # The file (or folder) might have been renamed by a person. Reuse
-            # its ID, and do not read/restore its changed text or filename.
-            file_id=drive._check_id(remote["id"])
+            file_id = drive._check_id(owned[0]["id"])
         else:
-            item=drive.upload_text(folder_id,{
-                "name":filename,"mimeType":TEXT_MIME,"appProperties":props,
-            },data)
-            file_id=item["id"]
-        receipt[part+"_file_id"]=file_id
+            item = drive.upload_text(
+                book_folder,
+                {"name": filename, "mimeType": TEXT_MIME, "appProperties": props},
+                data,
+            )
+            file_id = item["id"]
+        receipt[part + "_file_id"] = file_id
+        receipt[part + "_moderator_folder_id"] = moderator_folder
+        receipt[part + "_book_folder_id"] = book_folder
+
     return {
-        "job_id":snapshot.job_id,
-        "book_id":snapshot.book_id,
-        "chapter_index":snapshot.chapter_index,
+        "job_id": snapshot.job_id,
+        "book_id": snapshot.book_id,
+        "owner_member_id": snapshot.owner_member_id,
+        "chapter_index": snapshot.chapter_index,
         **receipt,
-        "status":"exported_or_already_present",
-        "remote_edits_preserved":True,
+        "status": "exported_or_already_present",
+        "remote_edits_preserved": True,
     }

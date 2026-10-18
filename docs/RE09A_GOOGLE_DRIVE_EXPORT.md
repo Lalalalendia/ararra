@@ -8,8 +8,11 @@ is the source of truth, **not** a generic backup or Google Drive ⇄ database sy
 1. ReadEra translates a chapter, stores the original and finished **machine**
    result in its existing SQLite job.
 2. The server writes **one editable TXT per side** into the two **existing**
-   regular Google Drive folders. Under each, it creates a normal book-named
-   subfolder, then `Глава 001.txt`, `Глава 002.txt` etc.
+   regular Google Drive folders. Under each, it creates a **moderator-owned**
+   folder (`books.owner_member_id`), then a normal book-named subfolder,
+   then `Глава 001.txt`, `Глава 002.txt` etc. The moderator folder uses
+   the exact member ID as its readable name (sanitized for Drive), not the
+   identity of whoever started the translation job.
 3. ChatGPT may edit **both** source and translation **in the same Drive file
    IDs**. The exporter **never updates, removes, renames or overwrites** them.
 4. Akula later uses its existing Sync Core to fetch both folders to the PC;
@@ -19,6 +22,38 @@ is the source of truth, **not** a generic backup or Google Drive ⇄ database sy
 Existing destination folders, not to be recreated:
 - **Источники:** `1daqCzEVgPdX639YV5otTLxgVTPbfeBEp`
 - **Переводы:** `1X2ZP8Fzbnq5MEAWJyGSErVGGFkfGBrR9`
+
+## RE-09A-05: moderator → book → chapter (new canonical layout)
+
+Preserve both previously authorized roots and owner OAuth credentials:
+
+\`\`\`text
+Источники/
+  Firegod/
+    Название книги [stable-book-key]/
+      Глава 001.txt
+Переводы/
+  Firegod/
+    Название книги [stable-book-key]/
+      Глава 001.txt
+\`\`\`
+
+Here \`Firegod\` is only an example; the actual folder is named after
+\`books.owner_member_id\` in SQLite. \`jobs.actor_id\` does not choose
+the Drive folder. Both the moderator folder and the nested book folder
+have private, stable \`appProperties\` identity tags. Retrying an export
+reuses folder and TXT IDs even when a human renames them. The exporter
+never modifies or deletes already-exported TXT bytes.
+
+**Existing data:** older flat \`root/book/chapter\` folders must not be
+shadow-copied into \`root/moderator/book/chapter\`. When such a book is found,
+the exporter refuses further writes and requires an explicit, reviewed
+move of the SAME existing book folder ID beneath the moderator, with
+confirmation of both source and translation sides. Similarly, when a
+book changes moderator owner, it refuses to duplicate an already-exported
+book under the new owner; a reviewed move is a separate operation.
+No automatic relocation, OAuth rotation, service restart or production
+Drive mutation is part of this code migration.
 
 ## Implemented: guarded single-job export CLI
 
