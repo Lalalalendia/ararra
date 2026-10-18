@@ -128,3 +128,20 @@ def test_only_ready_jobs_count_towards_moderator_backlog(tmp_path):
     # Bob's two ready chapters are not hidden behind Alice's delayed chapters.
     selected, _ = store.claim_next()
     assert selected["id"] == bob[0]["id"]
+
+
+def test_identical_creation_timestamps_preserve_insertion_order(tmp_path, monkeypatch):
+    # When clock resolution is low, UUID lexical sorting MUST NOT reorder
+    # the same moderator's FIFO jobs. This matters for quota retries too.
+    import chaptera_server.storage as storage
+    monkeypatch.setattr(storage.time, "time", lambda: 1_700_000_000.0)
+    store = QueueStore(tmp_path / "jobs.db")
+    queued = [
+        store.create_job("same_moderator", JobSpec(f"chapter-{i}", "<p>x</p>"))
+        for i in range(15)
+    ]
+    for expected in queued:
+        job, lease = store.claim_next()
+        assert job["id"] == expected["id"]
+        assert store.complete(job["id"], lease, "<p>ok</p>", "source", 1)
+    assert store.claim_next() is None

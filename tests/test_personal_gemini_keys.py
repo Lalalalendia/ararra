@@ -15,6 +15,7 @@ from chaptera_server.personal_gemini_keys import (
 )
 from chaptera_server.provider import ProviderFailure
 from chaptera_server.storage import JobSpec, QueueStore
+from chaptera_server.team_credentials import TeamCredentials
 from chaptera_server.worker import TranslationWorker
 
 MASTER = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
@@ -173,6 +174,7 @@ def test_existing_sqlite_backlog_only_claims_mods_with_personal_keys(tmp_path):
     conf = settings(tmp_path)
     store = QueueStore(conf.db_path)
     keys = PersonalGeminiKeys(store, MASTER)
+    TeamCredentials(store)
     unready = store.create_job("guest", JobSpec("guest-01", "<p>x</p>"))
     work = store.create_job("alice", JobSpec("ready-01", "<p>x</p>"))
     # No personal credentials yet: worker must not reserve jobs or attempts.

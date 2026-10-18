@@ -294,14 +294,14 @@ class QueueStore:
             """ if require_personal_key else ""
             row = con.execute("""
                 SELECT * FROM (
-                    SELECT jobs.*,
+                    SELECT jobs.*, jobs.rowid AS enqueue_order,
                            COUNT(*) OVER (PARTITION BY actor_id) AS ready_chapters
                     FROM jobs
                     WHERE status IN ('queued', 'retry_wait')
                       AND run_after <= ? AND cancel_requested = 0
             """ + eligible_key + """
                 )
-                ORDER BY ready_chapters ASC, run_after ASC, created_at ASC, id ASC
+                ORDER BY ready_chapters ASC, run_after ASC, created_at ASC, enqueue_order ASC
                 LIMIT 1
             """, (now,)).fetchone()
             if row is None:
