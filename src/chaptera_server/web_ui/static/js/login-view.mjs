@@ -8,6 +8,7 @@ export function installAuthView({auth,activateSession,clearWorkspace,
   const workspace=$('authenticated');
 
   function showLogin(){
+    document.title='Вход';
     document.body.dataset.authenticated='false';
     workspace.hidden=true;
     loginForm.hidden=false;
