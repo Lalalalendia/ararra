@@ -49,7 +49,54 @@ export function createGeminiCabinet({request,flash}) {
           remove.disabled=false;
         }
       });
-      row.append(label,remove);
+      const budget=document.createElement('form');
+      budget.className='gemini-budget-form';
+      const field=document.createElement('label');
+      field.className='ui-field';
+      const caption=document.createElement('span');
+      caption.textContent='Суточный локальный предел запросов (RPD)';
+      const cap=document.createElement('input');
+      cap.className='ui-input';
+      cap.type='number';cap.min='1';cap.max='1000000';cap.step='1';
+      cap.required=true;
+      cap.value=project.daily_request_cap===null?'':String(project.daily_request_cap);
+      cap.setAttribute('aria-label','Суточный предел для проекта '+project.project_id);
+      field.append(caption,cap);
+      const set=document.createElement('button');
+      set.type='submit';set.className='ui-button ui-button--ghost';
+      set.textContent='Сохранить предел';
+      set.disabled=!state.configured;
+      const usage=document.createElement('p');
+      usage.className='muted';
+      const local=project.local_quota;
+      usage.textContent=local
+        ? 'Локально учтено '+local.used+' из '+local.limit+
+          ', остаток '+local.remaining+
+          (local.externally_blocked?' (Google сообщил об исчерпании дневной квоты)':'')+
+          '. Полная квота и затраты Google неизвестны.'
+        : 'Предел не установлен: автоматические запросы Gemini для этого проекта запрещены.';
+      budget.addEventListener('submit',async event=>{
+        event.preventDefault();
+        const limit=Number(cap.value);
+        if(!Number.isInteger(limit)||limit<1||limit>1000000){
+          flash('Укажите целый предел от 1 до 1 000 000.',true);
+          return;
+        }
+        set.disabled=true;
+        try{
+          await request('/v1/me/gemini-keys/'+encodeURIComponent(project.project_id)+'/daily-cap',{
+            method:'PUT',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({daily_request_cap:limit}),
+          });
+          await refresh();
+          flash('Локальный суточный предел проекта сохранён.');
+        }catch(error){flash(error.message,true);set.disabled=false;}
+      });
+      budget.append(field,set,usage);
+      const projectControls=document.createElement('div');
+      projectControls.className='gemini-project-controls';
+      projectControls.append(label,budget);
+      row.append(projectControls,remove);
       list.append(row);
     }
   }
