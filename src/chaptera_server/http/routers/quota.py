@@ -18,6 +18,12 @@ def gemini_quota_status(request: Request,
                         actor: str = Depends(require_member),
                         store: QueueStore = Depends(get_store)):
     settings = request.app.state.settings
+    # Personal projects have independent RPD ledgers. Never display the
+    # old host-project allowance as though it belonged to the logged-in user.
+    if settings.gemini_vault_key:
+        # Avoid exposing another member's allowance or a stale host project.
+        return {"enabled": False, "model": settings.gemini_model,
+                "personal_projects": True}
     if not settings.gemini_requests_per_day or not settings.gemini_quota_project:
         return {"enabled": False, "model": settings.gemini_model}
     return {

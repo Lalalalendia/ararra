@@ -13,15 +13,17 @@ import {createSourceBookImportView} from './source-book-import-view.mjs';
 import {renderDailyQuota,renderJobs} from './jobs-view.mjs';
 import {createSessionClient} from './session-client.mjs';
 import {installAuthView} from './login-view.mjs';
+import {createGeminiCabinet} from './gemini-cabinet-view.mjs';
 
 const $ = id => document.getElementById(id);
 const sections = Array.from(document.querySelectorAll('[data-page]'));
-const knownPages = new Set(['overview','books','import','team','jobs','editor']);
+const knownPages = new Set(['overview','books','import','team','jobs','editor','cabinet']);
 let editor=null;
 let shownPage=null;
 const auth=createSessionClient();
 const request=auth.request;
 let identity = null;
+const geminiCabinet=createGeminiCabinet({request: (...args)=>request(...args), flash});
 let books = [];
 let members = [];
 let staged = null;
@@ -61,6 +63,7 @@ function currentPage() {
 }
 function showPage(page, push=false) {
   if (!knownPages.has(page)) page='overview';
+  if(shownPage==='cabinet' && page!=='cabinet')geminiCabinet.clearForm();
   if(shownPage==='editor' && page!=='editor' && editor){
     if(!editor.canLeave()){
       if(!push) history.pushState({},'', '/app/editor');
@@ -96,6 +99,7 @@ function showPage(page, push=false) {
   if (page==='books') void refreshBooks().catch(e => flash(e.message,true));
   if (page==='team') void refreshMembers().catch(e => flash(e.message,true));
   if (page==='jobs') void refreshJobs().catch(e => flash(e.message,true));
+  if (page==='cabinet') void geminiCabinet.refresh().catch(e => flash(e.message,true));
   if (page==='overview') {
     $('metric-books').textContent=String(books.length);
     $('metric-role').textContent=identity.role==='admin'?'Администратор':'Модератор';
@@ -125,7 +129,7 @@ async function activateSession(session) {
 function clearWorkspace(){
   editor?.reset();
   auth.clear();identity=null;books=[];members=[];staged=null;rows=[];confirmed=null;
-  clearSecret();$('identity-label').hidden=true;
+  clearSecret();geminiCabinet.clear();$('identity-label').hidden=true;
   $('authenticated').hidden=true;
   hideImportSteps();
 }

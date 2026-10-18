@@ -229,3 +229,9 @@ textarea.ui-input {resize:vertical;}
   text-align:center;
 }
 #source-job-history-status {flex:1 1 100%;}
+
+/* RE-06: personal Gemini projects, no raw key is ever rendered. */
+.gemini-project-row {display:flex;gap:12px;align-items:center;justify-content:space-between;
+  padding:12px 0;border-top:1px solid var(--border-color);overflow-wrap:anywhere;}
+.gemini-project-row span {min-width:0;overflow-wrap:anywhere;}
+@media(max-width:540px){.gemini-project-row {align-items:flex-start;flex-wrap:wrap;}}

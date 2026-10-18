@@ -26,6 +26,7 @@
         <a href="/app/jobs" data-page-link="jobs">Очередь переводов</a>
         <a href="/app/editor" data-page-link="editor">Редактор</a>
         <a href="/app/team" data-page-link="team">Команда</a>
+        <a href="/app/cabinet" data-page-link="cabinet">Личный кабинет</a>
       </nav>
       <p class="sidebar-bottom">Закрытое рабочее пространство<br>Две роли: администратор и модераторы</p>
     </aside>
@@ -362,6 +363,26 @@
             </section>
           </section>
           {% include "partials/chapter_editor.html" %}
+          <section data-page="cabinet" hidden>
+            <div class="ui-page-header"><div><p class="kicker">РидЭра / Личный кабинет</p>
+              <h1>Мои ключи Gemini</h1>
+              <p>Один Google-проект — один API-ключ. Ключи доступны только вашему аккаунту.</p></div></div>
+            <section class="ui-card">
+              <p id="gemini-cabinet-status" role="status">Загрузка настроек…</p>
+              <form id="gemini-key-form" class="compact-form" autocomplete="off">
+                <label class="ui-field"><span>ID проекта Google Cloud</span>
+                  <input class="ui-input" name="project_id" maxlength="64" minlength="6"
+                         pattern="[a-z][a-z0-9-]{4,61}[a-z0-9]" placeholder="my-project-123"
+                         required spellcheck="false" autocapitalize="off"></label>
+                <label class="ui-field"><span>Gemini API-ключ</span>
+                  <input class="ui-input" name="api_key" type="password" maxlength="256"
+                         minlength="20" required spellcheck="false" autocomplete="new-password"></label>
+                <button class="ui-button ui-button--primary" type="submit">Сохранить ключ</button>
+              </form>
+              <p class="muted">Ключ после сохранения не показывается; повторное сохранение заменяет ключ этого проекта. ID проекта вводится вручную.</p>
+              <div id="gemini-keys-list" aria-live="polite"></div>
+            </section>
+          </section>
           <section data-page="team" hidden>
             <div class="ui-page-header"><div><p class="kicker">РидЭра / Команда</p><h1>Участники</h1>
               <p>Две глобальные роли: администратор и модератор. Участники работают с общей библиотекой.</p></div></div>
