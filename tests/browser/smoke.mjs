@@ -60,9 +60,23 @@ try{
   const response=await page.goto(origin+'/app/overview');
   assert.equal(response.status(),200);
   assert.match(await page.title(),/РидЭра/);
+  await page.waitForFunction(()=>document.body?.dataset.authReady==='1');
+  // An anonymous visitor sees only the key field and submit button:
+  // no branded title, sidebar, navigation, topbar or team content.
   assert.equal(await page.locator('#login-form').isVisible(),true);
+  assert.equal(await page.locator('.sidebar').isVisible(),false);
+  assert.equal(await page.locator('.topbar').isVisible(),false);
+  assert.equal(await page.locator('#authenticated').isVisible(),false);
+  assert.equal(await page.locator('#login-form h1').count(),0);
+  assert.equal(await page.locator('#login-form .kicker').count(),0);
+  assert.equal(await page.locator('#login-form .ui-field').innerText(),'Ключ');
+  assert.equal(await page.locator('#login-form [name="api_key"]').count(),1);
+  await fit(page,'anonymous desktop');
   assert.equal((await api('/v1/books','invalid')).status,401);
   await login(page,adminKey);
+  assert.equal(await page.locator('.sidebar').isVisible(),true);
+  assert.equal(await page.locator('.topbar').isVisible(),true);
+  assert.equal(await page.locator('body').getAttribute('data-authenticated'),'true');
   assert.match(await page.locator('#identity-label').innerText(),/Администратор/);
   assert.equal(await page.locator('#metric-books').innerText(),'0');
   await screenshot(page,'01-overview-desktop.png');await fit(page,'overview desktop');
@@ -101,6 +115,10 @@ try{
   await screenshot(page,'02-team-desktop.png');
   await page.locator('#logout').click();
   await page.locator('#authenticated').waitFor({state:'hidden'});
+  assert.equal(await page.locator('body').getAttribute('data-authenticated'),'false');
+  assert.equal(await page.locator('.sidebar').isVisible(),false);
+  assert.equal(await page.locator('.topbar').isVisible(),false);
+  assert.equal(await page.locator('#login-form').isVisible(),true);
   await login(page,issued);
   assert.match(await page.locator('#identity-label').innerText(),/writer/);
   await choose(page,'team');
@@ -530,7 +548,13 @@ try{
   const mobile=await browser.newContext({viewport:{width:390,height:844},locale:'ru-RU'});
   const mpage=await mobile.newPage();spy(mpage,'mobile');
   await mpage.goto(origin+'/app/books');
+  await mpage.waitForFunction(()=>document.body?.dataset.authReady==='1');
+  assert.equal(await mpage.locator('.sidebar').isVisible(),false);
+  assert.equal(await mpage.locator('.topbar').isVisible(),false);
+  assert.equal(await mpage.locator('#login-form').isVisible(),true);
+  await fit(mpage,'anonymous mobile');
   await login(mpage,modKey);
+  assert.equal(await mpage.locator('.sidebar').isVisible(),true);
   await mpage.locator('#book-list').getByText('Браузерная проверка').waitFor();
   await fit(mpage,'books mobile');await screenshot(mpage,'09-library-mobile.png');
   // Batch multiselect also fits a narrow phone without opening a public API.
