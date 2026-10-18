@@ -539,6 +539,7 @@ try{
     .getByRole('button',{name:'Пакетный перевод книги Браузерная проверка'}).click();
   const mobileBatch=mpage.locator('#book-batch-dialog');
   await mobileBatch.waitFor({state:'visible'});
+  await mobileBatch.locator('#book-batch-chapters input').first().waitFor();
   assert.equal(await mobileBatch.locator('#book-batch-chapters input').count(),2);
   await mobileBatch.locator('#book-batch-select-all').click();
   await mobileBatch.locator('#book-batch-selection-status')
@@ -697,6 +698,7 @@ try{
   await batchButton().click();
   const batchDialog=page.locator('#book-batch-dialog');
   await batchDialog.waitFor({state:'visible'});
+  await batchDialog.locator('#book-batch-chapters input').first().waitFor();
   assert.equal(await batchDialog.locator('#book-batch-chapters input').count(),2);
   assert.equal(await batchDialog.locator('#book-batch-submit').isDisabled(),true);
   await batchDialog.locator('#book-batch-select-all').click();
