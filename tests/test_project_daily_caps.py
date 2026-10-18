@@ -218,3 +218,23 @@ def test_batch_admission_fails_closed_but_idempotent_replay_survives_revocation(
     with pytest.raises(BatchConflict,match="daily request cap"):
         batches.submit("novel",confirmed,actor_id="alice",idempotency_key="new")
     assert len(store.list_jobs())==1
+
+
+def test_project_selection_uses_remaining_local_daily_allowance(tmp_path):
+    settings, store, _, keys=setup(tmp_path)
+    keys.put("alice","alice-project-001",KEYS["alice"])
+    keys.put("alice","alice-project-003","AIzaTEST_alice_extra_project_budget_987654321")
+    keys.set_daily_cap("alice","alice-project-001",1)
+    keys.set_daily_cap("alice","alice-project-003",2)
+    DailyQuotaLedger(store,"alice-project-001","test-model",1).reserve()
+    chooser=MemberGeminiProviders(store,settings,keys)
+    selected=chooser.for_job({"actor_id":"alice"})
+    assert selected.project=="alice-project-003"
+    # A second project is explicitly blocked by Google despite unused local
+    # count: provider choice must not waste the next chapter on that project.
+    DailyQuotaLedger(store,"alice-project-003","test-model",2).block_day()
+    # All projects exhausted; choose an exhausted one to trigger normal
+    # Pacific-day deferral, never to overspend beyond the local ceiling.
+    assert chooser.for_job({"actor_id":"alice"}).project in {
+        "alice-project-001","alice-project-003",
+    }
