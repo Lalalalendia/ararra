@@ -270,3 +270,56 @@ def test_cli_imports_downloaded_desktop_oauth_json_without_env_secret(tmp_path,m
     assert passed[0]["translation_folder_id"]==TRANSLATIONS
     assert passed[0]["open_browser"] is False
     assert not token_file.exists()
+
+
+
+def test_private_oauth_refresh_token_read_refuses_weak_permissions(tmp_path):
+    from chaptera_server.drive_oauth_setup import (
+        read_private_refresh_token, save_private_token, DriveAuthorizationError,
+    )
+    dest=tmp_path/"owner-refresh"
+    save_private_token(dest,"1//synthetic-token-for-test")
+    assert read_private_refresh_token(dest)=="1//synthetic-token-for-test"
+    if os.name=="posix":
+        os.chmod(dest,0o644)
+        with pytest.raises(DriveAuthorizationError,match="owner-only"):
+            read_private_refresh_token(dest)
+        os.chmod(dest,0o600)
+        linked=tmp_path/"linked-owner-refresh"
+        linked.symlink_to(dest)
+        with pytest.raises(DriveAuthorizationError,match="not found"):
+            read_private_refresh_token(linked)
+    with pytest.raises(DriveAuthorizationError,match="not found"):
+        read_private_refresh_token(Path("relative-owner-refresh"))
+
+
+def test_drive_smoke_cli_uses_existing_private_token_only(tmp_path,monkeypatch,capsys):
+    from chaptera_server import cli, drive_acceptance, drive_export
+    import sys
+    json_path=tmp_path/"desktop-client.json"
+    json_path.write_text(json.dumps({"installed":{
+        "client_id":"smoke.apps.googleusercontent.com",
+        "client_secret":"locally-provisioned-secret",
+    }}),encoding="utf-8")
+    token_file=tmp_path/"owner-token"
+    oauth.save_private_token(token_file,"1//local-secret-token")
+    monkeypatch.setenv("CHAPTERA_DRIVE_SOURCE_FOLDER_ID",SOURCES)
+    monkeypatch.setenv("CHAPTERA_DRIVE_TRANSLATION_FOLDER_ID",TRANSLATIONS)
+    seen=[]
+    def fake_acceptance(drive,*,source_folder_id,translation_folder_id,live):
+        seen.append((source_folder_id,translation_folder_id,live))
+        return {"stage":"live_two_folder_export_verified","file_ids_unchanged":True}
+    monkeypatch.setattr(drive_acceptance,"run_drive_acceptance",fake_acceptance)
+    class FakeClient:
+        def __init__(self,**kwargs):
+            assert kwargs["refresh_token"]=="1//local-secret-token"
+            assert kwargs["client_id"]=="smoke.apps.googleusercontent.com"
+    monkeypatch.setattr(drive_export,"GoogleDriveClient",FakeClient)
+    monkeypatch.setattr(sys,"argv",[
+        "chaptera-server","drive-smoke","--client-json",str(json_path),
+        "--token-file",str(token_file),"--live-smoke",
+    ])
+    cli.main()
+    result=json.loads(capsys.readouterr().out)
+    assert result["file_ids_unchanged"] is True
+    assert seen==[(SOURCES,TRANSLATIONS,True)]
