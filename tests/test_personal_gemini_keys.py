@@ -67,6 +67,12 @@ def test_private_api_cabinet_and_secret_not_retrievable(tmp_path):
             })
             assert no_csrf.status_code == 403
             csrf = login.json()["csrf_token"]
+            malformed = await alice.post("/v1/me/gemini-keys",
+                                         headers={"X-ReadEra-CSRF": csrf},
+                                         json={"project_id": "alice-project-001",
+                                               "api_key": "private-bad-secret"})
+            assert malformed.status_code == 422
+            assert "private-bad-secret" not in malformed.text
             saved = await alice.post("/v1/me/gemini-keys",
                                      headers={"X-ReadEra-CSRF": csrf},
                                      json={"project_id": "alice-project-001",
