@@ -235,3 +235,34 @@ textarea.ui-input {resize:vertical;}
   padding:12px 0;border-top:1px solid var(--border-color);overflow-wrap:anywhere;}
 .gemini-project-row span {min-width:0;overflow-wrap:anywhere;}
 @media(max-width:540px){.gemini-project-row {align-items:flex-start;flex-wrap:wrap;}}
+
+
+/* RE-06C chapter batches: bounded, keyboard-accessible dialog and lists. */
+.readera-modal--batch {width:min(710px,calc(100vw - 24px));}
+.readera-modal--batch form {gap:12px;}
+.readera-modal--batch h3 {margin:0;font-size:16px;}
+.batch-selector-actions {display:flex;gap:8px;flex-wrap:wrap;}
+.batch-chapter-table-scroll {max-height:260px;overflow:auto;min-height:54px;}
+.batch-chapter-table {width:100%;}
+.batch-chapter-table td:nth-child(2),
+.batch-progress-table-scroll td:nth-child(2) {overflow-wrap:anywhere;word-break:break-word;}
+.batch-chapter-table caption {text-align:left;position:absolute;width:1px;height:1px;
+  overflow:hidden;clip-path:inset(50%);}
+.batch-chapter-check {display:flex;gap:8px;align-items:center;cursor:pointer;white-space:nowrap;}
+.batch-chapter-check input {width:17px;height:17px;flex:0 0 17px;accent-color:#176d75;}
+.batch-review {padding:14px;border:1px solid #b4d6d6;background:#f2fafa;border-radius:10px;}
+.batch-review > p {overflow-wrap:anywhere;word-break:break-word;}
+.batch-review .check-confirm {display:flex;align-items:flex-start;gap:10px;margin:12px 0;}
+.batch-history,.batch-progress {border-top:1px solid var(--border-color);padding-top:13px;min-width:0;}
+.batch-history-row {display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:9px 0;border-top:1px solid #e5eff1;}
+.batch-history-row span {min-width:0;overflow-wrap:anywhere;}
+.batch-history-row button {flex:0 0 auto;}
+.batch-progress-table-scroll {max-height:235px;overflow:auto;}
+.batch-progress h3 {overflow-wrap:anywhere;}
+@media(max-width:540px){
+  .batch-history-row {display:grid;gap:8px;}
+  .batch-history-row button {justify-self:start;}
+  .batch-selector-actions .ui-button {flex:1 1 140px;white-space:normal;}
+  .batch-chapter-table,.batch-progress-table-scroll .ui-table {font-size:12px;}
+}
