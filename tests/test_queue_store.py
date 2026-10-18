@@ -77,3 +77,54 @@ def test_orphaned_claim_is_recovered_without_reusing_old_owner(tmp_path, monkeyp
     assert renewed["id"] == job["id"]
     assert new_token != token
     assert not store.complete(job["id"], token, "<p>wrong</p>", "", 1)
+
+
+def test_one_chapter_moderator_precedes_another_moderators_hundred(tmp_path):
+    """Prioritize the number of pending chapters, not the length of a chapter."""
+    store = QueueStore(tmp_path / "jobs.db")
+    bulk = [
+        store.create_job("bulk_mod", JobSpec(str(i), "<p>short</p>"))
+        for i in range(100)
+    ]
+    # A single LONG chapter should still go before 100 short chapters.
+    single = store.create_job("solo_mod", JobSpec("long", "<p>" + "x" * 50000 + "</p>"))
+    chosen, lease = store.claim_next()
+    assert chosen["id"] == single["id"]
+    assert chosen["actor_id"] == "solo_mod"
+    assert store.complete(single["id"], lease, "<p>translated</p>", "source", 1)
+    next_job, _ = QueueStore(tmp_path / "jobs.db").claim_next()
+    assert next_job["id"] == bulk[0]["id"]
+
+
+def test_small_moderator_batches_are_completed_before_big_batches(tmp_path):
+    store = QueueStore(tmp_path / "jobs.db")
+    large = [store.create_job("large", JobSpec(f"L-{i}", "<p>x</p>"))
+             for i in range(9)]
+    medium = [store.create_job("medium", JobSpec(f"M-{i}", "<p>x</p>"))
+              for i in range(2)]
+    solo = store.create_job("solo", JobSpec("S-1", "<p>x</p>"))
+    expected = [solo, *medium, *large]
+    for item in expected:
+        selected, lease = store.claim_next()
+        assert selected["id"] == item["id"]
+        assert store.complete(item["id"], lease, "<p>ok</p>", "source", 1)
+    assert store.claim_next() is None
+
+
+def test_only_ready_jobs_count_towards_moderator_backlog(tmp_path):
+    store = QueueStore(tmp_path / "jobs.db")
+    alice = [store.create_job("alice", JobSpec(f"A-{i}", "<p>x</p>"))
+             for i in range(5)]
+    bob = [store.create_job("bob", JobSpec(f"B-{i}", "<p>x</p>"))
+           for i in range(2)]
+    # Four chapters belong to Alice, but cannot be processed until tomorrow.
+    # Her one READY chapter is the smaller pending batch.
+    with store._connect() as con:
+        for job in alice[1:]:
+            con.execute("UPDATE jobs SET run_after=? WHERE id=?",
+                        (time.time() + 86400, job["id"]))
+    selected, _ = QueueStore(tmp_path / "jobs.db").claim_next()
+    assert selected["id"] == alice[0]["id"]
+    # Bob's two ready chapters are not hidden behind Alice's delayed chapters.
+    selected, _ = store.claim_next()
+    assert selected["id"] == bob[0]["id"]

@@ -276,10 +276,21 @@ class QueueStore:
                     run_after=?, lease_owner=NULL, lease_until=NULL, updated_at=?
                 WHERE status='running' AND lease_until < ?
             """, (now, now, now))
+            # Close small moderators' pending batches first: a moderator with
+            # one ready chapter should not wait for another moderator's 100.
+            # Depth is the COUNT of ready chapters, never HTML length or tokens.
+            # Window aggregation is done in the existing atomic claim; no
+            # scheduler tables, new worker, or schema migration required.
             row = con.execute("""
-                SELECT * FROM jobs
-                WHERE status IN ('queued', 'retry_wait') AND run_after <= ? AND cancel_requested = 0
-                ORDER BY run_after ASC, created_at ASC LIMIT 1
+                SELECT * FROM (
+                    SELECT jobs.*,
+                           COUNT(*) OVER (PARTITION BY actor_id) AS ready_chapters
+                    FROM jobs
+                    WHERE status IN ('queued', 'retry_wait')
+                      AND run_after <= ? AND cancel_requested = 0
+                )
+                ORDER BY ready_chapters ASC, run_after ASC, created_at ASC, id ASC
+                LIMIT 1
             """, (now,)).fetchone()
             if row is None:
                 con.execute("COMMIT")
