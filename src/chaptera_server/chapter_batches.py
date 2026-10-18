@@ -80,6 +80,7 @@ class TranslationBatches:
         seen = set()
         options = {name: payload[name] for name in self._OPTIONS}
         entries = []
+        total_source_bytes = 0
         for selected in payload["chapters"]:
             cid = selected["chapter_id"].strip()
             if not cid or cid in seen:
@@ -91,6 +92,9 @@ class TranslationBatches:
                 raise BatchConflict("Selected chapter no longer exists") from exc
             if inputs.chapter_revision != selected["expected_source_revision"]:
                 raise BatchConflict("Selected chapter source revision changed")
+            total_source_bytes += len(inputs.source_html.encode("utf-8"))
+            if total_source_bytes > 16 * 1024 * 1024:
+                raise ValueError("Selected batch exceeds the 16 MiB total source limit")
             spec = JobSpec(
                 chapter_id=cid, source_html=inputs.source_html,
                 chapter_path=inputs.chapter_path,
