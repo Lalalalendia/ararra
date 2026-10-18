@@ -9,7 +9,7 @@ from __future__ import annotations
 from .config import Settings
 from .personal_gemini_keys import PersonalGeminiKeys, GeminiKeyMissing
 from .provider import GeminiProvider, ProviderFailure
-from .quota import DailyQuotaLedger, QuotaControlledProvider
+from .quota import DailyQuotaLedger, QuotaControlledProvider, read_daily_quota_status
 from .scheduled_provider import ScheduledGeminiProvider
 from .storage import QueueStore
 from .team_credentials import TeamCredentials
@@ -110,10 +110,22 @@ class MemberGeminiProviders:
         actor = job["actor_id"]
         if not self.credentials.is_active(actor, self.settings):
             raise GeminiKeyMissing("Moderator account is inactive")
-        choices = [item for item in self.keys.choices(actor)
-                   if self.keys.daily_cap_for(actor, item[0]) > 0]
-        if not choices:
+        capped = [(project, fingerprint, cap)
+                  for project, fingerprint in self.keys.choices(actor)
+                  if (cap := self.keys.daily_cap_for(actor, project)) > 0]
+        if not capped:
             raise GeminiKeyMissing("Moderator has no project with an explicit daily cap")
+        # Reuse still-available personal allowance before Pacific midnight.
+        # This is a read-only choice, never a second scheduler or reservation.
+        host_cap = self.settings.gemini_requests_per_day
+        available = [
+            (project, fingerprint) for project, fingerprint, cap in capped
+            if read_daily_quota_status(
+                self.store, project, self.settings.gemini_model,
+                min(cap, host_cap) if host_cap else cap,
+            )["remaining"] > 0
+        ]
+        choices = available or [(project, fingerprint) for project, fingerprint, _ in capped]
         position = self._rotation.get(actor, 0) % len(choices)
         self._rotation[actor] = (position + 1) % len(choices)
         project, fingerprint = choices[position]
