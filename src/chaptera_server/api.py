@@ -21,7 +21,7 @@ from .team_sessions import TeamSessions
 from .team_login_throttle import BrowserLoginThrottle
 from .personal_gemini_keys import PersonalGeminiKeys
 from .storage import QueueStore
-from .http.routers import books, batches, health, identity, imports, jobs, quota, ui, editorial, session, source_books, source_jobs, gemini_keys
+from .http.routers import books, batches, health, identity, imports, jobs, quota, ui, editorial, session, source_books, source_team, source_jobs, gemini_keys
 from .http.routers.ui import ASSETS as UI_ASSETS
 
 # Keep historical Python imports of request models working for existing callers.
@@ -70,6 +70,7 @@ def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
     app.include_router(batches.router)
     app.include_router(imports.router)
     app.include_router(source_books.router)
+    app.include_router(source_team.router)
     app.include_router(source_jobs.router)
     app.include_router(editorial.router)
     app.include_router(jobs.router)
