@@ -45,8 +45,12 @@ export function createSourceJobHistoryView({request,flash,onOpen,onDelete}) {
         book=decodeURIComponent(path.at(-1)||'книга').replace(/[-_]+/g,' ').slice(0,60);
       }catch{/* Only server-verified public book URLs are expected. */}
       option.title=String(job.book_url||'');
+      const waiting=job.status==='queued' && Number.isFinite(job.next_attempt_at) &&
+        job.next_attempt_at>Date.now()/1000
+        ?' · пауза до '+new Date(job.next_attempt_at*1000).toLocaleTimeString('ru-RU')
+        :'';
       option.textContent=source+' · '+book+' · '+job.selected_start+'–'+job.selected_end+
-        ' · '+(stateNames[job.status]||job.status)+' · '+job.completed+'/'+job.total+
+        ' · '+(stateNames[job.status]||job.status)+waiting+' · '+job.completed+'/'+job.total+
         ' · '+time;
       picker.append(option);
     }
