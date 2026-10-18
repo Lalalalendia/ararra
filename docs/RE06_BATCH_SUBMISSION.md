@@ -43,6 +43,39 @@ and the `Idempotency-Key` HTTP header. An identical retry returns the original
 batch **and the same job IDs**, even after a server restart. Reusing a key with
 different content returns HTTP 409.
 
+## Browser workflow (RE-06C second slice)
+
+In `/app/books`, open **Перевести главы** for an existing book:
+
+1. Choose individual source chapters or use **Выбрать первые 100**. Numeric
+   ordering is taken from the live SQLite-backed TOC, not from filename order
+   or character length. Only chapter IDs and source revisions are loaded,
+   never the full chapter text.
+2. Keep `html_v0` (default) or explicitly select experimental `atoms_v1`;
+   optionally set 1–10 maximum attempts. Changes discard prior approval.
+3. Click **Проверить партию**. A read-only server preview returns a SHA-256
+   receipt for the exact current chapter and glossary revisions. This makes
+   zero queued jobs. Review the count/hash, then tick the explicit confirmation.
+4. Click **Подтвердить отправку в очередь**. The client sends a fresh random
+   idempotency key and the exact preview payload in one API request. Failed or
+   ambiguous replies keep the **same** key/payload for safe manual retry.
+   After a confirmed response, selection is cleared to prevent a second
+   accidental batch submission.
+5. See per-chapter statuses in the same window. Use **Сохранённые партии** and
+   **Обновить прогресс** to recover after browser reload or sign-in. History
+   is read from server SQLite, not browser persistence. Status `completed`
+   means a generated result exists, **not** that RU has been accepted.
+
+The dialog uses the existing HttpOnly team session and CSRF-bearing request
+boundary, and uses only text-safe DOM APIs for untrusted IDs. It has a bounded
+mobile layout and never displays API keys, source HTML or translated text.
+
+Chromium acceptance exercises the real FastAPI/SQLite path without starting a
+Gemini worker: no jobs before acknowledgement, two jobs after one confirm,
+progress after page reload, and HTTP 409 with no extra jobs when a selected
+source is changed after preview. A real paid full-book trial is outside this
+workflow.
+
 ## Safety boundaries
 
 - All source IDs/revisions, the book glossary version and the preview SHA are
@@ -66,8 +99,9 @@ different content returns HTTP 409.
 
 ## Remaining RE-06C work
 
-A real browser multi-select/confirmation/progress interface; quota-budget
-admission based on the configured project/model; explicit whole-batch cancel
-semantics if needed; production acceptance and browser UX validation.
-These are **not** implied by this API's CI pass. Root bootstrap for persistent
+Quota-budget admission based on the configured Google project/model and
+actual token/requests allowance; optional whole-batch cancel; browser visual
+approval against Canva, real-provider literary QA and production acceptance.
+CI's headless Chromium run proves only the isolated local workflow, not
+billable throughput or readiness of permanent VPS services. Root bootstrap for persistent
 translator systemd services is still blocked by chaptera-site issue #46.
