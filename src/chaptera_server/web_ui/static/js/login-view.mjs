@@ -8,6 +8,7 @@ export function installAuthView({auth,activateSession,clearWorkspace,
   const workspace=$('authenticated');
 
   function showLogin(){
+    document.body.dataset.authenticated='false';
     workspace.hidden=true;
     loginForm.hidden=false;
     loginForm.reset();
@@ -18,6 +19,8 @@ export function installAuthView({auth,activateSession,clearWorkspace,
       throw new Error('Нужен персональный ключ участника.');
     }
     await activateSession(session);
+    // The shell stays hidden until the server-validated session has loaded.
+    document.body.dataset.authenticated='true';
   }
   loginForm.addEventListener('submit',event=>{
     event.preventDefault();
