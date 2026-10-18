@@ -105,6 +105,8 @@ def test_personal_vault_never_exposes_stale_shared_project_quota(tmp_path):
             transport=httpx.ASGITransport(app=app), base_url="http://readera.test"
         ) as client:
             response = await client.get("/v1/quota/gemini", headers=MOD)
-            assert response.json() == {"enabled": False, "model": "test-model"}
+            assert response.json() == {
+                "enabled": False, "model": "test-model", "personal_projects": True,
+            }
             assert "old-host-project" not in response.text
     asyncio.run(scenario())

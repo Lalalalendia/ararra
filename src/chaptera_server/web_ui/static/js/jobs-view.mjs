@@ -8,7 +8,9 @@ export function renderDailyQuota(target,state) {
     return;
   }
   if(!state.enabled){
-    target.textContent='Локальный суточный лимит не настроен. Квота Google неизвестна.';
+    target.textContent=state.personal_projects
+      ? 'Лимиты Gemini учитываются отдельно для ваших проектов; остаток квоты Google неизвестен.'
+      : 'Локальный суточный лимит не настроен. Квота Google неизвестна.';
     return;
   }
   const reset=new Date(Number(state.reset_at)*1000);
