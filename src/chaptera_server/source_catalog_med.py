@@ -14,11 +14,10 @@ from urllib.parse import urljoin, urlsplit
 
 from bs4 import BeautifulSoup
 
-HOSTS = {
-    "royalroad": frozenset({"www.royalroad.com", "royalroad.com"}),
-    "webnovel": frozenset({"www.webnovel.com", "webnovel.com"}),
-    "uukanshu": frozenset({"uukanshu.cc"}),
-}
+from .source_site_profiles import SITE_PROFILES
+
+# One authoritative, explicitly reviewed host allowlist per site profile.
+HOSTS = {name: profile.hosts for name, profile in SITE_PROFILES.items()}
 USER_AGENT = "NovelSourceIngest/1.0 (public chapter pages; no authentication)"
 NUMBERED_TITLE = re.compile(r"^\s*(?:chapter\s*)?(\d{1,5})\s*(?:[-:.\u2013\u2014]\s*|\s+)(\S.*?)\s*$", re.I)
 BLOCK_PATTERNS = (

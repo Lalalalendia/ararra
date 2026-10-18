@@ -162,7 +162,13 @@ async def collect_selected(
                 raise ValueError("Missing, truncated or oversized chapter text")
             digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
             completed.append(CollectedChapter(n, ch.title, ch.url, ch.source_id, body, digest))
-        except (IngestError, ValueError) as exc:
+        except IngestError as exc:
+            if exc.status == "site_busy":
+                # Admission is transient. Do not mislabel this selected
+                # chapter as missing/blocked source content.
+                raise
+            failed.append((n, str(exc)[:160]))
+        except ValueError as exc:
             failed.append((n, str(exc)[:160]))
     # An identical body in two different chapters needs review, not silent loss.
     seen: dict[str, int] = {}

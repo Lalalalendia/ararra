@@ -13,6 +13,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ...import_sessions import StageTooLarge, ImportSessions
 from ...source_catalog_med import IngestError
+from ...source_site_profiles import public_site_profiles
+from ...source_request_limiter import SourceSiteBusy
 from ...source_collect import fetch_catalog, collect_selected
 from ...source_site_storage import (
     SourceCatalogStore, SourceCatalogMissing, SourceCatalogExpired,
@@ -49,6 +51,10 @@ def _catalog_error(exc: Exception) -> HTTPException:
         return HTTPException(status_code=409, detail=str(exc))
     if isinstance(exc, StageTooLarge):
         return HTTPException(status_code=413, detail="Collected file exceeds import staging budget")
+    if isinstance(exc, SourceSiteBusy):
+        return HTTPException(status_code=429,
+                             headers={"Retry-After": str(exc.retry_after)},
+                             detail=f"site_busy: {exc.reason}")
     if isinstance(exc, IngestError):
         status = 502 if exc.status in ("network_error", "http_error") else 422
         return HTTPException(status_code=status, detail=f"{exc.status}: {str(exc)[:160]}")
@@ -57,11 +63,7 @@ def _catalog_error(exc: Exception) -> HTTPException:
 
 @router.get("/sites")
 def supported_sources() -> dict:
-    return {"sources": [
-        {"id": "royalroad", "title": "Royal Road", "mode": "public_html"},
-        {"id": "webnovel", "title": "WebNovel", "mode": "public_html"},
-        {"id": "uukanshu", "title": "UUKanshu", "mode": "public_html"},
-    ]}
+    return {"sources": public_site_profiles()}
 
 
 @router.post("/catalogs", status_code=201)

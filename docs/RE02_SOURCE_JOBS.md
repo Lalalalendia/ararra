@@ -188,3 +188,72 @@ Use OS disk-space monitoring, backups and capacity alarms independently.
 - Duplicate source-body fail closed; tampering of saved source text detected.
 - Auth-isolated HTTP job create/status/stage; deterministic duplicate stage replay.
 - Existing book ownership, explicit import CAS, editor and browser auth must remain green.
+
+
+## RE-02-WEB-SOURCE-07 — Profiles and multi-user collection
+
+Implementation: [issue #83](https://github.com/Lalalalendia/ararra/issues/83).
+This extends the durable source jobs and verified text-storage quotas.
+The profile budgets below are ReadEra's **own conservative constraints**,
+not official site scraping permission.
+
+| Site | Allowed HTTPS hosts | Minimum delay | Requests / UTC day |
+|---|---|---:|---:|
+| Royal Road | royalroad.com, www.royalroad.com | 4 seconds | 240 |
+| WebNovel | webnovel.com, www.webnovel.com | 8 seconds | 100 |
+| UUKanshu | uukanshu.cc | 6 seconds | 180 |
+
+The typed source_site_profiles.py registry drives the strict source-to-host
+allowlist and authenticated site directory. A new source must have a reviewed
+parser and real permitted metadata fixture; an arbitrary wildcard or
+moderator-supplied CSS profile is not acceptable. robots.txt can impose a
+longer delay or forbid access; login, paid, CAPTCHA and JS/AJAX-only pages
+are not bypassed. The release gate is [issue #65](https://github.com/Lalalalendia/ararra/issues/65).
+
+### Site-wide concurrency and request caps
+
+Both authenticated API import and source-worker share SourceRequestLimiter
+against the **same SQLite database**. Before every outbound GET, including
+robots.txt, a BEGIN IMMEDIATE transaction reserves a unique fenced token for
+the site (www/non-www aliases share limits), honoring a one-request-at-a-time
+lease, site interval, UTC daily counter and shared upstream cooldown.
+
+Successful admissions count toward the daily site budget; a process crash
+leaves a 75-second expiring lease, never a permanent network lock. A stale
+token cannot release the successor. Regular pacing waits no more than 12
+seconds; longer saturation returns HTTP 429 with Retry-After. An upstream
+HTTP 429 triggers a bounded site-wide cooldown. UTC rollover resets only
+the counter, not a live lease or cooldown. Network security checks and
+robots.txt remain mandatory.
+
+### Fair job distribution and durable waiting
+
+New additive job fields are dispatch_turn, ready_at and defer_reason.
+SQLite per-actor turns rotate moderators while per-job turns rotate a
+moderator's multiple books; long books cannot monopolize all dispatches.
+An existing verified chapter is immutable; a denied/busy site postpones
+only the next chapter without a failure receipt or a manual retry count.
+
+Pending bounds are three active source jobs per member, twelve per site,
+and thirty-two global (queued + running). Existing logical text storage
+bounds remain 256 MiB per job, and configurable 512 MiB per actor /
+2048 MiB global by default. These limits **exclude** SQLite/WAL/temp,
+indexes, media, other books and backups. Actual disk headroom and
+backup/restore are still separate release gates. Job status exposes only
+the owner's next_attempt_at and waiting_reason, never another moderator's
+content, ID or aggregate disk usage.
+
+### Source-worker operational gate
+
+The current VPS runs API and Gemini worker but has **no systemd-managed
+source-worker yet**. No PR here automatically activates crawling.
+Before enabling a single reviewed source-worker: independently validate
+the real public-site robots/TLS/TOC behavior under #65, enforce unit
+RAM/CPU and disk/WAL/temp monitoring, verify backup/restore, and ensure
+the Reader remains healthy on the memory-limited VPS. No credential
+sharing with translation or parallel worker multiplication to force speed.
+
+Tests: two independently opened SQLite handles and a parallel reservation
+race; robots GET pacing, remote 429, day rollover, expiry fencing,
+round-robin actor turns across worker restarts, deferred chapter restart,
+global/site pending caps, actor-only API and Chromium waiting-state UI.
