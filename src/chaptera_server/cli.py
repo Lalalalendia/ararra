@@ -80,12 +80,13 @@ async def _run_source_worker(settings: Settings) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Chaptera team translation backend")
-    parser.add_argument("command", choices=["serve", "worker", "source-worker", "export-drive", "drive-authorize"])
+    parser.add_argument("command", choices=["serve", "worker", "source-worker", "export-drive", "drive-authorize", "drive-smoke"])
     parser.add_argument("--job-id", default="", help="Completed book translation job UUID")
     parser.add_argument("--dry-run", action="store_true", help="Inspect a job; no OAuth or Drive writes")
     parser.add_argument("--token-file", default="", help="Absolute path for a NEW private OAuth token file")
     parser.add_argument("--client-json", default="", help="Local Desktop OAuth client JSON downloaded from Google Cloud")
     parser.add_argument("--no-browser", action="store_true", help="Print consent link for manual opening on this computer")
+    parser.add_argument("--live-smoke", action="store_true", help="Explicitly create and re-edit a synthetic Drive chapter pair")
     args = parser.parse_args()
     settings = Settings.from_env()
     logging.basicConfig(level=logging.INFO)
@@ -126,6 +127,58 @@ def main() -> None:
         except (DriveAuthorizationError,DriveExportError) as exc:
             parser.error(str(exc))
         print(json.dumps(result,ensure_ascii=False))
+    elif args.command == "drive-smoke":
+        from pathlib import Path
+        import httpx
+        from .drive_oauth_setup import (
+            DriveAuthorizationError, load_desktop_oauth_client,
+            read_private_refresh_token,
+        )
+        from .drive_acceptance import run_drive_acceptance
+        from .drive_export import GoogleDriveClient, DriveExportError
+        if bool(args.client_json) != bool(args.token_file):
+            parser.error("For desktop smoke provide BOTH --client-json and --token-file")
+        source_folder = os.environ.get("CHAPTERA_DRIVE_SOURCE_FOLDER_ID", "").strip()
+        translation_folder = os.environ.get("CHAPTERA_DRIVE_TRANSLATION_FOLDER_ID", "").strip()
+        if not source_folder or not translation_folder:
+            parser.error("Both preexisting Google Drive folder IDs are required")
+        try:
+            if args.client_json:
+                # Trusted owner's local computer: never echo imported secrets.
+                client_id, client_secret = load_desktop_oauth_client(Path(args.client_json))
+                refresh_token = read_private_refresh_token(Path(args.token_file))
+            else:
+                # VPS/systemd: reuse the SAME credentials as export-drive.
+                # No need to place the owner JSON/token in CLI arguments.
+                client_id = _read_systemd_credential(
+                    "google_drive_client_id","CHAPTERA_DRIVE_CLIENT_ID","",
+                ).strip()
+                client_secret = _read_systemd_credential(
+                    "google_drive_client_secret","CHAPTERA_DRIVE_CLIENT_SECRET","",
+                ).strip()
+                refresh_token = _read_systemd_credential(
+                    "google_drive_refresh_token","CHAPTERA_DRIVE_REFRESH_TOKEN","",
+                ).strip()
+                if not all((client_id, client_secret, refresh_token)):
+                    raise DriveAuthorizationError(
+                        "Owner OAuth credentials are missing from protected server settings"
+                    )
+            with httpx.Client(
+                timeout=30.0,trust_env=False,follow_redirects=False,
+            ) as http:
+                drive = GoogleDriveClient(
+                    client_id=client_id,client_secret=client_secret,
+                    refresh_token=refresh_token,http=http,
+                )
+                receipt = run_drive_acceptance(
+                    drive,
+                    source_folder_id=source_folder,
+                    translation_folder_id=translation_folder,
+                    live=args.live_smoke,
+                )
+            print(json.dumps(receipt,ensure_ascii=False))
+        except (DriveAuthorizationError,DriveExportError) as exc:
+            parser.error(str(exc))
     elif args.command == "export-drive":
         from .drive_export import (
             DriveExportError, GoogleDriveClient, read_completed_job, export_completed_job,

@@ -192,6 +192,98 @@ via `export-drive`. The OAuth code is implemented and offline-tested;
 actual Google credentials and owner consent have not been provided, so
 this is **not evidence of completed live authorization**.
 
+## Owner-only full live smoke after Google Picker (RE-09A-03)
+
+The Google Drive connector in ChatGPT already successfully uploaded **two
+synthetic TXT files into the approved roots**, read them back and edited both
+in-place without changing their IDs. This proves the connector account's
+permission only. It does **not** authorize the independent ReadEra OAuth
+client: the connector token is neither transferred nor reused by ReadEra.
+
+**To complete the independent ReadEra exporter acceptance** on the
+owner's trusted Windows machine, first install the repository and create
+the [Google Cloud Desktop app OAuth client](https://console.cloud.google.com/auth/clients).
+Enable Drive API and Picker API, download its JSON privately, then run:
+
+```powershell
+py -m pip install -e .
+.\scripts\connect-google-drive.ps1 -ClientJson "C:\private\desktop-client.json" -RunSmoke
+```
+
+The command opens Google account selection and Picker, requires *exactly*
+the two existing folders and a narrow `drive.file` grant. The refresh
+token is created once under `%LOCALAPPDATA%\ReadEra`, with current-user
+Windows SID-only ACL before its contents are written. Never paste tokens
+into ChatGPT, GitHub, Notion or CI logs.
+
+- **Default:** without `-RunSmoke` it only validates writable folder
+  metadata **and lists children using the new ReadEra OAuth identity**.
+  Neither books nor Drive contents are changed.
+- **Explicit `-RunSmoke`:** creates an entirely separate temporary SQLite
+  queue with one synthesized *completed* book translation job. No production
+  DB, Gemini request or publication is involved. It uses the **real
+  `export_completed_job`** function to create one book subfolder in each
+  existing Drive root and one `Глава 001.txt` file per side.
+- Reads both remote files back and verifies bytes, parents, ownership tags,
+  and MIME. Deliberately edits **only these two newly created synthetic
+  files**, then executes the real exporter a second time. Their IDs, in-place
+  edits and exactly-one-chapter cardinality must survive. Any bad OAuth
+  grant, unsafe parent, incomplete listing, 403, or collision is a visible
+  failure, never silently reinterpreted as a successful source export.
+- Synthetic Drive files remain in clearly named
+  `__RE09A_SMOKE_..._no_real_book` subfolders for inspection (no hidden
+  cleanup/deletion). The temporary SQLite data is destroyed when the
+  command exits. Earlier manually created test folders/files are not
+  overwritten or touched.
+
+If the owner already authorized the app, re-check without overwriting
+the existing refresh token:
+
+```powershell
+.\scripts\connect-google-drive.ps1 -ClientJson "C:\private\desktop-client.json" -UseExistingToken -RunSmoke
+```
+
+The same program can be invoked directly from CLI with both exact
+`CHAPTERA_DRIVE_*_FOLDER_ID` values configured:
+
+```powershell
+chaptera-server drive-smoke --client-json "C:\private\desktop-client.json" --token-file "$env:LOCALAPPDATA\ReadEra\drive-owner-refresh-token.txt"
+chaptera-server drive-smoke --client-json "C:\private\desktop-client.json" --token-file "$env:LOCALAPPDATA\ReadEra\drive-owner-refresh-token.txt" --live-smoke
+```
+
+The first command is read-only. The second is an **actual** create/edit
+test using ReadEra's own OAuth identity. CI simulates all Google responses;
+CI results alone are not evidence that the owner completed these commands.
+
+**VPS handoff is a separate protected credential operation.** Once
+local owner acceptance is successful, provision the SAME OAuth client ID,
+secret and refresh token to the VPS through systemd credentials
+(`google_drive_client_id`, `google_drive_client_secret`,
+`google_drive_refresh_token`). Set the same two
+`CHAPTERA_DRIVE_*_FOLDER_ID` values; the Google connection is tied to
+the OAuth application, not to the ChatGPT account session.
+
+**On the VPS**, using the service account and its protected credentials:
+
+```sh
+# No --client-json or --token-file arguments. Never print secrets.
+chaptera-server drive-smoke
+# With explicit permission to create and edit TEST files only:
+chaptera-server drive-smoke --live-smoke
+# First inspect one actual completed book job without Google requests:
+chaptera-server export-drive --job-id "<completed-book-job-id>" --dry-run
+# Only after confirming the source, job revision, and destination:
+chaptera-server export-drive --job-id "<completed-book-job-id>"
+```
+
+The first smoke is read-only, the second uses a fresh isolated synthetic
+book and actually runs the exporter. Both use the **same server/systemd
+credentials** as `export-drive`. They do not read the production SQLite
+database. Successful local synthetic acceptance **alone** does not prove
+that the VPS has been configured or that the server has exported a real
+completed job. Do not put tokens into shell history, GitHub Actions,
+Notion or Google Drive files.
+
 ## Acceptance status
 
 The code is covered by isolated HTTP-mocked tests: two existing root folders,
