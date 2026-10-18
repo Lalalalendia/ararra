@@ -90,6 +90,63 @@ must be explicitly provisioned by the operator.
   scope can enumerate. Do not treat a scoped listing as authoritative for
   arbitrary foreign files; assess this during OAuth/live acceptance.
 
+## Local owner OAuth and folder selection (RE-09A-02a)
+
+The [Google Picker desktop authorization flow](https://developers.google.com/workspace/drive/picker/guides/desktop-mobile-picker)
+can grant the ReadEra OAuth application the two **preexisting** folders via
+the recommended limited `drive.file` scope. The 2026 documentation
+specifically supports `trigger_onepick=true`, `allow_multiple=true`,
+`allow_folder_selection=true` and `file_ids=...`. This is a one-time,
+**owner-approved** flow on their trusted workstation — *never* the
+ChatGPT connector's OAuth token.
+
+Prerequisites: enable **Drive API and Google Picker API** for the Google
+Cloud project and create a **Desktop app** OAuth client with PKCE
+support. Configure credentials and both folder IDs in a trusted local
+shell (never in the repository or chat):
+
+```sh
+export CHAPTERA_DRIVE_CLIENT_ID='<desktop-oauth-client-id>'
+export CHAPTERA_DRIVE_CLIENT_SECRET='<desktop-oauth-client-secret>'
+export CHAPTERA_DRIVE_SOURCE_FOLDER_ID='1daqCzEVgPdX639YV5otTLxgVTPbfeBEp'
+export CHAPTERA_DRIVE_TRANSLATION_FOLDER_ID='1X2ZP8Fzbnq5MEAWJyGSErVGGFkfGBrR9'
+
+# Run ON the owner's own computer with browser and loopback network.
+chaptera-server drive-authorize --token-file /absolute/protected/readera-refresh-token
+# --no-browser prints an authorization URL instead, opened on SAME computer.
+```
+
+The command binds a temporary listener to `127.0.0.1` on a random
+port, generates an independent OAuth state nonce and S256 PKCE verifier,
+opens the system browser, requests exactly `drive.file`, and **requires
+the user to choose both exact existing folder IDs**. Unknown selections,
+OAuth errors and state mismatches are rejected. It exchanges the code for
+an offline refresh token, verifies that **both folders are writable
+through that same OAuth identity**, then saves the token in a **new**
+operator-selected file with permission mode 0600; existing files,
+including symlinks, cannot be overwritten.
+
+Neither the authorization code nor refresh/access token is logged or
+printed. The *authorization URL* may be printed on the local console to
+make manual browser opening possible; don't copy it into tickets or logs.
+The output token must then be provisioned to the VPS as
+`google_drive_refresh_token` in the protected systemd credentials
+directory, alongside the **same client ID / client secret used during
+consent**. Alternatively configure `CHAPTERA_DRIVE_REFRESH_TOKEN`
+only in a controlled nonproduction environment.
+
+A loopback URI is meant for a Desktop OAuth client; running this
+command over SSH on a headless VPS will not redirect into the
+operator's workstation browser without extra network setup, and is
+not the default procedure. Do not use Google's old deprecated
+out-of-band copy/paste code flow.
+
+**Next live acceptance:** run the bootstrap with actual owner consent,
+verify the two existing folder IDs, then a **synthetic test chapter**
+via `export-drive`. The OAuth code is implemented and offline-tested;
+actual Google credentials and owner consent have not been provided, so
+this is **not evidence of completed live authorization**.
+
 ## Acceptance status
 
 The code is covered by isolated HTTP-mocked tests: two existing root folders,
