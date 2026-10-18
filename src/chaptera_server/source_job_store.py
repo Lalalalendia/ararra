@@ -44,9 +44,23 @@ def _manifest_hash(serialized: str) -> str:
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
+DEFAULT_ACTOR_QUOTA_BYTES = 512 * 1024 * 1024
+DEFAULT_GLOBAL_QUOTA_BYTES = 2048 * 1024 * 1024
+
+
 class SourceJobStore:
-    def __init__(self, store: QueueStore):
+    def __init__(
+        self, store: QueueStore, *,
+        actor_quota_bytes: int = DEFAULT_ACTOR_QUOTA_BYTES,
+        global_quota_bytes: int = DEFAULT_GLOBAL_QUOTA_BYTES,
+    ):
+        if (type(actor_quota_bytes) is not int or type(global_quota_bytes) is not int
+            or not 1024 * 1024 <= actor_quota_bytes <= global_quota_bytes
+            or global_quota_bytes > 1024 * 1024 * 1024 * 1024):
+            raise ValueError("Invalid durable source quota configuration")
         self.store = store
+        self.actor_quota_bytes = actor_quota_bytes
+        self.global_quota_bytes = global_quota_bytes
         with store._connect() as con:
             con.executescript("""
                 CREATE TABLE IF NOT EXISTS source_collect_jobs (
@@ -89,6 +103,40 @@ class SourceJobStore:
                     UNIQUE(job_id,ordinal)
                 );
             """)
+
+    @staticmethod
+    def _used_bytes(con: sqlite3.Connection, actor: str) -> tuple[int, int]:
+        """Atomic exact logical source-body usage, including all old jobs.
+
+        No cached ledger can drift after restore or a foreign-key cascade.
+        The caller must BEGIN IMMEDIATE for writes. One read query scans
+        source checkpoints using SQLite's own INTEGER sums.
+        """
+        row = con.execute(
+            "SELECT COALESCE(SUM(i.bytes),0) AS all_bytes,"
+            " COALESCE(SUM(CASE WHEN j.actor_id=? THEN i.bytes ELSE 0 END),0) AS actor_bytes "
+            "FROM source_collect_items AS i "
+            "JOIN source_collect_jobs AS j ON j.id=i.job_id "
+            "WHERE i.status='ok'",
+            (actor,),
+        ).fetchone()
+        return int(row["actor_bytes"]), int(row["all_bytes"])
+
+    def usage(self, actor: str) -> dict:
+        """Actor-visible quota; never expose other members' total byte usage."""
+        with self.store._connect() as con:
+            actor_bytes, global_bytes = self._used_bytes(con, actor)
+        return {
+            "actor_used_bytes": actor_bytes,
+            "actor_limit_bytes": self.actor_quota_bytes,
+            "effective_remaining_bytes": min(
+                max(self.actor_quota_bytes - actor_bytes, 0),
+                max(self.global_quota_bytes - global_bytes, 0),
+            ),
+            "can_collect": actor_bytes < self.actor_quota_bytes
+                and global_bytes < self.global_quota_bytes,
+            "scope": "verified_source_bodies_only",
+        }
 
     @staticmethod
     def _manifest(row: sqlite3.Row) -> list[dict]:
@@ -195,6 +243,11 @@ class SourceJobStore:
                         prior["catalog_id"] != catalog_id):
                         raise SourceJobConflict("Idempotency key reused for another selection")
                     return self._public(con,prior)
+            actor_used, global_used = self._used_bytes(con, actor)
+            if actor_used >= self.actor_quota_bytes or global_used >= self.global_quota_bytes:
+                raise SourceJobConflict(
+                    "Verified source storage quota exhausted; delete completed source captures"
+                )
             active = con.execute(
                 "SELECT COUNT(*) FROM source_collect_jobs "
                 "WHERE actor_id=? AND status IN ('queued','running')",
@@ -349,13 +402,21 @@ class SourceJobStore:
                     error = f"Duplicate body of chapter {duplicate['ordinal']}"
                     body = None
             if body is not None:
+                item_bytes = len(body.encode("utf-8"))
                 used_bytes = con.execute(
                     "SELECT COALESCE(SUM(bytes),0) FROM source_collect_items "
                     "WHERE job_id=? AND status='ok'",
                     (job_id,),
                 ).fetchone()[0]
-                if used_bytes + len(body.encode("utf-8")) > MAX_JOB_BYTES:
+                actor_used, global_used = self._used_bytes(con, row["actor_id"])
+                if used_bytes + item_bytes > MAX_JOB_BYTES:
                     error = "Collection exceeds 256 MiB verified-source budget"
+                    body = None
+                elif actor_used + item_bytes > self.actor_quota_bytes:
+                    error = "Member's verified source quota exhausted; clean up older collections"
+                    body = None
+                elif global_used + item_bytes > self.global_quota_bytes:
+                    error = "Shared verified source storage quota exhausted; contact administrator"
                     body = None
             status = "ok" if body is not None else "failed"
             con.execute(
