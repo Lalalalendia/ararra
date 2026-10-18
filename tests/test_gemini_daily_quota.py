@@ -110,19 +110,24 @@ def test_worker_pauses_at_quota_and_resumes_without_burning_retries(tmp_path, mo
     first = store.create_job("alice", JobSpec("a", "<p>世界正在燃烧。</p>", max_attempts=1))
     second = store.create_job("alice", JobSpec("b", "<p>世界正在燃烧。</p>", max_attempts=1))
     assert asyncio.run(worker.run_once())
-    assert store.get_job(first["id"])["status"] == "completed"
+    # RE-04 prioritizes smaller ready batches and breaks equal-time ties by
+    # UUID. FIFO order between equal-priority jobs is not a quota invariant.
+    states = {job["id"]:store.get_job(job["id"])["status"]
+              for job in (first, second)}
+    assert sorted(states.values()) == ["completed", "queued"]
+    remaining_id = next(jid for jid, status in states.items() if status=="queued")
     assert asyncio.run(worker.run_once())
-    state = store.get_job(second["id"])
+    state = store.get_job(remaining_id)
     assert state["status"] == "retry_wait"
     assert state["attempts"] == 0
     assert provider.calls == 1
-    assert any(row["stage"] == "quota_wait" for row in store.events(second["id"]))
+    assert any(row["stage"] == "quota_wait" for row in store.events(remaining_id))
     assert store.claim_next() is None
 
     clock[0] = pacific_window(clock[0])[1] + 1
     assert DailyQuotaLedger(QueueStore(db), "project-pacific", "test-model", 1).status()["remaining"] == 1
     assert asyncio.run(worker.run_once())
-    assert store.get_job(second["id"])["status"] == "completed"
+    assert store.get_job(remaining_id)["status"] == "completed"
     assert provider.calls == 2
 
 

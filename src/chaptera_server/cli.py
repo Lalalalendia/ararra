@@ -5,8 +5,10 @@ import argparse
 import asyncio
 import logging
 import signal
+import json
+import os
 
-from .config import Settings
+from .config import Settings, _read_systemd_credential
 from .provider import GeminiProvider
 from .quota import DailyQuotaLedger, QuotaControlledProvider
 from .scheduled_provider import ScheduledGeminiProvider
@@ -78,7 +80,9 @@ async def _run_source_worker(settings: Settings) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Chaptera team translation backend")
-    parser.add_argument("command", choices=["serve", "worker", "source-worker"])
+    parser.add_argument("command", choices=["serve", "worker", "source-worker", "export-drive"])
+    parser.add_argument("--job-id", default="", help="Completed book translation job UUID")
+    parser.add_argument("--dry-run", action="store_true", help="Inspect a job; no OAuth or Drive writes")
     args = parser.parse_args()
     settings = Settings.from_env()
     logging.basicConfig(level=logging.INFO)
@@ -91,6 +95,52 @@ def main() -> None:
             asyncio.run(_run_source_worker(settings))
         except KeyboardInterrupt:
             pass
+    elif args.command == "export-drive":
+        from .drive_export import (
+            DriveExportError, GoogleDriveClient, read_completed_job, export_completed_job,
+            _digest,
+        )
+        if not args.job_id:
+            parser.error("--job-id is required for export-drive")
+        store = QueueStore(settings.db_path)
+        try:
+            job = read_completed_job(store, args.job_id)
+            if args.dry_run:
+                print(json.dumps({
+                    "dry_run":True,"job_id":job.job_id,"book_id":job.book_id,
+                    "chapter_index":job.chapter_index,
+                    "source_sha256":_digest(job.source),
+                    "translation_sha256":_digest(job.translation),
+                    "network_used":False,
+                },ensure_ascii=False))
+                return
+            source_folder = os.environ.get("CHAPTERA_DRIVE_SOURCE_FOLDER_ID", "").strip()
+            translation_folder = os.environ.get("CHAPTERA_DRIVE_TRANSLATION_FOLDER_ID", "").strip()
+            client_id = _read_systemd_credential(
+                "google_drive_client_id","CHAPTERA_DRIVE_CLIENT_ID","",
+            ).strip()
+            client_secret = _read_systemd_credential(
+                "google_drive_client_secret","CHAPTERA_DRIVE_CLIENT_SECRET","",
+            ).strip()
+            refresh_token = _read_systemd_credential(
+                "google_drive_refresh_token","CHAPTERA_DRIVE_REFRESH_TOKEN","",
+            ).strip()
+            if not source_folder or not translation_folder:
+                raise DriveExportError("Both existing Drive folder IDs must be configured")
+            with __import__("httpx").Client(
+                timeout=30.0,trust_env=False,follow_redirects=False,
+            ) as http:
+                drive = GoogleDriveClient(
+                    client_id=client_id,client_secret=client_secret,
+                    refresh_token=refresh_token,http=http,
+                )
+                receipt = export_completed_job(
+                    store,drive,args.job_id,source_folder_id=source_folder,
+                    translation_folder_id=translation_folder,
+                )
+            print(json.dumps(receipt,ensure_ascii=False))
+        except DriveExportError as exc:
+            parser.error(str(exc))
     else:
         if not settings.gemini_api_key and not settings.gemini_vault_key:
             parser.error("Gemini worker requires a shared host key or personal vault key")
