@@ -30,7 +30,7 @@ a root ID, silently create one or request new OAuth per release.**
 ## RE-09A-05: moderator → book → original and translation (NEW canonical layout)
 
 Example (Firegod is illustrative; actual moderator comes from
-\`books.owner_member_id\`):
+`books.owner_member_id`):
 
 ```text
 Эрида/                    ← one pre-approved shared library root
@@ -44,14 +44,14 @@ Example (Firegod is illustrative; actual moderator comes from
         Глава 002.txt
 ```
 
-The exporter uses stable, private Drive \`appProperties\` for the
+The exporter uses stable, private Drive `appProperties` for the
 moderator, book, source/translation subfolders and chapter files.
 User renaming or editing does not change their Drive IDs. Existing TXT
 bytes are NEVER overwritten/deleted.
 
 **Fail-closed migration:** older exports live in two already-authorized
-roots, each containing flat \`root/book/chapter\` trees. The new export
-requires a single explicit \`CHAPTERA_DRIVE_ROOT_FOLDER_ID\` and refuses
+roots, each containing flat `root/book/chapter` trees. The new export
+requires a single explicit `CHAPTERA_DRIVE_ROOT_FOLDER_ID` and refuses
 to duplicate a recognized book from the old roots. Existing books must
 be reconciled and moved using existing file/folder IDs only through a
 separately approved migration. Ownership reassignment of an already
@@ -60,21 +60,21 @@ Google Drive OAuth credentials outside release directories remain stable.
 
 **Activation gate:** until the operator chooses/authorizes an actual shared
 library root, the code must refuse all write exports and remain disabled
-on the server. The old \`drive-smoke\` without the new root setting remains
-a read-only access check for the two legacy roots; \`--live-smoke\` requires
+on the server. The old `drive-smoke` without the new root setting remains
+a read-only access check for the two legacy roots; `--live-smoke` requires
 the explicit shared root and is not a production migration.
 
 ## Implemented: guarded single-job export CLI
 
 ```sh
-# Explicitly set the existing folder IDs, not arbitrary shared root folders.
+# The previous approved folder IDs are used to reject duplicate legacy exports.
 export CHAPTERA_DRIVE_SOURCE_FOLDER_ID=1daqCzEVgPdX639YV5otTLxgVTPbfeBEp
 export CHAPTERA_DRIVE_TRANSLATION_FOLDER_ID=1X2ZP8Fzbnq5MEAWJyGSErVGGFkfGBrR9
 # Configure only after an explicit owner-reviewed common root selection:
 export CHAPTERA_DRIVE_ROOT_FOLDER_ID='<approved-shared-library-folder-id>'
 
 chaptera-server export-drive --job-id "<completed-translation-job-id>" --dry-run
-# After OAuth consent, with protected credentials installed on the server:
+# After the shared parent is authorized for the existing server OAuth identity:
 chaptera-server export-drive --job-id "<completed-translation-job-id>"
 ```
 
