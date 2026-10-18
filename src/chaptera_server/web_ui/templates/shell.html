@@ -334,6 +334,38 @@
                   <pre id="source-shared-body" class="source-shared-body" hidden></pre>
                 </div>
               </details>
+              <details id="source-archive" class="source-shared">
+                <summary>Архив исходников · общая библиотека</summary>
+                <p class="muted">Проверенные исходники сохраняются после удаления
+                  личного задания. Доступ только на чтение; удаление архивной
+                  ревизии разрешено администратору.</p>
+                <div class="compact-form source-shared-controls">
+                  <label class="ui-field"><span>Книга в архиве</span>
+                    <select id="source-archive-books" class="ui-input" disabled>
+                      <option value="">Загрузите архив</option>
+                    </select>
+                  </label>
+                  <button id="source-archive-refresh" type="button"
+                          class="ui-button ui-button--ghost">Обновить архив</button>
+                  <button id="source-archive-open" type="button"
+                          class="ui-button ui-button--ghost" disabled>Список глав</button>
+                </div>
+                <p id="source-archive-status" role="status" aria-live="polite">
+                  Архив ещё не загружен.</p>
+                <div id="source-archive-reader" hidden>
+                  <label class="ui-field"><span>Сохранённая ревизия главы</span>
+                    <select id="source-archive-chapters" class="ui-input" disabled>
+                      <option value="">Выберите главу</option>
+                    </select>
+                  </label>
+                  <button id="source-archive-next" type="button"
+                          class="ui-button ui-button--ghost" hidden>Ещё главы</button>
+                  <button id="source-archive-read" type="button"
+                          class="ui-button ui-button--primary" disabled>Читать оригинал</button>
+                  <p id="source-archive-caption" class="muted" role="status" aria-live="polite"></p>
+                  <pre id="source-archive-body" class="source-shared-body" hidden></pre>
+                </div>
+              </details>
             </section>
 
             <ol class="steps" id="import-steps">
