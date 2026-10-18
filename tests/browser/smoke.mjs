@@ -78,6 +78,19 @@ try{
   assert.equal(await page.locator('.topbar').isVisible(),true);
   assert.equal(await page.locator('body').getAttribute('data-authenticated'),'true');
   assert.match(await page.locator('#identity-label').innerText(),/Администратор/);
+  // RE-04: logout belongs to the account row, not a detached content row.
+  assert.equal(await page.locator('.workspace-actions').count(),0);
+  assert.equal(await page.locator('.topbar-account #logout').count(),1);
+  const [topbarBox,identityBox,logoutBox]=await Promise.all([
+    page.locator('.topbar').boundingBox(),
+    page.locator('#identity-label').boundingBox(),
+    page.locator('#logout').boundingBox(),
+  ]);
+  assert.ok(topbarBox && topbarBox.height<=58,'compact topbar must be <=58px');
+  assert.ok(identityBox && logoutBox && logoutBox.x>identityBox.x,
+    'logout must align after the identity');
+  assert.ok(logoutBox.y>=topbarBox.y && logoutBox.y+logoutBox.height<=topbarBox.y+topbarBox.height+2,
+    'logout must stay inside the topbar');
   assert.equal(await page.locator('#metric-books').innerText(),'0');
   await screenshot(page,'01-overview-desktop.png');await fit(page,'overview desktop');
 
@@ -126,6 +139,23 @@ try{
   assert.equal((await api('/v1/admin/members',issued)).status,403);
 
   await choose(page,'import');
+  // The source import form is a single row; no nested oversized card or
+  // separated logout row may consume the first viewport on desktop.
+  const [importHeading,sourceCard,sourceUrl,discover,historyPanel]=await Promise.all([
+    page.locator('[data-page="import"] > .ui-page-header').boundingBox(),
+    page.locator('#source-import').boundingBox(),
+    page.locator('#source-book-url').boundingBox(),
+    page.locator('#source-discover').boundingBox(),
+    page.locator('#source-job-panel').boundingBox(),
+  ]);
+  assert.ok(importHeading && sourceCard && sourceCard.y-importHeading.y<110,
+    'import form must follow the compact page heading');
+  assert.ok(sourceUrl && discover && discover.x>sourceUrl.x,
+    'source import action must align to the right of URL field on desktop');
+  assert.ok(historyPanel && historyPanel.y<700,
+    'background import controls should appear within first desktop viewport');
+  assert.equal(await page.locator('#source-job-panel.ui-card').count(),0,
+    'background import must not be a second nested card');
   // Site selection uses the authenticated controller and does not claim a
   // complete import if even one public chapter cannot be fetched.
   const sourceCatalogReply={
@@ -573,6 +603,15 @@ try{
   await mobileBatch.getByRole('button',{name:'Закрыть'}).click();
   await mobileBatch.waitFor({state:'hidden'});
   await choose(mpage,'import');await fit(mpage,'import mobile');
+  assert.equal(await mpage.locator('.topbar-account #logout').isVisible(),true);
+  const [mbar,mexit]=await Promise.all([
+    mpage.locator('.topbar').boundingBox(),mpage.locator('#logout').boundingBox(),
+  ]);
+  assert.ok(mbar && mexit && mexit.y+mexit.height<=mbar.y+mbar.height+2,
+    'mobile logout must stay within topbar');
+  assert.equal(await mpage.locator('#source-book-form').evaluate(
+    node=>getComputedStyle(node).gridTemplateColumns.split(' ').length),1,
+    'mobile source form should stack without horizontal overflow');
   await screenshot(mpage,'10-import-mobile.png');
   await choose(mpage,'editor');
   await mpage.locator('#editor-workspace').waitFor({state:'visible'});

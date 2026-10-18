@@ -28,12 +28,14 @@
         <a href="/app/team" data-page-link="team">Команда</a>
         <a href="/app/cabinet" data-page-link="cabinet">Личный кабинет</a>
       </nav>
-      <p class="sidebar-bottom">Закрытое рабочее пространство<br>Две роли: администратор и модераторы</p>
     </aside>
     <div class="workspace">
       <header class="topbar">
-        <span>Переводы / Рабочий кабинет</span>
-        <span id="identity-label" class="identity-chip" hidden></span>
+        <span class="topbar-context">Рабочий кабинет</span>
+        <div class="topbar-account">
+          <span id="identity-label" class="identity-chip" hidden></span>
+          <button class="topbar-logout" id="logout" type="button">Выйти</button>
+        </div>
       </header>
       <main class="content">
         <form id="login-form" class="ui-card login-form" autocomplete="off" aria-label="Вход по ключу">
@@ -44,10 +46,6 @@
         </form>
         <div id="flash" role="status" class="ui-alert" hidden></div>
         <section id="authenticated" hidden>
-          <div class="workspace-actions">
-            <button class="ui-button ui-button--ghost" id="logout" type="button">Выйти</button>
-          </div>
-          
           <section data-page="overview" hidden>
             <div class="ui-page-header"><div>
               <p class="kicker">РидЭра / Обзор</p><h1>Рабочее пространство</h1>
@@ -201,14 +199,13 @@
           </section>
           <section data-page="import" hidden class="chapter-import-create-page">
             <div class="ui-page-header"><div>
-              <p class="kicker">РидЭра / Импорт</p><h1>Импорт исходных глав</h1>
-              <p>Три шага: файл → сопоставление → проверка и запись. Перевод Gemini здесь не запускается.</p>
+              <p class="kicker">РидЭра / Импорт</p><h1>Импорт глав</h1>
+              <p>Из файла или по ссылке на книгу · без запуска перевода.</p>
             </div></div>
             <section id="source-import" class="ui-card" aria-labelledby="source-import-title">
               <div class="ui-section-header">
-                <h2 id="source-import-title">Собрать книгу с сайта</h2>
-                <p>Укажите публичную страницу книги, проверьте оглавление и выберите главы.
-                  Перед записью в библиотеку остаётся обычный этап подтверждения.</p>
+                <h2 id="source-import-title">Книга по ссылке</h2>
+                <p>Получите оглавление, выберите главы и подтвердите импорт.</p>
               </div>
               <form id="source-book-form" class="compact-form">
                 <div class="field-grid">
@@ -249,32 +246,29 @@
                 <p class="muted">Первые 80 записей оглавления показаны для проверки.
                   Номера остальных глав можно указать в диапазоне выше.</p>
               </div>
-              <div id="source-job-panel" class="ui-card" aria-labelledby="source-job-title">
-                <h3 id="source-job-title">Длительный сбор книги</h3>
-                <div id="source-job-history" class="compact-form">
-                  <div class="ui-section-header">
-                    <p>Мои сохранённые сборки — выберите книгу и диапазон без копирования ID.</p>
-                  </div>
-                  <button id="source-job-history-refresh" type="button"
-                          class="ui-button ui-button--ghost">Показать мои сборки</button>
-                  <label class="ui-field"><span>Предыдущие задания</span>
+              <div id="source-job-panel" class="source-job-panel" aria-labelledby="source-job-title">
+                <h3 id="source-job-title">Фоновый сбор</h3>
+                <div id="source-job-history" class="source-job-history">
+                  <label class="ui-field"><span>Сохранённые сборки</span>
                     <select id="source-job-history-list" class="ui-input" disabled>
                       <option value="">Получите список заданий</option>
                     </select>
                   </label>
+                  <button id="source-job-history-refresh" type="button"
+                          class="ui-button ui-button--ghost">Мои сборки</button>
                   <button id="source-job-history-open" type="button"
-                          class="ui-button ui-button--ghost" disabled>Открыть выбранную сборку</button>
+                          class="ui-button ui-button--ghost" disabled>Открыть</button>
                   <button id="source-job-history-delete" type="button"
-                          class="ui-button ui-button--ghost" disabled>Удалить сохранённые исходники задания</button>
+                          class="ui-button ui-button--ghost" disabled>Удалить исходники</button>
                   <p id="source-job-history-status" role="status" aria-live="polite">
-                    Список доступен после входа в Эриду.</p>
+                    Список ещё не загружен.</p>
                 </div>
                 <form id="source-job-resume-form" class="compact-form">
-                  <label class="ui-field"><span>ID задания — сохраните его для восстановления</span>
+                  <label class="ui-field"><span>Открыть по ID задания</span>
                     <input id="source-job-id" class="ui-input" autocomplete="off"
                            placeholder="ID сохранённого задания" required></label>
                   <button id="source-job-refresh" type="submit"
-                          class="ui-button ui-button--ghost">Открыть / обновить прогресс</button>
+                          class="ui-button ui-button--ghost">Открыть задание</button>
                 </form>
                 <p id="source-job-status" role="status" aria-live="polite">
                   Фоновое задание ещё не выбрано.</p>
