@@ -74,6 +74,7 @@ export function createBookBatchView({
   let receipt=null;
   let currentBatchId='';
   let generation=0;
+  let selectionRevision=0;
   let working=false;
   let reading=false;
 
@@ -91,6 +92,7 @@ export function createBookBatchView({
     previewButton.disabled=working || !selected.size || selected.size>100 || !bookDetails;
   }
   function changed(){
+    selectionRevision+=1;
     resetPreview();
     status.textContent='Выбор или параметры изменились. Нужна новая проверка.';
     refreshSelectionStatus();
@@ -189,11 +191,12 @@ export function createBookBatchView({
   }
 
   function reset(){
-    generation+=1;
+    generation+=1;selectionRevision+=1;
     selected=new Set();catalog=[];bookDetails=null;active=null;receipt=null;
     currentBatchId='';
     working=false;reading=false;
     resetPreview();chaptersBody.replaceChildren();historyList.replaceChildren();
+    setWorking(false);
     progressPanel.hidden=true;
     transport.value='html_v0';maxAttempts.value='3';
     selectionStatus.textContent='Загрузка оглавления…';
@@ -248,6 +251,21 @@ export function createBookBatchView({
   historyRefresh.addEventListener('click',()=>void loadHistory());
   progressRefresh.addEventListener('click',()=>void loadProgress(currentBatchId));
 
+  function setWorking(state){
+    working=state;
+    for(const control of [selectAll,clearSelection,transport,maxAttempts])
+      control.disabled=state;
+    for(const checkbox of chaptersBody.querySelectorAll('input[type="checkbox"]'))
+      checkbox.disabled=state;
+    if(state){
+      previewButton.disabled=true;
+      submitButton.disabled=true;
+    } else {
+      refreshSelectionStatus();
+      submitButton.disabled=!receipt || !ack.checked;
+    }
+  }
+
   async function preview(){
     if(!active||!bookDetails||working)return;
     const book=active,ticket=generation;
@@ -258,14 +276,15 @@ export function createBookBatchView({
         transport:transport.value,maxAttempts:Number(maxAttempts.value),
       });
     }catch(error){status.textContent=error.message;return;}
-    working=true;previewButton.disabled=true;
+    const selectionVersion=selectionRevision;
+    setWorking(true);
     status.textContent='Проверяем выбранные главы и их версии на сервере…';
     try{
       const result=await request(path()+'/preview',{
         method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify(payload),
       });
-      if(!activeFor(ticket,book))return;
+      if(!activeFor(ticket,book) || selectionVersion!==selectionRevision)return;
       if(!/^[a-f0-9]{64}$/.test(result.manifest_sha256) || result.chapter_count!==payload.chapters.length)
         throw new Error('Сервер вернул некорректное подтверждение партии.');
       receipt={payload,sha:result.manifest_sha256,key:crypto.randomUUID()};
@@ -278,13 +297,13 @@ export function createBookBatchView({
     }catch(error){
       if(activeFor(ticket,book)){status.textContent='Проверка партии не прошла.';showError(error);}
     }finally{
-      working=false;if(activeFor(ticket,book))refreshSelectionStatus();
+      if(activeFor(ticket,book))setWorking(false);
     }
   }
   async function submit(){
     if(!active||!receipt||!ack.checked||working)return;
     const book=active,ticket=generation,pin=receipt;
-    working=true;submitButton.disabled=true;previewButton.disabled=true;
+    setWorking(true);
     status.textContent='Подтверждаем создание всей партии одним действием…';
     try{
       const result=await request(path(),{
@@ -296,6 +315,7 @@ export function createBookBatchView({
       if(!activeFor(ticket,book))return;
       receipt=null;
       ack.checked=false;review.hidden=true;
+      selected.clear();renderChapters();
       renderProgress(result);
       status.textContent='Сервер сохранил партию. Задания не означают принятые переводы.';
       notify('Партия '+result.chapter_count+' глав сохранена в очереди.');
@@ -310,11 +330,7 @@ export function createBookBatchView({
         showError(error);void loadHistory();
       }
     }finally{
-      working=false;
-      if(activeFor(ticket,book)){
-        refreshSelectionStatus();
-        submitButton.disabled=!receipt || !ack.checked;
-      }
+      if(activeFor(ticket,book))setWorking(false);
     }
   }
   return {open,reset};
