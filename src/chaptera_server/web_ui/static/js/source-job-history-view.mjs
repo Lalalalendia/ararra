@@ -26,7 +26,7 @@ export function createSourceJobHistoryView({request,flash,onOpen,onDelete}) {
     openButton.disabled=busy||!job;
     deleteButton.disabled=busy||!job||!finished.has(job.status);
   }
-  function render(list) {
+  function render(list, usage) {
     const previous=picker.value;
     jobs=new Map(list.map(job=>[job.job_id,job]));
     picker.replaceChildren();
@@ -51,8 +51,17 @@ export function createSourceJobHistoryView({request,flash,onOpen,onDelete}) {
       picker.append(option);
     }
     picker.value=jobs.has(previous)?previous:'';
+    const quota=(usage &&
+      Number.isFinite(usage.actor_used_bytes) &&
+      Number.isFinite(usage.actor_limit_bytes) &&
+      Number.isFinite(usage.effective_remaining_bytes))
+      ?(' Исходники: '+(usage.actor_used_bytes/1048576).toFixed(1)+' из '+
+        (usage.actor_limit_bytes/1048576).toFixed(0)+' МиБ; доступно ещё '+
+        (usage.effective_remaining_bytes/1048576).toFixed(1)+' МиБ.'+
+        (usage.can_collect===false?' Квота исчерпана: очистите старые сборки.':''))
+      :'';
     status.textContent='Доступно своих сборок: '+list.length+
-      '. Показываются последние 30 по изменению.';
+      '. Показываются последние 30 по изменению.'+quota;
     controls();
   }
 
@@ -76,7 +85,7 @@ export function createSourceJobHistoryView({request,flash,onOpen,onDelete}) {
       if(ticket!==generation)return;
       if(!Array.isArray(result?.jobs))
         throw new Error('Сервер не вернул список заданий.');
-      render(result.jobs);
+      render(result.jobs, result.usage);
     }catch(err){
       if(ticket!==generation)return;
       clear();

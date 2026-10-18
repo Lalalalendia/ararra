@@ -62,7 +62,11 @@ async def _run_source_worker(settings: Settings) -> None:
             loop.add_signal_handler(signum, stop.set)
         except NotImplementedError:
             pass
-    jobs = SourceJobStore(QueueStore(settings.db_path))
+    jobs = SourceJobStore(
+        QueueStore(settings.db_path),
+        actor_quota_bytes=settings.source_actor_quota_mib * 1024 * 1024,
+        global_quota_bytes=settings.source_global_quota_mib * 1024 * 1024,
+    )
     crawler = SourceCollectionWorker(jobs, PublicHtmlFetcher())
     await crawler.run_forever(poll_seconds=settings.worker_poll_seconds, stop=stop)
 

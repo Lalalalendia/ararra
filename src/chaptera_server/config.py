@@ -49,6 +49,10 @@ class Settings:
     # Desktop-compatible streaming transport is opt-in for atom packets only.
     gemini_stream_atoms: bool = False
     worker_poll_seconds: float = 1.0
+    # Bounds apply to verified raw crawler text across all historical jobs;
+    # protect small VPS disks independently of the per-job 256 MiB cap.
+    source_actor_quota_mib: int = 512
+    source_global_quota_mib: int = 2048
     bind: str = "127.0.0.1"
     port: int = 8000
 
@@ -65,6 +69,10 @@ class Settings:
             raise ValueError("Gemini RPM, TPM and output reservation must be non-negative")
         if self.gemini_tpm and not self.gemini_reserved_output_tokens:
             raise ValueError("Gemini TPM requires an explicit output-token reservation")
+        if not (1 <= self.source_actor_quota_mib <= 1_048_576):
+            raise ValueError("Source actor quota must be 1..1048576 MiB")
+        if not (self.source_actor_quota_mib <= self.source_global_quota_mib <= 1_048_576):
+            raise ValueError("Source global quota must be >= actor quota and <=1048576 MiB")
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -95,6 +103,8 @@ class Settings:
             gemini_stream_atoms=os.environ.get("CHAPTERA_GEMINI_STREAM_ATOMS", "0").strip().lower()
                                 in {"1", "true", "yes", "on"},
             worker_poll_seconds=max(0.1, float(os.environ.get("CHAPTERA_WORKER_POLL_SECONDS", "1.0"))),
+            source_actor_quota_mib=int(os.environ.get("CHAPTERA_SOURCE_ACTOR_QUOTA_MIB", "512")),
+            source_global_quota_mib=int(os.environ.get("CHAPTERA_SOURCE_GLOBAL_QUOTA_MIB", "2048")),
             bind=os.environ.get("CHAPTERA_BIND", "127.0.0.1"),
             port=int(os.environ.get("CHAPTERA_PORT", "8000")),
         )
