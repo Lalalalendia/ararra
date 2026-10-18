@@ -12,6 +12,7 @@ import pytest
 from chaptera_server.drive_export import (
     DriveExportError, GoogleDriveClient, export_completed_job, read_completed_job,
 )
+from chaptera_server.drive_acceptance import run_drive_acceptance
 from chaptera_server.library import BookLibrary
 from chaptera_server.storage import QueueStore
 
@@ -66,12 +67,25 @@ class FakeDrive:
         if path.startswith("/drive/v3/files/") and request.method == "GET":
             fid=path.rsplit("/",1)[-1]
             file=self.files.get(fid)
+            if file and request.url.params.get("alt")=="media":
+                return httpx.Response(200,content=self.bodies[fid],
+                                      headers={"Content-Type":"text/plain"})
             return httpx.Response(200,json=file) if file else httpx.Response(404)
         if path == "/drive/v3/files" and request.method == "POST":
             obj=json.loads(request.content)
             created=self.make(obj["name"],obj["parents"][0],
                 mime=obj["mimeType"],props=obj.get("appProperties",{}))
             return httpx.Response(200,json=created)
+        if path.startswith("/upload/drive/v3/files/") and request.method=="PATCH":
+            fid=path.rsplit("/",1)[-1]
+            if fid not in self.files:
+                return httpx.Response(404)
+            assert request.url.params.get("uploadType")=="media"
+            assert self.files[fid]["mimeType"]=="text/plain"
+            self.bodies[fid]=request.content
+            return httpx.Response(200,json={
+                "id":fid,"mimeType":self.files[fid]["mimeType"],
+            })
         if path == "/upload/drive/v3/files" and request.method == "POST":
             assert request.url.params["uploadType"] == "multipart"
             payload=request.content
@@ -237,3 +251,54 @@ def test_oauth_or_parent_failure_and_dry_run_have_no_writes(tmp_path,monkeypatch
     meta=json.loads(capsys.readouterr().out)
     assert meta["dry_run"] and meta["network_used"] is False
     assert len(meta["source_sha256"])==len(meta["translation_sha256"])==64
+
+
+def test_drive_acceptance_preflight_is_read_only():
+    service=FakeDrive()
+    with service.client() as drive:
+        status=run_drive_acceptance(
+            drive,source_folder_id=SOURCES,
+            translation_folder_id=TRANSLATIONS,live=False,
+        )
+    assert status["stage"]=="read_only_preflight"
+    assert status["drive_mutations"]==0
+    assert service.creates==[]
+    assert set(service.files)=={SOURCES,TRANSLATIONS}
+
+
+def test_drive_acceptance_full_synthetic_edition_and_retry_isolated():
+    service=FakeDrive()
+    with service.client() as drive:
+        status=run_drive_acceptance(
+            drive,source_folder_id=SOURCES,
+            translation_folder_id=TRANSLATIONS,live=True,
+        )
+    assert status["stage"]=="live_two_folder_export_verified"
+    assert status["both_edits_preserved"] and status["file_ids_unchanged"]
+    assert status["no_gemini_requests"] and status["production_db_unchanged"]
+    assert len(service.creates)==4
+    for part in ("source","translation"):
+        root = SOURCES if part=="source" else TRANSLATIONS
+        folder_id=status[f"{part}_folder_id"]
+        file_id=status[f"{part}_file_id"]
+        folder=service.files[folder_id]
+        file=service.files[file_id]
+        assert folder["parents"]==[root]
+        assert folder["name"].startswith("__RE09A_SMOKE_")
+        assert file["parents"]==[folder_id]
+        assert file["name"]=="Глава 001.txt"
+        assert "readeraJobId" in file["appProperties"]
+        assert b"RE09A smoke edit-in-place" in service.bodies[file_id]
+    assert status["source_file_id"]!=status["translation_file_id"]
+
+
+def test_drive_acceptance_refuses_invalid_destinations_before_mutation():
+    service=FakeDrive()
+    service.files[TRANSLATIONS]["capabilities"]["canAddChildren"]=False
+    with service.client() as drive:
+        with pytest.raises(DriveExportError,match="not writable"):
+            run_drive_acceptance(
+                drive,source_folder_id=SOURCES,
+                translation_folder_id=TRANSLATIONS,live=True,
+            )
+    assert service.creates==[]
