@@ -79,7 +79,7 @@ class SourceTeamReader:
                 chapters = SourceJobStore._manifest(row)
                 result.append({
                     "job_id": row["id"],
-                    "owner_member_id": row["actor_id"],
+                    "collector_member_id": row["actor_id"],
                     "can_manage": row["actor_id"] == actor,
                     "source": row["source"],
                     "book_url": row["book_url"],
@@ -113,7 +113,7 @@ class SourceTeamReader:
             ).fetchall()
             return {
                 "job_id": job_id,
-                "owner_member_id": row["actor_id"],
+                "collector_member_id": row["actor_id"],
                 "source": row["source"],
                 "book_url": row["book_url"],
                 "catalog_sha256": row["catalog_sha256"],
@@ -151,7 +151,7 @@ class SourceTeamReader:
                 raise SourceJobConflict("Source content checksum mismatch")
             return {
                 "job_id": job_id,
-                "owner_member_id": row["actor_id"],
+                "collector_member_id": row["actor_id"],
                 "source": row["source"],
                 "book_url": row["book_url"],
                 "body": body,
