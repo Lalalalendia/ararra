@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import os
+import subprocess
 import stat
 import threading
 from pathlib import Path
@@ -45,7 +47,7 @@ def test_picker_url_is_narrow_and_pkce_protected():
     assert q["scope"]==oauth.DRIVE_FILE_SCOPE
     assert q["response_type"]=="code"
     assert q["redirect_uri"]==REDIRECT
-    assert q["access_type"]=="offline" and q["prompt"]=="consent"
+    assert q["access_type"]=="offline" and q["prompt"]=="consent select_account"
     assert q["trigger_onepick"]=="true"
     assert q["allow_folder_selection"]=="true"
     assert q["allow_multiple"]=="true"
@@ -189,3 +191,47 @@ def test_local_picker_roundtrip_preflights_both_folders_before_storing(monkeypat
     assert "fake-access-token" not in printed
     assert sum("drive/v3/files/" in url for _,url in issued)==2
     assert sum("/token" in url for _,url in issued)==2
+
+
+def test_desktop_client_json_and_windows_acl_fail_closed(tmp_path,monkeypatch):
+    path=tmp_path/"desktop.json"
+    payload={"installed":{"client_id":"app-1.apps.googleusercontent.com",
+                          "client_secret":"local-oauth-client-secret"}}
+    path.write_text(json.dumps(payload),encoding="utf-8")
+    assert oauth.load_desktop_oauth_client(path)==(
+        "app-1.apps.googleusercontent.com","local-oauth-client-secret",
+    )
+    path.write_text(json.dumps({"web":payload["installed"]}))
+    with pytest.raises(oauth.DriveAuthorizationError,match="Desktop"):
+        oauth.load_desktop_oauth_client(path)
+    path.write_text("{"+"z"*65536+"}")
+    with pytest.raises(oauth.DriveAuthorizationError,match="too large"):
+        oauth.load_desktop_oauth_client(path)
+
+    calls=[]
+    def fake_run(argv, **kwargs):
+        calls.append((argv,kwargs))
+        if argv[0]=="whoami.exe":
+            return subprocess.CompletedProcess(argv,0,
+                stdout='"DESKTOP\\reader","S-1-5-21-100-200-300-1000"\r\n')
+        return subprocess.CompletedProcess(argv,0,stdout="Successfully processed 1 files")
+    monkeypatch.setattr(oauth.subprocess,"run",fake_run)
+    oauth._restrict_windows_owner_acl(tmp_path/"new-token")
+    assert len(calls)==2
+    assert calls[0][0][:2]==["whoami.exe","/user"]
+    assert calls[1][0][-1]=="*S-1-5-21-100-200-300-1000:F"
+    assert calls[1][0][2]=="/inheritance:r"
+    assert calls[1][0][3]=="/grant:r"
+    assert all(kw.get("check") is True and kw.get("timeout")==10 for _,kw in calls)
+
+
+def test_failed_windows_acl_never_creates_secret(tmp_path,monkeypatch):
+    # Simulate NT path handling on Linux while exercising actual token writer.
+    monkeypatch.setattr(oauth.os,"name","nt")
+    def blocked(argv, **kwargs):
+        raise subprocess.CalledProcessError(5,argv)
+    monkeypatch.setattr(oauth.subprocess,"run",blocked)
+    secret=tmp_path/"owner-credential"
+    with pytest.raises(oauth.DriveAuthorizationError,match="file permissions"):
+        oauth.save_private_token(secret,"never-store-this-secret")
+    assert not secret.exists()
