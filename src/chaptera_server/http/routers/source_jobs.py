@@ -5,13 +5,14 @@ import sqlite3
 from dataclasses import asdict
 from hashlib import sha256
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Query, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from ...import_sessions import StageTooLarge
 from ...source_job_store import SourceJobConflict, SourceJobMissing
 from ...source_job_export import VerifiedSourceTXT, SourceExportNotReady
+from ...source_team_reader import SourceTeamReader
 from ...source_site_storage import SourceCatalogMissing, SourceCatalogExpired
 from ..dependencies import require_member, get_import_sessions
 
@@ -73,6 +74,89 @@ def recent_jobs(
     """Restore previous source collections without a copied UUID."""
     store = request.app.state.source_job_store
     return {"jobs":store.list_recent(actor,limit=limit), "usage":store.usage(actor)}
+
+
+@router.get("/shared")
+def shared_originals(
+    request: Request, limit: int = Query(default=20,ge=1,le=50),
+    actor: str = Depends(require_member),
+) -> dict:
+    """Team directory: saved originals only, never another actor's controls."""
+    try:
+        return {
+            "sources": SourceTeamReader(request.app.state.store).list_recent(actor,limit=limit),
+            "scope": "team_verified_originals",
+            "read_only": True,
+        }
+    except (SourceJobConflict,ValueError) as exc:
+        raise _errors(exc) from exc
+
+
+@router.get("/shared/{job_id}")
+def shared_source_chapters(
+    job_id: str, request: Request,
+    offset: int = Query(default=0,ge=0,le=2000),
+    limit: int = Query(default=50,ge=1,le=100),
+    actor: str = Depends(require_member),
+) -> dict:
+    """Bounded window of source chapter identities, without original prose."""
+    try:
+        return SourceTeamReader(request.app.state.store).chapters(
+            job_id,offset=offset,limit=limit,
+        )
+    except (SourceJobMissing,SourceJobConflict,ValueError) as exc:
+        raise _errors(exc) from exc
+
+
+@router.get("/shared/{job_id}/chapters/{ordinal}")
+def shared_source_chapter(
+    job_id: str, ordinal: int, request: Request, response: Response,
+    actor: str = Depends(require_member),
+) -> dict:
+    """Exactly one SHA-verified original; rendered as text, never HTML."""
+    try:
+        result = SourceTeamReader(request.app.state.store).chapter(job_id,ordinal)
+    except (SourceJobMissing,SourceJobConflict,ValueError) as exc:
+        raise _errors(exc) from exc
+    response.headers["Cache-Control"] = "no-store, private"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return result
+
+
+@router.get("/shared/{job_id}/assembly")
+def shared_source_assembly(
+    job_id: str, request: Request, actor: str = Depends(require_member),
+) -> dict:
+    """Team may inspect a receipt but cannot mutate the source job."""
+    try:
+        return VerifiedSourceTXT(request.app.state.store).inspect(
+            actor,job_id,team_read=True,
+        )
+    except (SourceJobMissing,SourceJobConflict,ValueError) as exc:
+        raise _errors(exc) from exc
+
+
+@router.get("/shared/{job_id}/export.txt")
+def shared_source_export(
+    job_id: str, request: Request,
+    expected_manifest_sha256: str = Query(pattern=r"^[a-f0-9]{64}$"),
+    expected_content_sha256: str = Query(pattern=r"^[a-f0-9]{64}$"),
+    actor: str = Depends(require_member),
+):
+    """Return only a complete/unchanged original selected-manifest export."""
+    try:
+        _, result = VerifiedSourceTXT(request.app.state.store).render(
+            actor,job_id,expected_manifest_sha256,expected_content_sha256,
+            team_read=True,
+        )
+    except (SourceJobMissing,SourceJobConflict,ValueError) as exc:
+        raise _errors(exc) from exc
+    except SourceExportNotReady as exc:
+        raise HTTPException(status_code=409,detail={
+            "message":"Shared original collection incomplete or changed after preview",
+            "report":exc.report,
+        }) from exc
+    return _source_txt_reply(result)
 
 
 @router.delete("/{job_id}")
@@ -195,6 +279,10 @@ def download_source_txt(
             "message":"Original source collection incomplete or changed after preview",
             "report":exc.report,
         }) from exc
+    return _source_txt_reply(result)
+
+
+def _source_txt_reply(result):
     safe_source = "".join(c for c in result.source if c.isascii() and c.isalnum())[:25] or "source"
     name=f"readera-source-{safe_source}-{result.start_ordinal}-{result.end_ordinal}.txt"
     return StreamingResponse(
