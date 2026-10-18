@@ -90,6 +90,51 @@ must be explicitly provisioned by the operator.
   scope can enumerate. Do not treat a scoped listing as authoritative for
   arbitrary foreign files; assess this during OAuth/live acceptance.
 
+## One-command owner setup on Windows (RE-09A-02b)
+
+A practical blocker was verified through the currently connected Drive:
+**both historical folder IDs returned HTTP 404**, even while unrelated
+folders were visible. This is an account or permission/ID blocker, not
+proof the folders were deleted. Do not create substitute folders.
+
+For an operator with Windows, there is now
+[`scripts/connect-google-drive.ps1`](../scripts/connect-google-drive.ps1).
+It uses the exact two RE-09A folder IDs, opens Google account selection
+and narrow Picker consent, and refuses a different folder selection.
+
+First enable Drive API and Google Picker API on the Google Cloud project
+and download a **Desktop app OAuth client JSON** from Google Cloud Console
+to the owner's workstation (keep it out of GitHub and logs). From the
+checked-out repository, install the CLI and run:
+
+```powershell
+py -m pip install -e .
+.\scripts\connect-google-drive.ps1 -ClientJson "C:\private\desktop-oauth-client.json"
+```
+
+The script sets the two existing folder IDs in the process environment
+only, reads the downloaded local JSON (not a pasted secret), and saves
+a new token under `%LOCALAPPDATA%\ReadEra`. The **correct Google account
+must be selected** if multiple accounts are signed in. If either folder
+is absent from Picker, stop and verify ownership/sharing or outdated
+folder IDs instead of choosing arbitrary replacements.
+
+**Windows secret protection:** unlike POSIX, `os.chmod(0o600)`
+does *not* restrict Windows ACLs. The CLI now removes inherited ACL
+entries and grants file access only to the current account SID with
+`icacls` **before writing the token**. Failure aborts and removes the
+empty file. This is separately validated in Windows CI. As on Linux,
+the resulting token is still a credential: do not copy it to a shared
+folder, send it in chat or save it in Notion. Provision it over an
+approved secure channel to the server's `google_drive_refresh_token`
+systemd credential.
+
+The command provides no OAuth credentials on its own: creating
+the Google Cloud OAuth client and selecting the correct Google account
+require a human. **The first actual Drive upload remains gated** by
+issue #68 and must use a non-sensitive synthetic chapter before
+enabling automatic uploads.
+
 ## Local owner OAuth and folder selection (RE-09A-02a)
 
 The [Google Picker desktop authorization flow](https://developers.google.com/workspace/drive/picker/guides/desktop-mobile-picker)
