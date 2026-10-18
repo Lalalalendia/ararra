@@ -235,3 +235,38 @@ def test_failed_windows_acl_never_creates_secret(tmp_path,monkeypatch):
     with pytest.raises(oauth.DriveAuthorizationError,match="file permissions"):
         oauth.save_private_token(secret,"never-store-this-secret")
     assert not secret.exists()
+
+
+def test_cli_imports_downloaded_desktop_oauth_json_without_env_secret(tmp_path,monkeypatch,capsys):
+    from chaptera_server import cli
+    import sys
+    json_path=tmp_path/"desktop-oauth-client.json"
+    json_path.write_text(json.dumps({
+        "installed":{
+            "client_id":"operator.apps.googleusercontent.com",
+            "client_secret":"local-client-json-secret",
+        }
+    }),encoding="utf-8")
+    token_file=tmp_path/"private-token.txt"
+    monkeypatch.setenv("CHAPTERA_DRIVE_SOURCE_FOLDER_ID",SOURCES)
+    monkeypatch.setenv("CHAPTERA_DRIVE_TRANSLATION_FOLDER_ID",TRANSLATIONS)
+    monkeypatch.delenv("CHAPTERA_DRIVE_CLIENT_ID",raising=False)
+    monkeypatch.delenv("CHAPTERA_DRIVE_CLIENT_SECRET",raising=False)
+    passed=[]
+    def fake_auth(**kw):
+        passed.append(kw)
+        return {"authorized":True,"token_printed":False}
+    monkeypatch.setattr(oauth,"authorize_owner",fake_auth)
+    monkeypatch.setattr(sys,"argv",[
+        "chaptera-server","drive-authorize","--client-json",str(json_path),
+        "--token-file",str(token_file),"--no-browser",
+    ])
+    cli.main()
+    output=json.loads(capsys.readouterr().out)
+    assert output["authorized"] is True
+    assert passed[0]["client_id"]=="operator.apps.googleusercontent.com"
+    assert passed[0]["client_secret"]=="local-client-json-secret"
+    assert passed[0]["source_folder_id"]==SOURCES
+    assert passed[0]["translation_folder_id"]==TRANSLATIONS
+    assert passed[0]["open_browser"] is False
+    assert not token_file.exists()
