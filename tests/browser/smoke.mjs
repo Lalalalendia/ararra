@@ -533,6 +533,20 @@ try{
   await login(mpage,modKey);
   await mpage.locator('#book-list').getByText('Браузерная проверка').waitFor();
   await fit(mpage,'books mobile');await screenshot(mpage,'09-library-mobile.png');
+  // Batch multiselect also fits a narrow phone without opening a public API.
+  await mpage.locator('#book-list .library-book-row')
+    .filter({hasText:'Браузерная проверка'})
+    .getByRole('button',{name:'Пакетный перевод книги Браузерная проверка'}).click();
+  const mobileBatch=mpage.locator('#book-batch-dialog');
+  await mobileBatch.waitFor({state:'visible'});
+  assert.equal(await mobileBatch.locator('#book-batch-chapters input').count(),2);
+  await mobileBatch.locator('#book-batch-select-all').click();
+  await mobileBatch.locator('#book-batch-selection-status')
+    .getByText(/Выбрано 2 из 2/).waitFor();
+  await fit(mpage,'batch mobile');await screenshot(mpage,'09-library-batch-mobile.png');
+  assert.equal(await mobileBatch.locator('#book-batch-submit').isDisabled(),true);
+  await mobileBatch.getByRole('button',{name:'Закрыть'}).click();
+  await mobileBatch.waitFor({state:'hidden'});
   await choose(mpage,'import');await fit(mpage,'import mobile');
   await screenshot(mpage,'10-import-mobile.png');
   await choose(mpage,'editor');
