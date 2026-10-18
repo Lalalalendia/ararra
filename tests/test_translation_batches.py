@@ -256,6 +256,33 @@ def test_separate_members_can_submit_same_book_without_per_book_acl(tmp_path):
     asyncio.run(scenario())
 
 
+
+def test_unexpected_second_insert_failure_rolls_back_every_job(tmp_path, monkeypatch):
+    app, _, store, _ = make_workspace(tmp_path)
+    batches = app.state.translation_batches
+    body = {**selected("c1", "c2"), "style_instructions": "", "max_attempts": 3}
+    receipt = batches.preview("novel", body)["manifest_sha256"]
+    original = QueueStore._enqueue_in_transaction
+    calls = [0]
+
+    def fail_second(con, actor_id, spec, now, *, idempotency_key=None):
+        calls[0] += 1
+        if calls[0] == 2:
+            raise RuntimeError("forced second insert failure")
+        return original(con, actor_id, spec, now, idempotency_key=idempotency_key)
+
+    monkeypatch.setattr(QueueStore, "_enqueue_in_transaction", staticmethod(fail_second))
+    with pytest.raises(RuntimeError, match="second insert"):
+        batches.submit(
+            "novel", {**body, "expected_manifest_sha256": receipt},
+            actor_id="moderator", idempotency_key="atomic-rollback",
+        )
+    assert calls[0] == 2
+    assert job_count(store) == 0
+    with store._connect() as con:
+        assert con.execute("SELECT COUNT(*) FROM translation_batches").fetchone()[0] == 0
+        assert con.execute("SELECT COUNT(*) FROM translation_batch_items").fetchone()[0] == 0
+
 def test_invalid_chapter_count_rejected_before_database_write(tmp_path):
     app, _, store, _ = make_workspace(tmp_path)
 
