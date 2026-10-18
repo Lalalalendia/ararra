@@ -192,6 +192,79 @@ via `export-drive`. The OAuth code is implemented and offline-tested;
 actual Google credentials and owner consent have not been provided, so
 this is **not evidence of completed live authorization**.
 
+## Owner-only full live smoke after Google Picker (RE-09A-03)
+
+The Google Drive connector in ChatGPT already successfully uploaded **two
+synthetic TXT files into the approved roots**, read them back and edited both
+in-place without changing their IDs. This proves the connector account's
+permission only. It does **not** authorize the independent ReadEra OAuth
+client: the connector token is neither transferred nor reused by ReadEra.
+
+**To complete the independent ReadEra exporter acceptance** on the
+owner's trusted Windows machine, first install the repository and create
+the [Google Cloud Desktop app OAuth client](https://console.cloud.google.com/auth/clients).
+Enable Drive API and Picker API, download its JSON privately, then run:
+
+```powershell
+py -m pip install -e .
+.\scripts\connect-google-drive.ps1 -ClientJson "C:\private\desktop-client.json" -RunSmoke
+```
+
+The command opens Google account selection and Picker, requires *exactly*
+the two existing folders and a narrow `drive.file` grant. The refresh
+token is created once under `%LOCALAPPDATA%\ReadEra`, with current-user
+Windows SID-only ACL before its contents are written. Never paste tokens
+into ChatGPT, GitHub, Notion or CI logs.
+
+- **Default:** without `-RunSmoke` it only validates writable folder
+  metadata **and lists children using the new ReadEra OAuth identity**.
+  Neither books nor Drive contents are changed.
+- **Explicit `-RunSmoke`:** creates an entirely separate temporary SQLite
+  queue with one synthesized *completed* book translation job. No production
+  DB, Gemini request or publication is involved. It uses the **real
+  `export_completed_job`** function to create one book subfolder in each
+  existing Drive root and one `Глава 001.txt` file per side.
+- Reads both remote files back and verifies bytes, parents, ownership tags,
+  and MIME. Deliberately edits **only these two newly created synthetic
+  files**, then executes the real exporter a second time. Their IDs, in-place
+  edits and exactly-one-chapter cardinality must survive. Any bad OAuth
+  grant, unsafe parent, incomplete listing, 403, or collision is a visible
+  failure, never silently reinterpreted as a successful source export.
+- Synthetic Drive files remain in clearly named
+  `__RE09A_SMOKE_..._no_real_book` subfolders for inspection (no hidden
+  cleanup/deletion). The temporary SQLite data is destroyed when the
+  command exits. Earlier manually created test folders/files are not
+  overwritten or touched.
+
+If the owner already authorized the app, re-check without overwriting
+the existing refresh token:
+
+```powershell
+.\scripts\connect-google-drive.ps1 -ClientJson "C:\private\desktop-client.json" -UseExistingToken -RunSmoke
+```
+
+The same program can be invoked directly from CLI with both exact
+`CHAPTERA_DRIVE_*_FOLDER_ID` values configured:
+
+```powershell
+chaptera-server drive-smoke --client-json "C:\private\desktop-client.json" --token-file "$env:LOCALAPPDATA\ReadEra\drive-owner-refresh-token.txt"
+chaptera-server drive-smoke --client-json "C:\private\desktop-client.json" --token-file "$env:LOCALAPPDATA\ReadEra\drive-owner-refresh-token.txt" --live-smoke
+```
+
+The first command is read-only. The second is an **actual** create/edit
+test using ReadEra's own OAuth identity. CI simulates all Google responses;
+CI results alone are not evidence that the owner completed these commands.
+
+**The VPS handoff remains a separate credential operation.** Once a
+successful local owner acceptance is observed, provision the same OAuth
+client ID, secret and refresh token to the VPS through a protected
+systemd credential channel and configure the two exact folder IDs
+there. Then run `chaptera-server export-drive --job-id <actual completed
+book job>` on the target ReadEra server, first with `--dry-run`. Do not
+put tokens into shell history, GitHub Actions, Notion or Google Drive
+files. A successful *local synthetic* test does not prove the server
+environment was configured or that an actual job export ran.
+
 ## Acceptance status
 
 The code is covered by isolated HTTP-mocked tests: two existing root folders,
