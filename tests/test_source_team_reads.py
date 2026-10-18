@@ -58,8 +58,9 @@ def test_team_can_read_single_verified_chapter_but_not_manage_other_jobs(tmp_pat
             transport=httpx.ASGITransport(app=app),base_url="http://test",
         ) as client:
             prefix = "/v1/source-books/jobs"
+            shared = "/v1/source-books/shared"
             for path in (
-                prefix+"/shared",prefix+"/shared/"+jid,
+                shared,prefix+"/shared/"+jid,
                 prefix+"/shared/"+jid+"/chapters/1",
                 prefix+"/shared/"+jid+"/assembly",
                 prefix+"/shared/"+jid+"/export.txt",
@@ -67,7 +68,7 @@ def test_team_can_read_single_verified_chapter_but_not_manage_other_jobs(tmp_pat
                 assert (await client.get(path)).status_code == 401
 
             for identity in (BOB,ADMIN):
-                index = await client.get(prefix+"/shared",headers=identity)
+                index = await client.get(shared,headers=identity)
                 assert index.status_code == 200,index.text
                 assert index.json()["read_only"] is True
                 entries = index.json()["sources"]
@@ -86,14 +87,14 @@ def test_team_can_read_single_verified_chapter_but_not_manage_other_jobs(tmp_pat
                 assert listing["verified_count"] == 1
                 assert [x["ordinal"] for x in listing["chapters"]] == [1]
                 assert "body" not in str(listing)
-                text = await client.get(prefix+f"/shared/{jid}/chapters/1",headers=identity)
+                text = await client.get(shared+f"/{jid}/chapters/1",headers=identity)
                 assert text.status_code == 200,text.text
                 assert text.headers["cache-control"] == "no-store, private"
                 assert text.headers["x-content-type-options"] == "nosniff"
                 assert text.json()["body"] == original
                 assert text.json()["sha256"] == hashlib.sha256(original.encode()).hexdigest()
                 assert text.json()["scope"] == "single_verified_original"
-                assert (await client.get(prefix+f"/shared/{jid}/chapters/2",
+                assert (await client.get(shared+f"/{jid}/chapters/2",
                                          headers=identity)).status_code == 404
 
             # The existing owner-only APIs stay owner-only in spite of team read.
