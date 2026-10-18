@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import os
+import re
+import subprocess
 import secrets
 import time
 import webbrowser
@@ -63,7 +66,7 @@ def make_consent_request(
     params={
         "client_id":client_id,"redirect_uri":redirect_uri,
         "response_type":"code","scope":DRIVE_FILE_SCOPE,
-        "access_type":"offline","prompt":"consent",
+        "access_type":"offline","prompt":"consent select_account",
         "code_challenge":challenge,"code_challenge_method":"S256",
         "state":request_state,
         "trigger_onepick":"true","allow_multiple":"true",
@@ -140,6 +143,58 @@ def exchange_code(
     return token
 
 
+def load_desktop_oauth_client(path: Path) -> tuple[str, str]:
+    """Read an operator-downloaded Google *Desktop* client JSON locally.
+
+    Reject web-client credentials: these generally require fixed redirect
+    URIs and cannot use this temporary loopback callback.
+    """
+    if not path.is_file() or path.stat().st_size > 64 * 1024:
+        raise DriveAuthorizationError("Desktop OAuth client JSON missing or too large")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise DriveAuthorizationError("Invalid Desktop OAuth client JSON") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("installed"),dict):
+        raise DriveAuthorizationError("Select a Desktop app OAuth client, not a Web application")
+    value=payload["installed"]
+    client_id=value.get("client_id")
+    client_secret=value.get("client_secret")
+    if (not isinstance(client_id,str) or not client_id.endswith(".apps.googleusercontent.com")
+        or not isinstance(client_secret,str) or not client_secret
+        or len(client_id)>300 or len(client_secret)>500):
+        raise DriveAuthorizationError("Desktop OAuth client ID or secret is invalid")
+    return client_id,client_secret
+
+
+def _restrict_windows_owner_acl(path: Path) -> None:
+    """Remove inherited ACLs and allow only the current Windows account.
+
+    os.chmod(0o600) is NOT an ACL control on Windows. Apply a restrictive
+    file DACL BEFORE writing any OAuth secret, or fail without saving.
+    """
+    try:
+        who=subprocess.run(
+            ["whoami.exe","/user","/fo","csv","/nh"],
+            capture_output=True,text=True,timeout=10,check=True,
+        )
+        sids=re.findall(r"S-\d+(?:-\d+){2,}",who.stdout)
+        if len(sids)!=1:
+            raise DriveAuthorizationError("Could not identify Windows owner SID")
+        subprocess.run(
+            ["icacls.exe",str(path),"/inheritance:r","/grant:r",f"*{sids[0]}:F"],
+            capture_output=True,text=True,timeout=10,check=True,
+        )
+    except (OSError,subprocess.SubprocessError) as exc:
+        raise DriveAuthorizationError(
+            "Cannot restrict Windows file permissions; refresh token was not saved"
+        ) from exc
+
+
+def _on_windows() -> bool:
+    return os.name == "nt"
+
+
 def save_private_token(path: Path, token: str) -> None:
     """Refuse symlinks, relative paths and overwrite of an existing credential."""
     if not path.is_absolute() or not path.parent.is_dir():
@@ -151,7 +206,10 @@ def save_private_token(path: Path, token: str) -> None:
         raise DriveAuthorizationError("Cannot create private token file without overwrite") from exc
     try:
         with os.fdopen(fd,"w",encoding="utf-8") as out:
-            os.chmod(path,0o600)
+            if _on_windows():
+                _restrict_windows_owner_acl(path)
+            else:
+                os.fchmod(out.fileno(),0o600)
             out.write(token+"\n")
             out.flush()
             os.fsync(out.fileno())
