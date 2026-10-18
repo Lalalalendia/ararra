@@ -96,6 +96,22 @@ class TranslateBookChapter(BaseModel):
     transport: Transport = "html_v0"
 
 
+class TranslationBatchItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    chapter_id: str = Field(min_length=1, max_length=255)
+    expected_source_revision: int = Field(ge=1)
+
+
+class PreviewTranslationBatch(TranslateBookChapter):
+    model_config = ConfigDict(extra="forbid")
+    expected_glossary_revision: int = Field(ge=0)
+    chapters: list[TranslationBatchItem] = Field(min_length=1, max_length=100)
+
+
+class SubmitTranslationBatch(PreviewTranslationBatch):
+    expected_manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class SubmitChapter(BaseModel):
     chapter_id: str = Field(min_length=1, max_length=255)
     source_html: str = Field(min_length=1, max_length=2_000_000)
