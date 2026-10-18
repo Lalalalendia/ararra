@@ -88,7 +88,7 @@ def test_full_quota_refuses_new_jobs_but_preserves_existing_sources(tmp_path):
     repo, jobs, catalog = setup(tmp_path)
     completed = jobs.create('alice','cat-1',catalog,[1],idempotency_key='first')
     first=jobs.claim()
-    jobs.finish(first['job_id'],first['lease_token'],body='A'*ONE_MIB)
+    jobs.finish(first['job_id'],first['lease_token'],body='Ж'*(ONE_MIB//2))
     assert jobs.usage('alice')['can_collect'] is False
     with pytest.raises(SourceJobConflict,match='quota exhausted'):
         jobs.create('alice','cat-2',catalog,[1],idempotency_key='blocked')
