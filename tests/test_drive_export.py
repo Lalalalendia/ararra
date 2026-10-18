@@ -298,7 +298,12 @@ def test_drive_acceptance_full_synthetic_edition_and_retry_isolated():
         file_id=status[f"{part}_file_id"]
         folder=service.files[folder_id]
         file=service.files[file_id]
-        assert folder["parents"]==[root]
+        moderator_id=folder["parents"][0]
+        moderator=service.files[moderator_id]
+        assert moderator["parents"]==[root]
+        assert moderator["name"]=="drive-smoke"
+        assert moderator["appProperties"].get("readeraModeratorKey")
+        assert folder["appProperties"]["readeraModeratorKey"] == moderator["appProperties"]["readeraModeratorKey"]
         assert folder["name"].startswith("__RE09A_SMOKE_")
         assert file["parents"]==[folder_id]
         assert file["name"]=="Глава 001.txt"
