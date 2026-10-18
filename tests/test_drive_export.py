@@ -255,11 +255,14 @@ def test_oauth_or_parent_failure_and_dry_run_have_no_writes(tmp_path,monkeypatch
 
 def test_drive_acceptance_preflight_is_read_only():
     service=FakeDrive()
-    with service.client() as drive:
+    drive=service.client()
+    try:
         status=run_drive_acceptance(
             drive,source_folder_id=SOURCES,
             translation_folder_id=TRANSLATIONS,live=False,
         )
+    finally:
+        drive.http.close()
     assert status["stage"]=="read_only_preflight"
     assert status["drive_mutations"]==0
     assert service.creates==[]
@@ -268,11 +271,14 @@ def test_drive_acceptance_preflight_is_read_only():
 
 def test_drive_acceptance_full_synthetic_edition_and_retry_isolated():
     service=FakeDrive()
-    with service.client() as drive:
+    drive=service.client()
+    try:
         status=run_drive_acceptance(
             drive,source_folder_id=SOURCES,
             translation_folder_id=TRANSLATIONS,live=True,
         )
+    finally:
+        drive.http.close()
     assert status["stage"]=="live_two_folder_export_verified"
     assert status["both_edits_preserved"] and status["file_ids_unchanged"]
     assert status["no_gemini_requests"] and status["production_db_unchanged"]
@@ -295,10 +301,13 @@ def test_drive_acceptance_full_synthetic_edition_and_retry_isolated():
 def test_drive_acceptance_refuses_invalid_destinations_before_mutation():
     service=FakeDrive()
     service.files[TRANSLATIONS]["capabilities"]["canAddChildren"]=False
-    with service.client() as drive:
+    drive=service.client()
+    try:
         with pytest.raises(DriveExportError,match="not writable"):
             run_drive_acceptance(
                 drive,source_folder_id=SOURCES,
                 translation_folder_id=TRANSLATIONS,live=True,
             )
+    finally:
+        drive.http.close()
     assert service.creates==[]
