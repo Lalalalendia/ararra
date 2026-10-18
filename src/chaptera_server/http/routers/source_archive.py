@@ -7,7 +7,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from ...source_original_archive import (
-    SourceOriginalArchive, SourceArchiveConflict, SourceArchiveMissing,
+    SourceArchiveConflict, SourceArchiveMissing,
 )
 from ..dependencies import require_admin, require_member
 
@@ -37,7 +37,7 @@ def archive_books(
 ) -> dict:
     _private(response)
     try:
-        return SourceOriginalArchive(request.app.state.store).list_books(
+        return request.app.state.source_job_store.archive.list_books(
             limit=limit,offset=offset,
         )
     except ValueError as exc:
@@ -52,7 +52,7 @@ def archive_chapter(
     """Only intact source-revision bytes, never executable HTML."""
     _private(response)
     try:
-        return SourceOriginalArchive(request.app.state.store).chapter(revision_id)
+        return request.app.state.source_job_store.archive.chapter(revision_id)
     except (SourceArchiveMissing,SourceArchiveConflict,ValueError) as exc:
         raise _error(exc) from exc
 
@@ -69,7 +69,7 @@ def purge_archived_revision(
     """
     _private(response)
     try:
-        return SourceOriginalArchive(request.app.state.store).purge_revision(revision_id)
+        return request.app.state.source_job_store.archive.purge_revision(revision_id)
     except (SourceArchiveMissing,SourceArchiveConflict,ValueError) as exc:
         raise _error(exc) from exc
 
@@ -83,7 +83,7 @@ def archive_chapters(
 ) -> dict:
     _private(response)
     try:
-        return SourceOriginalArchive(request.app.state.store).chapters(
+        return request.app.state.source_job_store.archive.chapters(
             book_id,limit=limit,offset=offset,
         )
     except (SourceArchiveMissing,SourceArchiveConflict,ValueError) as exc:
