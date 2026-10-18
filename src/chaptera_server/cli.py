@@ -186,6 +186,7 @@ def main() -> None:
                     drive,
                     source_folder_id=source_folder,
                     translation_folder_id=translation_folder,
+                    root_folder_id=os.environ.get("CHAPTERA_DRIVE_ROOT_FOLDER_ID", "").strip(),
                     live=args.live_smoke,
                 )
             print(json.dumps(receipt,ensure_ascii=False))
@@ -210,6 +211,7 @@ def main() -> None:
                     "network_used":False,
                 },ensure_ascii=False))
                 return
+            root_folder = os.environ.get("CHAPTERA_DRIVE_ROOT_FOLDER_ID", "").strip()
             source_folder = os.environ.get("CHAPTERA_DRIVE_SOURCE_FOLDER_ID", "").strip()
             translation_folder = os.environ.get("CHAPTERA_DRIVE_TRANSLATION_FOLDER_ID", "").strip()
             client_id = _read_systemd_credential(
@@ -221,8 +223,8 @@ def main() -> None:
             refresh_token = _read_systemd_credential(
                 "google_drive_refresh_token","CHAPTERA_DRIVE_REFRESH_TOKEN","",
             ).strip()
-            if not source_folder or not translation_folder:
-                raise DriveExportError("Both existing Drive folder IDs must be configured")
+            if not root_folder:
+                raise DriveExportError("CHAPTERA_DRIVE_ROOT_FOLDER_ID is required")
             with __import__("httpx").Client(
                 timeout=30.0,trust_env=False,follow_redirects=False,
             ) as http:
@@ -231,8 +233,9 @@ def main() -> None:
                     refresh_token=refresh_token,http=http,
                 )
                 receipt = export_completed_job(
-                    store,drive,args.job_id,source_folder_id=source_folder,
-                    translation_folder_id=translation_folder,
+                    store,drive,args.job_id,root_folder_id=root_folder,
+                    legacy_source_folder_id=source_folder,
+                    legacy_translation_folder_id=translation_folder,
                 )
             print(json.dumps(receipt,ensure_ascii=False))
         except DriveExportError as exc:
@@ -260,10 +263,11 @@ def main() -> None:
             if not args.allow_drive_write:
                 parser.error("--run-once requires --allow-drive-write")
             def export_one(job_id: str) -> dict:
+                root_folder=os.environ.get("CHAPTERA_DRIVE_ROOT_FOLDER_ID","").strip()
                 source_folder=os.environ.get("CHAPTERA_DRIVE_SOURCE_FOLDER_ID","").strip()
                 translation_folder=os.environ.get("CHAPTERA_DRIVE_TRANSLATION_FOLDER_ID","").strip()
-                if not source_folder or not translation_folder:
-                    raise DriveExportError("Both Drive folder IDs must be configured")
+                if not root_folder:
+                    raise DriveExportError("CHAPTERA_DRIVE_ROOT_FOLDER_ID is required")
                 client_id=_read_systemd_credential(
                     "google_drive_client_id","CHAPTERA_DRIVE_CLIENT_ID","",
                 ).strip()
@@ -280,8 +284,9 @@ def main() -> None:
                         refresh_token=refresh_token,http=http,
                     )
                     return export_completed_job(
-                        outbox.store,drive,job_id,source_folder_id=source_folder,
-                        translation_folder_id=translation_folder,
+                        outbox.store,drive,job_id,root_folder_id=root_folder,
+                        legacy_source_folder_id=source_folder,
+                        legacy_translation_folder_id=translation_folder,
                     )
             receipt=outbox.run_once(export_one)
         else:
