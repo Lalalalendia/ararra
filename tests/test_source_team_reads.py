@@ -60,10 +60,10 @@ def test_team_can_read_single_verified_chapter_but_not_manage_other_jobs(tmp_pat
             prefix = "/v1/source-books/jobs"
             shared = "/v1/source-books/shared"
             for path in (
-                shared,prefix+"/shared/"+jid,
-                prefix+"/shared/"+jid+"/chapters/1",
-                prefix+"/shared/"+jid+"/assembly",
-                prefix+"/shared/"+jid+"/export.txt",
+                shared,shared+"/"+jid,
+                shared+"/"+jid+"/chapters/1",
+                shared+"/"+jid+"/assembly",
+                shared+"/"+jid+"/export.txt",
             ):
                 assert (await client.get(path)).status_code == 401
 
@@ -81,7 +81,7 @@ def test_team_can_read_single_verified_chapter_but_not_manage_other_jobs(tmp_pat
                 assert entry["can_manage"] is False
                 assert "Original synthetic" not in str(entries)
                 assert "alice-key" not in str(entries)
-                available = await client.get(prefix+"/shared/"+jid,headers=identity)
+                available = await client.get(shared+"/"+jid,headers=identity)
                 assert available.status_code == 200,available.text
                 listing = available.json()
                 assert listing["verified_count"] == 1
@@ -107,12 +107,12 @@ def test_team_can_read_single_verified_chapter_but_not_manage_other_jobs(tmp_pat
             forbidden = await client.post(prefix+"/"+jid+"/stage",
                 headers=BOB,json={"start_ordinal":1,"end_ordinal":1})
             assert forbidden.status_code == 404
-            ready = await client.get(prefix+"/shared/"+jid+"/assembly",headers=BOB)
+            ready = await client.get(shared+"/"+jid+"/assembly",headers=BOB)
             assert ready.status_code == 200
             assert ready.json()["ready"] is False
             assert "Original synthetic" not in ready.text
             no_full = await client.get(
-                prefix+"/shared/"+jid+"/export.txt",
+                shared+"/"+jid+"/export.txt",
                 headers=BOB,params={
                     "expected_manifest_sha256":ready.json()["manifest_sha256"],
                     "expected_content_sha256":"0"*64,
