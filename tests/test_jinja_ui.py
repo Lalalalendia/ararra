@@ -23,7 +23,7 @@ def test_jinja_pages_render_without_credentials_but_never_expose_team_state(tmp_
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://readera.test"
         ) as client:
-            for path in ["/app", "/app/", "/app/overview", "/app/books", "/app/import", "/app/team", "/app/jobs", "/app/editor"]:
+            for path in ["/app", "/app/", "/app/overview", "/app/books", "/app/import", "/app/team", "/app/jobs", "/app/editor", "/app/cabinet"]:
                 response = await client.get(path)
                 assert response.status_code == 200, (path, response.text[:1000])
                 assert "text/html" in response.headers["content-type"]
@@ -53,6 +53,11 @@ def test_jinja_pages_render_without_credentials_but_never_expose_team_state(tmp_
             assert "installAuthView" in login_view.text
             assert "localStorage" not in js.text
             assert "sessionStorage" not in js.text
+            cabinet_js = await client.get("/app-static/js/gemini-cabinet-view.mjs")
+            assert cabinet_js.status_code == 200
+            assert "createGeminiCabinet" in cabinet_js.text
+            assert "localStorage" not in cabinet_js.text
+            assert "sessionStorage" not in cabinet_js.text
             library_js = await client.get("/app-static/js/library-view.mjs")
             assert library_js.status_code == 200
             jobs_view = await client.get("/app-static/js/jobs-view.mjs")
@@ -106,6 +111,8 @@ def test_page_template_uses_books_platform_components_without_paid_features():
     assert '<dialog id="book-owner-dialog"' in source
     assert 'aria-labelledby="book-owner-title"' in source
     assert 'id="book-owner-target"' in source
+    assert 'data-page="cabinet"' in source
+    assert 'id="gemini-key-form"' in source
     library = (templates.parent / "static" / "js" / "library-view.mjs").read_text(encoding="utf-8")
     assert "window.prompt(" not in library
     assert "window.confirm(" not in library

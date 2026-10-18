@@ -11,7 +11,7 @@ from fastapi.routing import APIRoute
 from chaptera_server.api import create_app
 from chaptera_server.config import Settings
 from chaptera_server.http.dependencies import require_member
-from chaptera_server.http.routers import books, health, identity, imports, jobs, editorial, quota, session, source_books, source_jobs
+from chaptera_server.http.routers import books, health, identity, imports, jobs, editorial, quota, session, source_books, source_jobs, gemini_keys
 from chaptera_server.storage import QueueStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +25,9 @@ SPEC.loader.exec_module(architecture)
 ROUTE_CONTRACT = {
     ('GET', '/healthz'),
     ('GET', '/v1/me'),
+    ('GET', '/v1/me/gemini-keys'),
+    ('POST', '/v1/me/gemini-keys'),
+    ('DELETE', '/v1/me/gemini-keys/{project_id}'),
     ('POST', '/v1/session'),
     ('POST', '/v1/session/password'),
     ('POST', '/v1/session/password/change'),
@@ -134,7 +137,7 @@ def test_http_paths_and_methods_are_unique_and_stable(tmp_path):
     # the canonical APIRouters instead of version-dependent app internals.
     http_routes = [
         route
-        for owner in (books, health, identity, imports, jobs, editorial, quota, session, source_books, source_jobs)
+        for owner in (books, health, identity, imports, jobs, editorial, quota, session, source_books, source_jobs, gemini_keys)
         for route in owner.router.routes
         if isinstance(route, APIRoute)
     ]
