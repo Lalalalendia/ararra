@@ -54,7 +54,7 @@ export function createSharedSourceView({request,flash}) {
     const ticket=++generation;
     busy=true;controls();
     try {
-      const result=await request('/v1/source-books/jobs/shared?limit=30');
+      const result=await request('/v1/source-books/shared?limit=30');
       if(ticket!==generation)return;
       if(result?.scope!=='team_verified_originals'||!Array.isArray(result.sources))
         throw new Error('Неверный формат общего каталога.');
@@ -85,7 +85,7 @@ export function createSharedSourceView({request,flash}) {
     }
   }
   async function loadChapters(jobId,offset,ticket) {
-    const data=await request('/v1/source-books/jobs/shared/'+encodeURIComponent(jobId)+
+    const data=await request('/v1/source-books/shared/'+encodeURIComponent(jobId)+
       '?offset='+offset+'&limit=50');
     if(ticket!==generation||data?.job_id!==jobId)return;
     if(data.scope!=='verified_original_checkpoints'||!Array.isArray(data.chapters))
@@ -145,7 +145,7 @@ export function createSharedSourceView({request,flash}) {
     busy=true;body.hidden=true;body.textContent='';controls();
     void (async()=>{
       try{
-        const chapter=await request('/v1/source-books/jobs/shared/'+
+        const chapter=await request('/v1/source-books/shared/'+
           encodeURIComponent(jobId)+'/chapters/'+ordinal);
         if(ticket!==generation||chapter?.job_id!==jobId||chapter?.ordinal!==ordinal)return;
         if(chapter.scope!=='single_verified_original'||typeof chapter.body!=='string')
