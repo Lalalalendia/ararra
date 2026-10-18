@@ -287,15 +287,18 @@ def export_completed_job(
     ):
         if read_completed_job(store,job_id) != snapshot:
             raise DriveExportError("Source or translation changed during Drive export")
-        folder_matches=[x for x in drive.children(root) if x.get("name")==folder_name]
-        if len(folder_matches)>1:
+        root_children=drive.children(root)
+        owned_folders=[x for x in root_children if
+            x.get("mimeType")==FOLDER_MIME and
+            (x.get("appProperties") or {}).get("readeraBookKey")==book_key]
+        same_name=[x for x in root_children if x.get("name")==folder_name]
+        if len(owned_folders)>1 or len(same_name)>1:
             raise DriveExportError("Multiple folders with the same book identity")
-        if folder_matches:
-            folder=folder_matches[0]
-            if (folder.get("mimeType")!=FOLDER_MIME or
-                folder.get("appProperties",{}).get("readeraBookKey")!=book_key):
-                raise DriveExportError("Book folder exists but is not owned by ReadEra")
-            folder_id=drive._check_id(folder["id"])
+        if same_name and (not owned_folders or same_name[0]["id"]!=owned_folders[0]["id"]):
+            raise DriveExportError("Book folder exists but is not owned by ReadEra")
+        if owned_folders:
+            # Keep the stable Drive folder ID if a human renamed it.
+            folder_id=drive._check_id(owned_folders[0]["id"])
         else:
             folder=drive.create_metadata(root,{
                 "name":folder_name,"mimeType":FOLDER_MIME,
@@ -308,16 +311,19 @@ def export_completed_job(
             "readeraBookKey":book_key,"readeraJobId":snapshot.job_id,
             "readeraPart":part,"readeraContentSha256":content_sha,
         }
-        matches=[x for x in drive.children(folder_id) if x.get("name")==filename]
-        if len(matches)>1:
-            raise DriveExportError("Duplicate chapter filenames in Drive book folder")
-        if matches:
-            remote=matches[0]
-            if (remote.get("mimeType")!=TEXT_MIME or
-                remote.get("appProperties")!=props):
-                raise DriveExportError("Existing chapter is not this job's exported file")
-            # The remote may have been edited. Preserve it without reading or
-            # comparing its current body to the original upload.
+        existing=drive.children(folder_id)
+        owned=[x for x in existing if x.get("appProperties")==props]
+        named=[x for x in existing if x.get("name")==filename]
+        if len(owned)>1 or len(named)>1:
+            raise DriveExportError("Duplicate chapter filenames or Drive file identity")
+        if named and (not owned or named[0]["id"]!=owned[0]["id"]):
+            raise DriveExportError("Existing chapter is not this job's exported file")
+        if owned:
+            remote=owned[0]
+            if remote.get("mimeType")!=TEXT_MIME:
+                raise DriveExportError("Existing job export has incorrect content type")
+            # The file (or folder) might have been renamed by a person. Reuse
+            # its ID, and do not read/restore its changed text or filename.
             file_id=drive._check_id(remote["id"])
         else:
             item=drive.upload_text(folder_id,{
