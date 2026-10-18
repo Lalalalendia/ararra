@@ -257,3 +257,61 @@ Tests: two independently opened SQLite handles and a parallel reservation
 race; robots GET pacing, remote 429, day rollover, expiry fencing,
 round-robin actor turns across worker restarts, deferred chapter restart,
 global/site pending caps, actor-only API and Chromium waiting-state UI.
+
+
+## RE-02 — Shared originals are team-readable (owner clarification, 2026-10-19)
+
+**Owner decision:** All authenticated ReadEra team members may READ originals
+and accepted translations. The existing BookLibrary already shares imported
+chapters, translation revisions and context among the team; the book
+owner_member_id field denotes editorial responsibility, not a read ACL.
+
+Background source collection jobs had a separate actor-only SQLite boundary.
+That boundary remains for controls, quotas, stage sessions and job status,
+but does **not** restrict access to checksum-verified original text.
+
+### Read-only source collection endpoints
+
+- GET /v1/source-books/shared?limit=30 — bounded team index of **only**
+  jobs with at least one stored verified original chapter, including the
+  responsible moderator, source URL and number of verified checkpoints.
+  No raw prose, private failures, quota of other members or secrets.
+- GET /v1/source-books/shared/{job_id}?offset=0&limit=50 —
+  paginated read-only identities of stored verified chapters.
+- GET /v1/source-books/shared/{job_id}/chapters/{ordinal} —
+  exactly one original chapter, after matching its manifest index,
+  source ID, URL, byte count and SHA-256 against SQLite. Return 404 for
+  nonexistent/unverified chapters; 409 for corrupted original data.
+  Respond with Cache-Control: no-store, private; browser inserts only
+  textContent, never executable HTML.
+- GET /v1/source-books/shared/{job_id}/assembly — original TXT
+  completeness/digest preview with no prose. GET the companion
+  /export.txt?expected_manifest_sha256=...&expected_content_sha256=...
+  only after complete SHA-verified selection. Partial books still permit
+  reading their individually verified chapters.
+- The Import page includes a compact collapsed Общие исходники команды
+  reader, which clears previous text and selection on logout. It has no
+  retry/cancel/stage/delete/edit controls.
+
+GET requires the current valid team key or cookie for every request. Personal
+job list, job DELETE, retry/cancel, mutable import stage and per-member
+quotas remain actor-only. A team read does not create a duplicate checkpoint,
+consume another member's quota, pay for Gemini, or fetch the source URL.
+Role revocation must immediately prevent new HTTP reads; no browser
+persistent cache is used.
+
+### Retention and future dedup
+
+This is **sharing of existing verified checkpoints**, not yet a global
+physical deduplication cache. The original submitting moderator may delete
+their own completed source job, and the shared source reader then stops
+listing its checkpoints. Chapters previously confirmed into BookLibrary
+remain team-shared and unaffected. A separately designed durable common
+archive/reference-counted cache can later prevent deletion of the last
+readable copy, and avoid repeat HTTP requests after same-source catalog
+revision and rights checks. Do not conflate this with arbitrary license to
+redistribute copyrighted material.
+
+No additional source-worker is enabled on VPS and no real site is contacted
+during this implementation. The live-site permissions/robots/TLS and VPS
+physical RAM/disk/backup gates in issues #65 and #83 still apply.

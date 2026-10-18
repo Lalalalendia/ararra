@@ -303,6 +303,37 @@
                           class="ui-button ui-button--ghost">Отменить сбор</button>
                 </div>
               </div>
+              <details id="source-shared" class="source-shared">
+                <summary>Общие исходники команды · чтение</summary>
+                <p class="muted">Участники видят только сохранённые и проверяемые исходные главы.
+                  Управление чужими заданиями и личные ключи здесь недоступны.</p>
+                <div class="compact-form source-shared-controls">
+                  <label class="ui-field"><span>Сборка команды</span>
+                    <select id="source-shared-list" class="ui-input" disabled>
+                      <option value="">Загрузите список</option>
+                    </select>
+                  </label>
+                  <button id="source-shared-refresh" type="button"
+                          class="ui-button ui-button--ghost">Обновить список</button>
+                  <button id="source-shared-open" type="button"
+                          class="ui-button ui-button--ghost" disabled>Открыть главы</button>
+                </div>
+                <p id="source-shared-status" role="status" aria-live="polite">
+                  Список ещё не загружен.</p>
+                <div id="source-shared-reader" hidden>
+                  <label class="ui-field"><span>Проверенная глава</span>
+                    <select id="source-shared-chapters" class="ui-input" disabled>
+                      <option value="">Выберите главу</option>
+                    </select>
+                  </label>
+                  <button id="source-shared-next" type="button"
+                          class="ui-button ui-button--ghost" hidden>Ещё главы</button>
+                  <button id="source-shared-read" type="button"
+                          class="ui-button ui-button--primary" disabled>Читать</button>
+                  <p id="source-shared-caption" class="muted" role="status" aria-live="polite"></p>
+                  <pre id="source-shared-body" class="source-shared-body" hidden></pre>
+                </div>
+              </details>
             </section>
 
             <ol class="steps" id="import-steps">
