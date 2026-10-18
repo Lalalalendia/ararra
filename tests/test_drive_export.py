@@ -357,3 +357,111 @@ def test_drive_acceptance_closes_sqlite_connections_before_temp_cleanup(
     for connection in opened:
         with pytest.raises(sqlite3.ProgrammingError, match="closed"):
             connection.execute("SELECT 1")
+
+
+# RE-09A-04: export work is atomically persisted, but opt-in and isolated.
+from chaptera_server.drive_outbox import DriveOutbox
+
+
+def finish_pending_book_job(db, jid):
+    claimed = db.claim_next()
+    assert claimed is not None and claimed[0]["id"] == jid
+    with db._connect() as con:
+        source_hash = con.execute(
+            "SELECT source_hash FROM book_chapters WHERE book_id='book-1'"
+        ).fetchone()[0]
+    assert db.complete(jid, claimed[1], "<p>Машинный перевод.</p>", source_hash, 1)
+
+
+def test_drive_outbox_default_disabled_no_historical_backfill(tmp_path):
+    db,_,jid = make_job(tmp_path / "history")
+    outbox = DriveOutbox(db)
+    assert outbox.status() == {
+        "enabled":False,"pending":0,"running":0,"done":0,"hold":0,
+    }
+    assert outbox.set_enabled(True)["enabled"] is True
+    assert outbox.run_once(lambda _: pytest.fail("No historical Drive writes"))["stage"] == "no_eligible_export"
+    assert db.get_job(jid)["status"] == "completed"
+
+
+def test_drive_outbox_durable_completions_and_edits(tmp_path):
+    db,_,jid = make_job(tmp_path / "incoming", completed=False)
+    outbox = DriveOutbox(db)
+    outbox.set_enabled(True)
+    finish_pending_book_job(db,jid)
+    assert outbox.status()["pending"] == 1
+    # New process / QueueStore reuses the same durable SQLite event.
+    restored = DriveOutbox(QueueStore(db.db_path))
+    service = FakeDrive()
+    first = restored.run_once(lambda job: run_export(db,job,service))
+    assert first["stage"] == "exported"
+    assert restored.status()["done"] == 1
+    source_id = first["source_file_id"]
+    translation_id = first["translation_file_id"]
+    service.bodies[source_id] = b"edited original"
+    service.bodies[translation_id] = b"edited translation"
+    assert restored.run_once(lambda _: pytest.fail("No duplicate export"))["stage"] == "no_eligible_export"
+    assert service.bodies[source_id] == b"edited original"
+    assert service.bodies[translation_id] == b"edited translation"
+
+
+def test_drive_outbox_partial_failure_requires_review_then_reconcile(tmp_path):
+    db,_,jid = make_job(tmp_path / "partial", completed=False)
+    outbox = DriveOutbox(db)
+    outbox.set_enabled(True)
+    finish_pending_book_job(db,jid)
+    service = FakeDrive()
+    service.fail_translation_once = True
+    failed = outbox.run_once(lambda job: run_export(db,job,service))
+    assert failed["stage"] == "requires_review"
+    assert len(service.creates) == 3
+    assert outbox.status()["hold"] == 1
+    assert outbox.run_once(lambda _: pytest.fail("Must hold ambiguous outcome"))["stage"] == "no_eligible_export"
+    assert outbox.retry_held(jid)
+    again = outbox.run_once(lambda job: run_export(db,job,service))
+    assert again["stage"] == "exported"
+    assert len(service.creates) == 4
+
+
+def test_drive_outbox_expired_lease_requires_explicit_review(tmp_path):
+    db,_,jid = make_job(tmp_path / "crash", completed=False)
+    outbox = DriveOutbox(db)
+    outbox.set_enabled(True)
+    finish_pending_book_job(db,jid)
+    assert outbox.claim_next() is not None
+    with db._connect() as con:
+        con.execute("UPDATE drive_export_outbox SET lease_until=0 WHERE job_id=?", (jid,))
+    assert outbox.claim_next() is None
+    assert outbox.status()["hold"] == 1
+    assert outbox.retry_held(jid)
+    assert outbox.status()["pending"] == 1
+
+
+def test_drive_outbox_refuses_stale_input_without_remote_mutation(tmp_path):
+    db,lib,jid = make_job(tmp_path / "stale", completed=False)
+    outbox = DriveOutbox(db)
+    outbox.set_enabled(True)
+    finish_pending_book_job(db,jid)
+    lib.put_chapter(
+        "book-1","chapter-1",chapter_index=1,
+        chapter_path="chapters/1.xhtml",
+        source_html="<p>Changed after Gemini.</p>",expected_revision=1,
+    )
+    remote = FakeDrive()
+    receipt = outbox.run_once(lambda job: run_export(db,job,remote))
+    assert receipt["stage"] == "requires_review"
+    assert remote.creates == []
+
+
+def test_drive_outbox_refuses_non_book_completion(tmp_path):
+    from chaptera_server.storage import JobSpec
+    db = QueueStore(tmp_path / "ordinary.sqlite3")
+    outbox = DriveOutbox(db)
+    outbox.set_enabled(True)
+    job = db.create_job("moderator", JobSpec(
+        chapter_id="generic", source_html="<p>test</p>", max_attempts=1,
+    ))
+    claimed = db.claim_next()
+    assert claimed is not None
+    assert db.complete(job["id"],claimed[1],"<p>ru</p>","a"*64,1)
+    assert outbox.status()["pending"] == 0

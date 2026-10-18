@@ -80,13 +80,18 @@ async def _run_source_worker(settings: Settings) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Chaptera team translation backend")
-    parser.add_argument("command", choices=["serve", "worker", "source-worker", "export-drive", "drive-authorize", "drive-smoke"])
+    parser.add_argument("command", choices=["serve", "worker", "source-worker", "export-drive", "drive-authorize", "drive-smoke", "drive-outbox"])
     parser.add_argument("--job-id", default="", help="Completed book translation job UUID")
     parser.add_argument("--dry-run", action="store_true", help="Inspect a job; no OAuth or Drive writes")
     parser.add_argument("--token-file", default="", help="Absolute path for a NEW private OAuth token file")
     parser.add_argument("--client-json", default="", help="Local Desktop OAuth client JSON downloaded from Google Cloud")
     parser.add_argument("--no-browser", action="store_true", help="Print consent link for manual opening on this computer")
     parser.add_argument("--live-smoke", action="store_true", help="Explicitly create and re-edit a synthetic Drive chapter pair")
+    parser.add_argument("--enable", action="store_true", help="Opt in to QUEUE ONLY future completed book jobs")
+    parser.add_argument("--disable", action="store_true", help="Pause the automatic Drive queue")
+    parser.add_argument("--run-once", action="store_true", help="Export at most one queued completed job")
+    parser.add_argument("--allow-drive-write", action="store_true", help="Explicit permission for outbox remote mutations")
+    parser.add_argument("--retry-held", action="store_true", help="Explicitly requeue one held job after review")
     args = parser.parse_args()
     settings = Settings.from_env()
     logging.basicConfig(level=logging.INFO)
@@ -232,6 +237,56 @@ def main() -> None:
             print(json.dumps(receipt,ensure_ascii=False))
         except DriveExportError as exc:
             parser.error(str(exc))
+    elif args.command == "drive-outbox":
+        from .drive_outbox import DriveOutbox
+        from .drive_export import (
+            DriveExportError, GoogleDriveClient, export_completed_job,
+        )
+        import httpx
+        actions=(args.enable,args.disable,args.run_once,args.retry_held)
+        if sum(actions)>1:
+            parser.error("Choose only one outbox operation")
+        outbox=DriveOutbox(QueueStore(settings.db_path))
+        if args.enable:
+            receipt=outbox.set_enabled(True)
+        elif args.disable:
+            receipt=outbox.set_enabled(False)
+        elif args.retry_held:
+            if not args.job_id:
+                parser.error("--retry-held requires --job-id and prior remote review")
+            receipt={"stage":"requeued" if outbox.retry_held(args.job_id)
+                     else "not_held","job_id":args.job_id}
+        elif args.run_once:
+            if not args.allow_drive_write:
+                parser.error("--run-once requires --allow-drive-write")
+            def export_one(job_id: str) -> dict:
+                source_folder=os.environ.get("CHAPTERA_DRIVE_SOURCE_FOLDER_ID","").strip()
+                translation_folder=os.environ.get("CHAPTERA_DRIVE_TRANSLATION_FOLDER_ID","").strip()
+                if not source_folder or not translation_folder:
+                    raise DriveExportError("Both Drive folder IDs must be configured")
+                client_id=_read_systemd_credential(
+                    "google_drive_client_id","CHAPTERA_DRIVE_CLIENT_ID","",
+                ).strip()
+                client_secret=_read_systemd_credential(
+                    "google_drive_client_secret","CHAPTERA_DRIVE_CLIENT_SECRET","",
+                ).strip()
+                refresh_token=_read_systemd_credential(
+                    "google_drive_refresh_token","CHAPTERA_DRIVE_REFRESH_TOKEN","",
+                ).strip()
+                with httpx.Client(timeout=30.0,trust_env=False,
+                                  follow_redirects=False) as http:
+                    drive=GoogleDriveClient(
+                        client_id=client_id,client_secret=client_secret,
+                        refresh_token=refresh_token,http=http,
+                    )
+                    return export_completed_job(
+                        outbox.store,drive,job_id,source_folder_id=source_folder,
+                        translation_folder_id=translation_folder,
+                    )
+            receipt=outbox.run_once(export_one)
+        else:
+            receipt={"stage":"status",**outbox.status()}
+        print(json.dumps(receipt,ensure_ascii=False))
     else:
         if not settings.gemini_api_key and not settings.gemini_vault_key:
             parser.error("Gemini worker requires a shared host key or personal vault key")

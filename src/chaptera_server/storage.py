@@ -161,6 +161,8 @@ class QueueStore:
                 con.execute('ALTER TABLE jobs ADD COLUMN quota_partial_waits INTEGER NOT NULL DEFAULT 0')
             if 'transient_streak' not in columns:
                 con.execute('ALTER TABLE jobs ADD COLUMN transient_streak INTEGER NOT NULL DEFAULT 0')
+            from .drive_outbox import install_schema as install_drive_outbox_schema
+            install_drive_outbox_schema(con)
 
     @staticmethod
     def _public(row: sqlite3.Row | dict[str, Any], *, include_result: bool = False) -> dict[str, Any]:
