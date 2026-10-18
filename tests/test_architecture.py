@@ -28,6 +28,7 @@ ROUTE_CONTRACT = {
     ('GET', '/v1/me/gemini-keys'),
     ('POST', '/v1/me/gemini-keys'),
     ('DELETE', '/v1/me/gemini-keys/{project_id}'),
+    ('PUT', '/v1/me/gemini-keys/{project_id}/daily-cap'),
     ('POST', '/v1/session'),
     ('POST', '/v1/session/password'),
     ('POST', '/v1/session/password/change'),
