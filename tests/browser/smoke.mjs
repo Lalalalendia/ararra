@@ -306,9 +306,9 @@ try{
   // Even hostile-looking chapter prose must render as plain text.
   const foreignJob='shared-browser-foreign';
   const foreignBody='<img src=x onerror=alert(1)> Synthetic chapter content.';
-  const sharedPattern='**/v1/source-books/jobs/shared?limit=30';
-  const sharedChapterIndex='**/v1/source-books/jobs/shared/'+foreignJob+'?offset=0&limit=50';
-  const sharedBodyPath='**/v1/source-books/jobs/shared/'+foreignJob+'/chapters/1';
+  const sharedPattern='**/v1/source-books/shared?limit=30';
+  const sharedChapterIndex='**/v1/source-books/shared/'+foreignJob+'?offset=0&limit=50';
+  const sharedBodyPath='**/v1/source-books/shared/'+foreignJob+'/chapters/1';
   await page.route(sharedPattern,async route=>{
     await route.fulfill({status:200,contentType:'application/json',
       body:JSON.stringify({scope:'team_verified_originals',read_only:true,sources:[{
