@@ -9,8 +9,11 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import sqlite3
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 
 from .drive_export import (
     DriveExportError, FOLDER_MIME, TEXT_MIME, GoogleDriveClient,
@@ -18,6 +21,24 @@ from .drive_export import (
 )
 from .library import BookLibrary
 from .storage import QueueStore
+
+
+class _AcceptanceQueueStore(QueueStore):
+    """Close every temporary SQLite handle before Windows removes smoke.sqlite3.
+
+    A sqlite3.Connection context manager commits or rolls back but does NOT
+    close the connection. The shared QueueStore deliberately stays unchanged;
+    the isolated acceptance queue owns and closes its own per-call handles.
+    """
+
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        connection = super()._connect()
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
 
 
 _SOURCE = (
@@ -34,7 +55,7 @@ _EDIT_MARKER = "\n[RE09A smoke edit-in-place; synthetic text only]\n"
 
 def _create_synthetic_completed_job(directory: Path) -> tuple[QueueStore, str]:
     """Use a completely independent temporary SQLite queue, never user data."""
-    store = QueueStore(directory / "smoke.sqlite3")
+    store = _AcceptanceQueueStore(directory / "smoke.sqlite3")
     library = BookLibrary(store)
     identifier = secrets.token_hex(12)
     book_id = f"re09a-smoke-{identifier}"

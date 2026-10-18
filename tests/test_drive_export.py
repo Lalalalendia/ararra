@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 import sys
 from urllib.parse import parse_qs
 
@@ -311,3 +312,48 @@ def test_drive_acceptance_refuses_invalid_destinations_before_mutation():
     finally:
         drive.http.close()
     assert service.creates==[]
+
+
+@pytest.mark.parametrize("fail_translation", [False, True])
+def test_drive_acceptance_closes_sqlite_connections_before_temp_cleanup(
+    monkeypatch, fail_translation,
+):
+    """Retain SQLite handles to reproduce WinError 32 deterministically.
+
+    The normal SQLite transaction context manager does not close connections.
+    A retained handle would block TemporaryDirectory on Windows and fail the
+    explicit closed-handle assertion on Linux.
+    """
+    original_connect = QueueStore._connect
+    opened = []
+
+    def track_connections(self):
+        connection = original_connect(self)
+        opened.append(connection)
+        return connection
+
+    monkeypatch.setattr(QueueStore, "_connect", track_connections)
+    service = FakeDrive()
+    service.fail_translation_once = fail_translation
+    drive = service.client()
+    try:
+        if fail_translation:
+            # A remote failure must not be masked by temporary-DB cleanup.
+            with pytest.raises(DriveExportError, match="503"):
+                run_drive_acceptance(
+                    drive, source_folder_id=SOURCES,
+                    translation_folder_id=TRANSLATIONS, live=True,
+                )
+        else:
+            receipt = run_drive_acceptance(
+                drive, source_folder_id=SOURCES,
+                translation_folder_id=TRANSLATIONS, live=True,
+            )
+            assert receipt["stage"] == "live_two_folder_export_verified"
+    finally:
+        drive.http.close()
+
+    assert opened, "Expected real SQLite connections to be exercised"
+    for connection in opened:
+        with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+            connection.execute("SELECT 1")
