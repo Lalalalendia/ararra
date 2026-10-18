@@ -9,6 +9,7 @@ import {
 import {initChapterEditor} from './editor.mjs';
 import {createLibraryView} from './library-view.mjs';
 import {createBookExportView} from './book-export-view.mjs';
+import {mountBookBatchView} from './book-batch-bind.mjs';
 import {createSourceBookImportView} from './source-book-import-view.mjs';
 import {renderDailyQuota,renderJobs} from './jobs-view.mjs';
 import {createSessionClient} from './session-client.mjs';
@@ -128,6 +129,7 @@ async function activateSession(session) {
 }
 function clearWorkspace(){
   editor?.reset();
+  batchView.reset();
   auth.clear();identity=null;books=[];members=[];staged=null;rows=[];confirmed=null;
   clearSecret();geminiCabinet.clear();$('identity-label').hidden=true;
   $('authenticated').hidden=true;
@@ -172,9 +174,11 @@ const exportView=createBookExportView({
   txt:$('book-export-txt'),html:$('book-export-html'),request,
   showError:e=>flash(e.message,true),notify:m=>flash(m),
 });
+const batchView=mountBookBatchView({lookup:$,request,flash});
 const libraryView=createLibraryView({
   body:$('book-list'),filter:$('book-filter'),ownerFilter:$('book-owner-filter'),
   empty:$('books-empty'),request,openExport:book=>exportView.open(book),
+  openBatch:book=>batchView.open(book),
   currentMember:()=>identity?.member_id || '',
   canReassign:()=>identity?.role==='admin',
   activeModerators:()=>members.filter(m=>m.role==='moderator' && m.status==='active'),

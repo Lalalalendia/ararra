@@ -158,6 +158,78 @@
                 </div>
               </form>
             </dialog>
+            <dialog id="book-batch-dialog" class="readera-modal readera-modal--batch"
+                    aria-labelledby="book-batch-title" aria-describedby="book-batch-help">
+              <form method="dialog">
+                <p class="kicker">Библиотека / Пакетный перевод</p>
+                <h2 id="book-batch-title">Выбрать главы для перевода</h2>
+                <p id="book-batch-help" class="muted">Перевод выполняется из существующей очереди.</p>
+                <div class="batch-selector-actions">
+                  <button id="book-batch-select-all" class="ui-button ui-button--ghost"
+                          type="button">Выбрать первые 100</button>
+                  <button id="book-batch-clear" class="ui-button ui-button--ghost"
+                          type="button">Снять выбор</button>
+                </div>
+                <p id="book-batch-selection-status" role="status" aria-live="polite"
+                   class="muted">Загрузка оглавления…</p>
+                <div class="table-scroll batch-chapter-table-scroll">
+                  <table class="ui-table batch-chapter-table">
+                    <caption>Главы и редакции исходного текста</caption>
+                    <thead><tr><th>Глава</th><th>ID</th><th>Ревизия</th></tr></thead>
+                    <tbody id="book-batch-chapters"></tbody>
+                  </table>
+                </div>
+                <div class="field-grid">
+                  <label class="ui-field"><span>Протокол перевода</span>
+                    <select id="book-batch-transport" class="ui-input">
+                      <option value="html_v0">HTML (по умолчанию)</option>
+                      <option value="atoms_v1">Atoms V1 (экспериментально)</option>
+                    </select>
+                  </label>
+                  <label class="ui-field"><span>Максимум попыток на главу</span>
+                    <input id="book-batch-attempts" class="ui-input"
+                           type="number" min="1" max="10" step="1" value="3">
+                  </label>
+                </div>
+                <button id="book-batch-preview" class="ui-button ui-button--ghost"
+                        type="button" disabled>Проверить партию</button>
+                <p id="book-batch-status" role="status" aria-live="polite"
+                   class="muted">Выберите главы перед отправкой.</p>
+                <div id="book-batch-review" class="batch-review" hidden>
+                  <p id="book-batch-review-summary"></p>
+                  <label class="check-confirm">
+                    <input id="book-batch-ack" type="checkbox">
+                    Я проверил состав партии и подтверждаю создание заданий перевода.
+                  </label>
+                  <button id="book-batch-submit" class="ui-button ui-button--primary"
+                          type="button" disabled>Подтвердить отправку в очередь</button>
+                </div>
+                <section class="batch-history" aria-label="Сохранённые партии">
+                  <h3>Сохранённые партии</h3>
+                  <p class="muted">Данные хранятся в SQLite и доступны после повторного входа.</p>
+                  <button id="book-batch-history-refresh" type="button"
+                          class="ui-button ui-button--ghost">Обновить список</button>
+                  <div id="book-batch-history-list"></div>
+                </section>
+                <section id="book-batch-progress" class="batch-progress" hidden
+                         aria-label="Прогресс партии">
+                  <h3 id="book-batch-progress-title">Прогресс</h3>
+                  <p id="book-batch-progress-summary" role="status" aria-live="polite"></p>
+                  <button id="book-batch-progress-refresh" type="button"
+                          class="ui-button ui-button--ghost">Обновить прогресс</button>
+                  <div class="table-scroll batch-progress-table-scroll">
+                    <table class="ui-table">
+                      <thead><tr><th>Глава</th><th>ID</th><th>Состояние</th></tr></thead>
+                      <tbody id="book-batch-progress-rows"></tbody>
+                    </table>
+                  </div>
+                </section>
+                <div class="readera-modal-actions">
+                  <button type="submit" class="ui-button ui-button--ghost"
+                          value="cancel" formnovalidate>Закрыть</button>
+                </div>
+              </form>
+            </dialog>
           </section>
           <section data-page="import" hidden class="chapter-import-create-page">
             <div class="ui-page-header"><div>

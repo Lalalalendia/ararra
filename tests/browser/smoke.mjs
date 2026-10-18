@@ -533,6 +533,21 @@ try{
   await login(mpage,modKey);
   await mpage.locator('#book-list').getByText('Браузерная проверка').waitFor();
   await fit(mpage,'books mobile');await screenshot(mpage,'09-library-mobile.png');
+  // Batch multiselect also fits a narrow phone without opening a public API.
+  await mpage.locator('#book-list .library-book-row')
+    .filter({hasText:'Браузерная проверка'})
+    .getByRole('button',{name:'Пакетный перевод книги Браузерная проверка'}).click();
+  const mobileBatch=mpage.locator('#book-batch-dialog');
+  await mobileBatch.waitFor({state:'visible'});
+  await mobileBatch.locator('#book-batch-chapters input').first().waitFor();
+  assert.equal(await mobileBatch.locator('#book-batch-chapters input').count(),2);
+  await mobileBatch.locator('#book-batch-select-all').click();
+  await mobileBatch.locator('#book-batch-selection-status')
+    .getByText(/Выбрано 2 из 2/).waitFor();
+  await fit(mpage,'batch mobile');await screenshot(mpage,'09-library-batch-mobile.png');
+  assert.equal(await mobileBatch.locator('#book-batch-submit').isDisabled(),true);
+  await mobileBatch.getByRole('button',{name:'Закрыть'}).click();
+  await mobileBatch.waitFor({state:'hidden'});
   await choose(mpage,'import');await fit(mpage,'import mobile');
   await screenshot(mpage,'10-import-mobile.png');
   await choose(mpage,'editor');
@@ -673,6 +688,81 @@ try{
   await screenshot(page,'13-verified-book-export.png');
   await exportDialog.getByRole('button',{name:'Закрыть'}).click();
   await exportDialog.waitFor({state:'hidden'});
+  // RE-06C: real Chromium + real SQLite batch selection through cookie/CSRF.
+  // No provider worker is running; all jobs remain queued, with zero Gemini calls.
+  const batchButton=()=>page.locator('#book-list .library-book-row')
+    .filter({hasText:'Экспортная книга'})
+    .getByRole('button',{name:'Пакетный перевод книги Экспортная книга'});
+  const batchEndpoint='/v1/books/export-fixture/translation-batches';
+  const initialJobs=(await api('/v1/jobs?limit=50',adminKey)).data.jobs.length;
+  await batchButton().click();
+  const batchDialog=page.locator('#book-batch-dialog');
+  await batchDialog.waitFor({state:'visible'});
+  await batchDialog.locator('#book-batch-chapters input').first().waitFor();
+  assert.equal(await batchDialog.locator('#book-batch-chapters input').count(),2);
+  assert.equal(await batchDialog.locator('#book-batch-submit').isDisabled(),true);
+  await batchDialog.locator('#book-batch-select-all').click();
+  await batchDialog.locator('#book-batch-selection-status')
+    .getByText(/Выбрано 2 из 2/).waitFor();
+  await batchDialog.locator('#book-batch-preview').click();
+  await batchDialog.locator('#book-batch-review').waitFor({state:'visible'});
+  assert.match(await batchDialog.locator('#book-batch-review-summary').innerText(),
+    /Проверены 2 глав/);
+  assert.equal((await api('/v1/jobs?limit=50',adminKey)).data.jobs.length,initialJobs);
+  assert.equal(await batchDialog.locator('#book-batch-submit').isDisabled(),true);
+  await batchDialog.locator('#book-batch-ack').check();
+  await batchDialog.locator('#book-batch-submit').click();
+  await batchDialog.locator('#book-batch-progress').waitFor({state:'visible'});
+  await batchDialog.locator('#book-batch-progress-summary')
+    .getByText(/в очереди 2/).waitFor();
+  const savedBatches=await api(batchEndpoint,adminKey);
+  assert.equal(savedBatches.status,200);
+  assert.equal(savedBatches.data.batches.length,1);
+  const batchId=savedBatches.data.batches[0].batch_id;
+  const storedJobIds=savedBatches.data.batches[0].chapters.map(c=>c.job_id);
+  assert.equal(new Set(storedJobIds).size,2);
+  assert.deepEqual(savedBatches.data.batches[0].chapters.map(c=>c.chapter_index),[1,2]);
+  assert.equal((await api('/v1/jobs?limit=50',adminKey)).data.jobs.length,initialJobs+2);
+  assert.equal(await batchDialog.locator('#book-batch-progress-rows tr').count(),2);
+  await screenshot(page,'14-book-batch-confirmed-desktop.png');
+  await fit(page,'batch desktop');
+
+  await batchDialog.getByRole('button',{name:'Закрыть'}).click();
+  await batchDialog.waitFor({state:'hidden'});
+  await page.reload();
+  await page.locator('#authenticated').waitFor({state:'visible'});
+  await page.locator('#book-list').getByText('Экспортная книга').waitFor();
+  await batchButton().click();
+  await batchDialog.waitFor({state:'visible'});
+  await batchDialog.locator('#book-batch-history-list')
+    .getByRole('button',{name:'Открыть '+batchId.slice(0,8)}).click();
+  await batchDialog.locator('#book-batch-progress-title')
+    .getByText('Партия '+batchId).waitFor();
+  assert.equal(await batchDialog.locator('#book-batch-progress-rows tr').count(),2);
+  assert.deepEqual((await api(batchEndpoint+'/'+batchId,adminKey)).data.chapters
+    .map(c=>c.job_id),storedJobIds);
+
+  // A source change after preview must fail closed; UI cannot enqueue
+  // a partial or stale second batch without a fresh selection and receipt.
+  await batchDialog.locator('#book-batch-select-all').click();
+  await batchDialog.locator('#book-batch-preview').click();
+  await batchDialog.locator('#book-batch-review').waitFor({state:'visible'});
+  const concurrentSource=await api(
+    '/v1/books/export-fixture/chapters/c2',adminKey,'PUT',{
+      chapter_index:2,chapter_path:'chapters/2.xhtml',
+      source_html:'<p>Источник изменился после preview</p>',expected_revision:1,
+    });
+  assert.equal(concurrentSource.status,200);
+  await batchDialog.locator('#book-batch-ack').check();
+  await batchDialog.locator('#book-batch-submit').click();
+  await batchDialog.locator('#book-batch-status')
+    .getByText(/Ответ отправки не подтверждён/).waitFor();
+  await page.locator('#flash').getByText(/Конфликт версий/).waitFor();
+  assert.equal((await api('/v1/jobs?limit=50',adminKey)).data.jobs.length,initialJobs+2);
+  assert.equal((await api(batchEndpoint,adminKey)).data.batches.length,1);
+  await batchDialog.getByRole('button',{name:'Закрыть'}).click();
+  await batchDialog.waitFor({state:'hidden'});
+
   // RE-03: admin issues a one-time password to an EXISTING moderator.
   await choose(page,'team');
   const writerRow=page.locator('#members-list tr').filter({hasText:'writer'});
