@@ -9,7 +9,7 @@ import {
 import {initChapterEditor} from './editor.mjs';
 import {createLibraryView} from './library-view.mjs';
 import {createBookExportView} from './book-export-view.mjs';
-import {createBookBatchView} from './book-batch-view.mjs';
+import {mountBookBatchView} from './book-batch-bind.mjs';
 import {createSourceBookImportView} from './source-book-import-view.mjs';
 import {renderDailyQuota,renderJobs} from './jobs-view.mjs';
 import {createSessionClient} from './session-client.mjs';
@@ -174,22 +174,7 @@ const exportView=createBookExportView({
   txt:$('book-export-txt'),html:$('book-export-html'),request,
   showError:e=>flash(e.message,true),notify:m=>flash(m),
 });
-const batchView=createBookBatchView({
-  dialog:$('book-batch-dialog'),title:$('book-batch-title'),help:$('book-batch-help'),
-  selectionStatus:$('book-batch-selection-status'),
-  chaptersBody:$('book-batch-chapters'),
-  selectAll:$('book-batch-select-all'),clearSelection:$('book-batch-clear'),
-  transport:$('book-batch-transport'),maxAttempts:$('book-batch-attempts'),
-  previewButton:$('book-batch-preview'),review:$('book-batch-review'),
-  reviewSummary:$('book-batch-review-summary'),ack:$('book-batch-ack'),
-  submitButton:$('book-batch-submit'),status:$('book-batch-status'),
-  historyList:$('book-batch-history-list'),historyRefresh:$('book-batch-history-refresh'),
-  progressPanel:$('book-batch-progress'),progressTitle:$('book-batch-progress-title'),
-  progressSummary:$('book-batch-progress-summary'),
-  progressBody:$('book-batch-progress-rows'),
-  progressRefresh:$('book-batch-progress-refresh'),
-  request,showError:error=>flash(error.message,true),notify:message=>flash(message),
-});
+const batchView=mountBookBatchView({lookup:$,request,flash});
 const libraryView=createLibraryView({
   body:$('book-list'),filter:$('book-filter'),ownerFilter:$('book-owner-filter'),
   empty:$('books-empty'),request,openExport:book=>exportView.open(book),
