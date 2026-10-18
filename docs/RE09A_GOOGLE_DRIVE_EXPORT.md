@@ -255,15 +255,34 @@ The first command is read-only. The second is an **actual** create/edit
 test using ReadEra's own OAuth identity. CI simulates all Google responses;
 CI results alone are not evidence that the owner completed these commands.
 
-**The VPS handoff remains a separate credential operation.** Once a
-successful local owner acceptance is observed, provision the same OAuth
-client ID, secret and refresh token to the VPS through a protected
-systemd credential channel and configure the two exact folder IDs
-there. Then run `chaptera-server export-drive --job-id <actual completed
-book job>` on the target ReadEra server, first with `--dry-run`. Do not
-put tokens into shell history, GitHub Actions, Notion or Google Drive
-files. A successful *local synthetic* test does not prove the server
-environment was configured or that an actual job export ran.
+**VPS handoff is a separate protected credential operation.** Once
+local owner acceptance is successful, provision the SAME OAuth client ID,
+secret and refresh token to the VPS through systemd credentials
+(`google_drive_client_id`, `google_drive_client_secret`,
+`google_drive_refresh_token`). Set the same two
+`CHAPTERA_DRIVE_*_FOLDER_ID` values; the Google connection is tied to
+the OAuth application, not to the ChatGPT account session.
+
+**On the VPS**, using the service account and its protected credentials:
+
+```sh
+# No --client-json or --token-file arguments. Never print secrets.
+chaptera-server drive-smoke
+# With explicit permission to create and edit TEST files only:
+chaptera-server drive-smoke --live-smoke
+# First inspect one actual completed book job without Google requests:
+chaptera-server export-drive --job-id "<completed-book-job-id>" --dry-run
+# Only after confirming the source, job revision, and destination:
+chaptera-server export-drive --job-id "<completed-book-job-id>"
+```
+
+The first smoke is read-only, the second uses a fresh isolated synthetic
+book and actually runs the exporter. Both use the **same server/systemd
+credentials** as `export-drive`. They do not read the production SQLite
+database. Successful local synthetic acceptance **alone** does not prove
+that the VPS has been configured or that the server has exported a real
+completed job. Do not put tokens into shell history, GitHub Actions,
+Notion or Google Drive files.
 
 ## Acceptance status
 
