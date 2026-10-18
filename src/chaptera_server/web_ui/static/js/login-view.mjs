@@ -19,8 +19,6 @@ export function installAuthView({auth,activateSession,clearWorkspace,
       throw new Error('Нужен персональный ключ участника.');
     }
     await activateSession(session);
-    // The shell stays hidden until the server-validated session has loaded.
-    document.body.dataset.authenticated='true';
   }
   loginForm.addEventListener('submit',event=>{
     event.preventDefault();
@@ -28,7 +26,7 @@ export function installAuthView({auth,activateSession,clearWorkspace,
       const secret=String(new FormData(loginForm).get('api_key')||'').trim();
       $('login-secret').value='';
       try {await accept(await auth.login(secret));flash('');}
-      catch(e){auth.clear();flash(e.message,true);}
+      catch(e){auth.clear();clearWorkspace();showLogin();flash(e.message,true);}
     });
   });
   $('logout').addEventListener('click',()=>{
@@ -43,7 +41,7 @@ export function installAuthView({auth,activateSession,clearWorkspace,
     try {
       const session=await auth.restore();
       if(session)await accept(session);
-    }catch(e){auth.clear();showLogin();flash('Не удалось восстановить вход: '+e.message,true);}
+    }catch(e){auth.clear();clearWorkspace();showLogin();flash('Не удалось восстановить вход: '+e.message,true);}
     finally{document.body.dataset.authReady='1';}
   });
 }
