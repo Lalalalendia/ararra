@@ -84,6 +84,7 @@ def main() -> None:
     parser.add_argument("--job-id", default="", help="Completed book translation job UUID")
     parser.add_argument("--dry-run", action="store_true", help="Inspect a job; no OAuth or Drive writes")
     parser.add_argument("--token-file", default="", help="Absolute path for a NEW private OAuth token file")
+    parser.add_argument("--client-json", default="", help="Local Desktop OAuth client JSON downloaded from Google Cloud")
     parser.add_argument("--no-browser", action="store_true", help="Print consent link for manual opening on this computer")
     args = parser.parse_args()
     settings = Settings.from_env()
@@ -112,6 +113,9 @@ def main() -> None:
             "google_drive_client_secret","CHAPTERA_DRIVE_CLIENT_SECRET","",
         ).strip()
         try:
+            if args.client_json:
+                from .drive_oauth_setup import load_desktop_oauth_client
+                client_id,client_secret=load_desktop_oauth_client(Path(args.client_json))
             result=authorize_owner(
                 client_id=client_id,client_secret=client_secret,
                 source_folder_id=source_folder,
