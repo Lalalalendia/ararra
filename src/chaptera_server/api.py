@@ -39,7 +39,11 @@ def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
     app.state.library = BookLibrary(repo)
     app.state.import_sessions = ImportSessions(repo)
     app.state.source_catalog_store = SourceCatalogStore(repo)
-    app.state.source_job_store = SourceJobStore(repo)
+    app.state.source_job_store = SourceJobStore(
+        repo,
+        actor_quota_bytes=settings.source_actor_quota_mib * 1024 * 1024,
+        global_quota_bytes=settings.source_global_quota_mib * 1024 * 1024,
+    )
     app.state.public_source_fetcher = PublicHtmlFetcher()
     app.state.editorial = EditorialStore(repo)
     app.state.chapter_qa = ChapterQaStore(repo)
