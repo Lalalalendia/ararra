@@ -154,6 +154,12 @@ def test_both_chatgpt_edits_remain_after_repeat(tmp_path):
     src_id,ru_id=receipt["source_file_id"],receipt["translation_file_id"]
     service.bodies[src_id]=b"<p>ChatGPT fixed original.</p>"
     service.bodies[ru_id]="<p>Исправленный перевод ChatGPT.</p>".encode()
+    # Both the ordinary book folders and TXT files remain user-editable.
+    # Renaming them must not make the exporter create shadow copies.
+    service.files[src_id]["name"]="Исправленный оригинал.txt"
+    service.files[ru_id]["name"]="Ручная редакция.txt"
+    for fid in service.creates[:2]:
+        service.files[fid]["name"]="Моя папка — "+service.files[fid]["name"]
     again=run_export(db,jid,service)
     assert again==receipt
     assert service.bodies[src_id]==b"<p>ChatGPT fixed original.</p>"
