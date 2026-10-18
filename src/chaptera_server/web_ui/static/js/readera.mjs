@@ -63,6 +63,7 @@ function currentPage() {
 }
 function showPage(page, push=false) {
   if (!knownPages.has(page)) page='overview';
+  if(shownPage==='cabinet' && page!=='cabinet')geminiCabinet.clearForm();
   if(shownPage==='editor' && page!=='editor' && editor){
     if(!editor.canLeave()){
       if(!push) history.pushState({},'', '/app/editor');

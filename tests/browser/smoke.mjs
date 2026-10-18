@@ -67,6 +67,27 @@ try{
   assert.equal(await page.locator('#metric-books').innerText(),'0');
   await screenshot(page,'01-overview-desktop.png');await fit(page,'overview desktop');
 
+  // Personal cabinet: save/reload/delete through real cookie+CSRF browser flow.
+  // The fixed test key is synthetic and never sent to Gemini.
+  await choose(page,'cabinet');
+  await page.waitForFunction(()=>document.querySelector('#gemini-cabinet-status')
+    ?.textContent.includes('Ключи зашифрованы'));
+  const cabinetSecret='AIzaTEST_e2e_readera_key_0123456789';
+  await page.locator('#gemini-key-form [name="project_id"]').fill('readera-browser-project');
+  await page.locator('#gemini-key-form [name="api_key"]').fill(cabinetSecret);
+  await page.locator('#gemini-key-form button[type="submit"]').click();
+  await page.getByText('readera-browser-project · ключ сохранён').waitFor();
+  assert.equal(await page.locator('#gemini-key-form [name="api_key"]').inputValue(),'');
+  assert.equal((await page.locator('#gemini-keys-list').innerText()).includes(cabinetSecret),false);
+  await page.reload();
+  await page.locator('#authenticated').waitFor({state:'visible'});
+  await page.locator('[data-page="cabinet"]').waitFor({state:'visible'});
+  await page.getByText('readera-browser-project · ключ сохранён').waitFor();
+  await page.locator('#gemini-keys-list button[aria-label="Удалить Gemini-ключ проекта readera-browser-project"]').click();
+  await page.getByText('У вас пока нет подключённых проектов.').waitFor();
+  assert.equal((await page.locator('#gemini-keys-list').innerText()).includes(cabinetSecret),false);
+  await choose(page,'overview');
+
   await choose(page,'team');
   await page.locator('#team-admin-only').waitFor({state:'visible'});
   await page.locator('#member-invite [name="member_id"]').fill('writer');
