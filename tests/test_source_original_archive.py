@@ -207,6 +207,12 @@ def test_auth_team_reads_and_only_admin_can_purge_archive_revision(tmp_path):
     asyncio.run(scenario())
     with app.state.store._connect() as con:
         assert con.execute("SELECT COUNT(*) FROM source_original_bodies").fetchone()[0]==0
+        audit=con.execute(
+            "SELECT revision_id,body_sha256,admin_member_id FROM source_original_purge_audit"
+        ).fetchone()
+        assert audit["revision_id"]==revision["revision_id"]
+        assert audit["admin_member_id"]=="operator"
+        assert audit["body_sha256"]==revision["body_sha256"]
 
 
 def test_admin_purge_keeps_body_if_other_revision_uses_same_sha(tmp_path):
@@ -222,10 +228,10 @@ def test_admin_purge_keeps_body_if_other_revision_uses_same_sha(tmp_path):
     assert len(revisions)==2
     a,b=revisions
     assert a["body_sha256"]==b["body_sha256"]
-    purged=archive.purge_revision(a["revision_id"])
+    purged=archive.purge_revision(a["revision_id"],admin_member_id="operator")
     assert purged["removed_orphan_body"] is False
     assert archive.chapter(b["revision_id"])["body"]==TEXT
-    assert archive.purge_revision(b["revision_id"])["removed_orphan_body"] is True
+    assert archive.purge_revision(b["revision_id"],admin_member_id="operator")["removed_orphan_body"] is True
 
 
 def test_tampered_archive_body_rejected_on_read_without_leaking_contents(tmp_path):
