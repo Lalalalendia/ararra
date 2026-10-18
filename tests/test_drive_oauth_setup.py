@@ -323,3 +323,39 @@ def test_drive_smoke_cli_uses_existing_private_token_only(tmp_path,monkeypatch,c
     result=json.loads(capsys.readouterr().out)
     assert result["file_ids_unchanged"] is True
     assert seen==[(SOURCES,TRANSLATIONS,True)]
+
+
+
+def test_drive_smoke_server_uses_protected_credentials_without_local_token(tmp_path,monkeypatch,capsys):
+    from chaptera_server import cli, drive_acceptance, drive_export
+    import sys
+    creds={
+        "google_drive_client_id":"server.apps.googleusercontent.com",
+        "google_drive_client_secret":"synthetic-server-client-secret",
+        "google_drive_refresh_token":"1//synthetic-server-refresh-token",
+    }
+    monkeypatch.setattr(cli,"_read_systemd_credential",
+        lambda credential,env,default: creds.get(credential,default))
+    monkeypatch.setenv("CHAPTERA_DRIVE_SOURCE_FOLDER_ID",SOURCES)
+    monkeypatch.setenv("CHAPTERA_DRIVE_TRANSLATION_FOLDER_ID",TRANSLATIONS)
+    called=[]
+    def fake_acceptance(drive,*,source_folder_id,translation_folder_id,live):
+        called.append((source_folder_id,translation_folder_id,live))
+        return {"stage":"read_only_preflight","drive_mutations":0}
+    monkeypatch.setattr(drive_acceptance,"run_drive_acceptance",fake_acceptance)
+    class FakeClient:
+        def __init__(self,**kwargs):
+            assert kwargs["client_id"]==creds["google_drive_client_id"]
+            assert kwargs["refresh_token"]==creds["google_drive_refresh_token"]
+    monkeypatch.setattr(drive_export,"GoogleDriveClient",FakeClient)
+    monkeypatch.setattr(sys,"argv",["chaptera-server","drive-smoke"])
+    cli.main()
+    result=json.loads(capsys.readouterr().out)
+    assert result["stage"]=="read_only_preflight"
+    assert called==[(SOURCES,TRANSLATIONS,False)]
+
+    del creds["google_drive_refresh_token"]
+    with pytest.raises(SystemExit) as error:
+        cli.main()
+    assert error.value.code==2
+    assert "synthetic-server-client-secret" not in capsys.readouterr().err
