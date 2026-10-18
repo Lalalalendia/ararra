@@ -191,6 +191,10 @@ def _restrict_windows_owner_acl(path: Path) -> None:
         ) from exc
 
 
+def _on_windows() -> bool:
+    return os.name == "nt"
+
+
 def save_private_token(path: Path, token: str) -> None:
     """Refuse symlinks, relative paths and overwrite of an existing credential."""
     if not path.is_absolute() or not path.parent.is_dir():
@@ -202,7 +206,7 @@ def save_private_token(path: Path, token: str) -> None:
         raise DriveAuthorizationError("Cannot create private token file without overwrite") from exc
     try:
         with os.fdopen(fd,"w",encoding="utf-8") as out:
-            if os.name == "nt":
+            if _on_windows():
                 _restrict_windows_owner_acl(path)
             else:
                 os.fchmod(out.fileno(),0o600)
