@@ -22,7 +22,18 @@ def preview_batch(book_id: str, body: PreviewTranslationBatch,
                   batches: TranslationBatches = Depends(get_batches)):
     """Read-only. Returns a deterministic digest of selected current revisions."""
     try:
-        return batches.preview(book_id, body.model_dump())
+        result = batches.preview(book_id, body.model_dump())
+        if request.app.state.settings.gemini_vault_key:
+            # Personal-key deployments must configure a LOCAL per-project RPD
+            # ceiling before approving paid batch processing. This is not
+            # a claim about Google-side remaining quota or token costs.
+            choices = request.app.state.personal_gemini_keys.list_for(actor)["projects"]
+            result["personal_budget_ready"] = any(
+                project["daily_request_cap"] is not None for project in choices
+            )
+        else:
+            result["personal_budget_ready"] = True
+        return result
     except (LibraryNotFound, LibraryConflict, GlossaryVersionConflict, ValueError) as exc:
         raise map_library_error(exc) from exc
 
