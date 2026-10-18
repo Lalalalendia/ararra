@@ -233,7 +233,7 @@ def test_per_member_provider_isolation_rotation_and_no_paid_keyless_job(tmp_path
     before = len(used)
     active = router.for_job({"actor_id": "alice"})
     keys.delete("alice", active.project)
-    with pytest.raises(ProviderFailure):
+    with pytest.raises(GeminiKeyMissing):
         asyncio.run(active.generate(object()))
     assert len(used) == before
 

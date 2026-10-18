@@ -7,7 +7,7 @@ processes, concurrent Gemini requests or automatic cross-member key sharing.
 from __future__ import annotations
 
 from .config import Settings
-from .personal_gemini_keys import PersonalGeminiKeys
+from .personal_gemini_keys import PersonalGeminiKeys, GeminiKeyMissing
 from .provider import GeminiProvider, ProviderFailure
 from .quota import DailyQuotaLedger, QuotaControlledProvider
 from .scheduled_provider import ScheduledGeminiProvider
@@ -39,8 +39,7 @@ class _BoundMemberProvider:
         if (not self.credentials.is_active(self.member, self.settings)
                 or not self.keys.is_current(self.member, self.project, self.fingerprint)):
             # No key or project identifier in the exception or logs.
-            raise ProviderFailure("Gemini credential revoked or moderator inactive",
-                                  status_code=401)
+            raise GeminiKeyMissing("Gemini credential revoked or moderator inactive")
         return await self.delegate.generate(request)
 
 

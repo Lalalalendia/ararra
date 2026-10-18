@@ -167,6 +167,11 @@ class TranslationWorker:
             else:
                 self.store.complete(jid, token, result.translated_html, result.source_hash,
                                     result.unit_count, result.atom_provenance)
+        except (GeminiKeyMissing, GeminiVaultUnavailable):
+            # Revocation may occur between accepted context/atom packets;
+            # retain existing source-proven checkpoints without another
+            # billable attempt or spending the finite retry allowance.
+            self.store.defer_for_missing_gemini_key(jid, token)
         except TranslationCancelled:
             self.store.fail(jid, token, "Translation cancelled")
             # The user cancellation flag results in 'cancelled' in _finish.
