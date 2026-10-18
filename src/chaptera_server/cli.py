@@ -93,7 +93,14 @@ def main() -> None:
     if args.command == "serve":
         import uvicorn
         from .api import create_app
-        uvicorn.run(create_app(settings), host=settings.bind, port=settings.port, log_level="info", proxy_headers=False)
+        # Only the local Nginx hop is trusted. Its X-Forwarded-For is
+        # OVERWRITTEN with $remote_addr; user-supplied values never survive.
+        private_proxy = settings.bind == "127.0.0.1"
+        uvicorn.run(
+            create_app(settings), host=settings.bind, port=settings.port,
+            log_level="info", proxy_headers=private_proxy,
+            forwarded_allow_ips="127.0.0.1",
+        )
     elif args.command == "source-worker":
         try:
             asyncio.run(_run_source_worker(settings))

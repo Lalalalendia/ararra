@@ -29,15 +29,12 @@ ROUTE_CONTRACT = {
     ('POST', '/v1/me/gemini-keys'),
     ('DELETE', '/v1/me/gemini-keys/{project_id}'),
     ('POST', '/v1/session'),
-    ('POST', '/v1/session/password'),
-    ('POST', '/v1/session/password/change'),
     ('GET', '/v1/session'),
     ('POST', '/v1/session/logout'),
     ('GET', '/v1/admin/members'),
     ('POST', '/v1/admin/members'),
     ('POST', '/v1/admin/members/{member_id}/rotate'),
     ('POST', '/v1/admin/members/{member_id}/disable'),
-    ('POST', '/v1/admin/members/{member_id}/password'),
     ('POST', '/v1/books'),
     ('GET', '/v1/books'),
     ('GET', '/v1/books/{book_id}'),
@@ -158,8 +155,7 @@ def test_http_paths_and_methods_are_unique_and_stable(tmp_path):
     assert set(routes) == ROUTE_CONTRACT
     for route in http_routes:
         # Login/restore/logout validate session credentials in their own router.
-        if route.path in {'/healthz', '/v1/session', '/v1/session/logout',
-                              '/v1/session/password', '/v1/session/password/change'}:
+        if route.path in {'/healthz', '/v1/session', '/v1/session/logout'}:
             continue
         # Import preview authenticates at router level, others at endpoint level.
         assert any(dep.call is require_member for dep in route.dependant.dependencies), (

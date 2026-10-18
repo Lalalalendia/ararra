@@ -763,37 +763,17 @@ try{
   await batchDialog.getByRole('button',{name:'Закрыть'}).click();
   await batchDialog.waitFor({state:'hidden'});
 
-  // RE-03: admin issues a one-time password to an EXISTING moderator.
+  // RE-03 key-only: a moderator uses the issued key, without a password
+  // choice, temporary password, reset dialog or browser credential storage.
   await choose(page,'team');
-  const writerRow=page.locator('#members-list tr').filter({hasText:'writer'});
-  page.once('dialog',dialog=>void dialog.accept());
-  await writerRow.getByRole('button',{name:'Выдать пароль'}).click();
-  await page.locator('#member-secret').waitFor({state:'visible'});
-  const initialPassword=await page.locator('#member-secret-code').innerText();
-  assert.ok(initialPassword.startsWith('rp_'));
-  assert.match(await page.locator('#member-secret-heading').innerText(),/Временный пароль/);
-  await page.locator('#member-secret-hide').click();
+  assert.equal(await page.getByRole('button',{name:'Выдать пароль'}).count(),0);
   await page.locator('#logout').click();
   await page.locator('#login-form').waitFor({state:'visible'});
-  await page.locator('#login-form [name="login_mode"][value="password"]').check();
-  await page.locator('#login-member').fill('writer');
-  await page.locator('#login-secret').fill(initialPassword);
-  await page.locator('#login-form button[type="submit"]').click();
-  await page.locator('#password-change').waitFor({state:'visible'});
-  assert.equal(await page.locator('#authenticated').isVisible(),false);
-  assert.equal((await page.request.get(origin+'/v1/books')).status(),403);
-  await page.locator('#change-password-current').fill(initialPassword);
-  await page.locator('#password-change-form [name="new_password"]').fill('My new moderator password 2026!');
-  await page.locator('#password-change-form [name="confirmation"]').fill('My new moderator password 2026!');
-  await page.locator('#password-change-form button[type="submit"]').click();
-  await page.locator('#login-form').waitFor({state:'visible'});
-  await page.locator('#login-form [name="login_mode"][value="password"]').check();
-  await page.locator('#login-member').fill('writer');
-  await page.locator('#login-secret').fill('My new moderator password 2026!');
-  await page.locator('#login-form button[type="submit"]').click();
-  await page.locator('#authenticated').waitFor({state:'visible'});
+  assert.equal(await page.locator('[name="login_mode"]').count(),0);
+  assert.equal(await page.locator('#login-member').count(),0);
+  assert.equal(await page.locator('#password-change-form').count(),0);
+  await login(page,issued);
   assert.match(await page.locator('#identity-label').innerText(),/writer/);
-  assert.equal(await page.locator('#change-password-open').isVisible(),true);
   await page.reload();
   await page.waitForFunction(()=>document.body?.dataset.authReady==='1');
   await page.locator('#authenticated').waitFor({state:'visible'});
@@ -804,19 +784,9 @@ try{
     local:Object.keys(localStorage),session:Object.keys(sessionStorage),
   }));
   assert.deepEqual(noKeys,{local:[],session:[]});
-  // The same authenticated moderator can voluntarily rotate their password.
-  await page.locator('#change-password-open').click();
-  await page.locator('#password-change').waitFor({state:'visible'});
-  await page.locator('#change-password-current').fill('My new moderator password 2026!');
-  await page.locator('#password-change-form [name="new_password"]').fill('Another secure moderator passphrase!');
-  await page.locator('#password-change-form [name="confirmation"]').fill('Another secure moderator passphrase!');
-  await page.locator('#password-change-form button[type="submit"]').click();
-  await page.locator('#login-form').waitFor({state:'visible'});
-  await page.locator('#login-form [name="login_mode"][value="password"]').check();
-  await page.locator('#login-member').fill('writer');
-  await page.locator('#login-secret').fill('Another secure moderator passphrase!');
-  await page.locator('#login-form button[type="submit"]').click();
-  await page.locator('#authenticated').waitFor({state:'visible'});
+  assert.equal((await api('/v1/session/password',adminKey,'POST',{
+    member_id:'writer',password:'retired',
+  })).status,404);
   assert.deepEqual(pageErrors,[],'No uncaught browser errors');
   console.log('PASS: real Chromium desktop/mobile, roles, source import and replacement CAS,');
   console.log('      stage abort, memory-only keys, ownership, responsive widths, screenshots.');

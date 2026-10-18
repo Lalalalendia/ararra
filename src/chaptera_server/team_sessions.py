@@ -14,7 +14,6 @@ import time
 from .config import Settings
 from .storage import QueueStore
 from .team_credentials import TeamCredentials
-from .team_passwords import TeamPasswords
 
 COOKIE_NAME = "readera_session"
 CSRF_HEADER = "X-ReadEra-CSRF"
@@ -61,12 +60,6 @@ class TeamSessions:
             raise ValueError("Invalid team key")
         return self._issue(member_id, self._digest(team_key), "team_key", ttl_seconds)
 
-    def issue_password(self, *, member_id: str, fingerprint: str,
-                       ttl_seconds: int) -> str:
-        if len(fingerprint) != 64:
-            raise ValueError("Invalid password credential fingerprint")
-        return self._issue(member_id, fingerprint, "password", ttl_seconds)
-
     def _issue(self, member_id: str, fingerprint: str, kind: str,
                ttl_seconds: int) -> str:
         if not member_id or ttl_seconds <= 0 or kind not in {"team_key", "password"}:
@@ -88,8 +81,7 @@ class TeamSessions:
         return raw
 
     def resolve_details(self, raw: str | None, *, credentials: TeamCredentials,
-                        settings: Settings, passwords: TeamPasswords | None = None
-                        ) -> tuple[str, str] | None:
+                        settings: Settings) -> tuple[str, str] | None:
         token = str(raw or "")
         if not token.startswith("rs_") or len(token) > 128:
             return None
@@ -102,25 +94,18 @@ class TeamSessions:
         if row is None:
             return None
         member_id, kind = str(row["member_id"]), str(row["auth_kind"])
-        if kind == "password":
-            fingerprint = passwords.session_fingerprint(
-                member_id, credentials=credentials, settings=settings,
-            ) if passwords is not None else None
-            valid = bool(fingerprint) and hmac.compare_digest(
-                str(fingerprint), str(row["credential_sha256"])
-            )
-        elif kind == "team_key":
-            valid = credentials.matches_credential_digest(
-                member_id, str(row["credential_sha256"]), settings
-            )
-        else:
+        # Historical password sessions are retained for SQLite compatibility,
+        # but must never authenticate in the key-only release.
+        if kind != "team_key":
             return None
+        valid = credentials.matches_credential_digest(
+            member_id, str(row["credential_sha256"]), settings
+        )
         return (member_id, kind) if valid else None
 
     def resolve(self, raw: str | None, *, credentials: TeamCredentials,
-                settings: Settings, passwords: TeamPasswords | None = None) -> str | None:
-        details = self.resolve_details(raw, credentials=credentials, settings=settings,
-                                       passwords=passwords)
+                settings: Settings) -> str | None:
+        details = self.resolve_details(raw, credentials=credentials, settings=settings)
         return details[0] if details else None
 
     def revoke(self, raw: str | None) -> None:

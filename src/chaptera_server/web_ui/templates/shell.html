@@ -39,44 +39,15 @@
         <form id="login-form" class="ui-card login-form" autocomplete="off">
           <p class="kicker">Авторизация</p>
           <h1>Доступ к РидЭре</h1>
-          <p>Вход по личному ключу или выданному администратором паролю. Секреты не сохраняются в браузере.</p>
-          <fieldset class="ui-fieldset"><legend>Способ входа</legend>
-            <div class="radio-row">
-              <label><input id="login-mode-key" type="radio" name="login_mode" value="key" checked> Ключ</label>
-              <label><input type="radio" name="login_mode" value="password"> Пароль</label>
-            </div>
-          </fieldset>
-          <label id="login-member-row" class="ui-field" hidden><span>Участник (ID модератора)</span>
-            <input id="login-member" class="ui-input" name="member_id" maxlength="64"
-                   autocomplete="username" spellcheck="false"></label>
+          <p>Введите персональный ключ. Он обменивается на защищённую сессию и не сохраняется в браузере.</p>
           <label class="ui-field"><span id="login-secret-label">Ключ участника</span>
             <input id="login-secret" class="ui-input" name="api_key" type="password" required autocomplete="off" spellcheck="false">
           </label>
           <button class="ui-button ui-button--primary" type="submit">Войти</button>
         </form>
-        <section id="password-change" class="ui-card login-form" hidden>
-          <p class="kicker">Безопасность учётной записи</p>
-          <h1>Изменить пароль</h1>
-          <p id="password-change-help">Для продолжения смените временный пароль.</p>
-          <p class="muted">Участник: <strong id="password-change-member"></strong></p>
-          <form id="password-change-form" autocomplete="off">
-            <label class="ui-field"><span>Текущий пароль</span>
-              <input id="change-password-current" class="ui-input" name="current_password"
-                     type="password" autocomplete="current-password" required></label>
-            <label class="ui-field"><span>Новый пароль (не менее 12 символов)</span>
-              <input class="ui-input" name="new_password" type="password"
-                     autocomplete="new-password" minlength="12" maxlength="128" required></label>
-            <label class="ui-field"><span>Повторите новый пароль</span>
-              <input class="ui-input" name="confirmation" type="password"
-                     autocomplete="new-password" minlength="12" maxlength="128" required></label>
-            <button class="ui-button ui-button--primary" type="submit">Сменить пароль</button>
-            <button class="ui-button ui-button--ghost" id="password-change-cancel" type="button">Отмена / выход</button>
-          </form>
-        </section>
         <div id="flash" role="status" class="ui-alert" hidden></div>
         <section id="authenticated" hidden>
           <div class="workspace-actions">
-            <button class="ui-button ui-button--ghost" id="change-password-open" type="button" hidden>Сменить пароль</button>
             <button class="ui-button ui-button--ghost" id="logout" type="button">Выйти</button>
           </div>
           
