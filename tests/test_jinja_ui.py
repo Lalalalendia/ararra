@@ -129,6 +129,14 @@ def test_page_template_uses_books_platform_components_without_paid_features():
     assert 'aria-labelledby="book-owner-title"' in source
     assert 'id="book-owner-target"' in source
     assert 'data-page="cabinet"' in source
+    # Compact authenticated shell: logout must sit beside the identity,
+    # never as a detached content action. Preserve one key-only login view.
+    assert source.count('id="logout"') == 1
+    assert 'class="topbar-account"' in source
+    assert source.index('id="logout"') < source.index('<main class="content">')
+    assert 'class="workspace-actions"' not in source
+    assert 'id="source-job-panel" class="source-job-panel"' in source
+    assert 'id="source-job-history" class="source-job-history"' in source
     assert 'id="gemini-key-form"' in source
     library = (templates.parent / "static" / "js" / "library-view.mjs").read_text(encoding="utf-8")
     assert "window.prompt(" not in library
