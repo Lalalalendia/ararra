@@ -427,13 +427,13 @@ def test_drive_outbox_partial_failure_requires_review_then_reconcile(tmp_path):
     service.fail_translation_once = True
     failed = outbox.run_once(lambda job: run_export(db,job,service))
     assert failed["stage"] == "requires_review"
-    assert len(service.creates) == 3
+    assert len(service.creates) == 5
     assert outbox.status()["hold"] == 1
     assert outbox.run_once(lambda _: pytest.fail("Must hold ambiguous outcome"))["stage"] == "no_eligible_export"
     assert outbox.retry_held(jid)
     again = outbox.run_once(lambda job: run_export(db,job,service))
     assert again["stage"] == "exported"
-    assert len(service.creates) == 4
+    assert len(service.creates) == 6
 
 
 def test_drive_outbox_expired_lease_requires_explicit_review(tmp_path):
