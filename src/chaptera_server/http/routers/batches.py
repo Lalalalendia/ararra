@@ -17,7 +17,7 @@ def get_batches(request: Request) -> TranslationBatches:
 
 
 @router.post("/{book_id}/translation-batches/preview")
-def preview_batch(book_id: str, body: PreviewTranslationBatch,
+def preview_batch(book_id: str, body: PreviewTranslationBatch, request: Request,
                   actor: str = Depends(require_member),
                   batches: TranslationBatches = Depends(get_batches)):
     """Read-only. Returns a deterministic digest of selected current revisions."""
