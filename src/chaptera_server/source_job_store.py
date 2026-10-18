@@ -18,6 +18,7 @@ from .source_collect import (
     CollectedBook, CollectedChapter, SourceCatalog, MAX_BODY_CHARS,
 )
 from .source_site_storage import _fingerprint
+from .source_original_archive import SourceOriginalArchive, SourceArchiveConflict
 from .storage import QueueStore
 
 MAX_JOB_CHAPTERS = 2000
@@ -123,6 +124,9 @@ class SourceJobStore:
             if "defer_reason" not in columns:
                 con.execute("ALTER TABLE source_collect_jobs "
                             "ADD COLUMN defer_reason TEXT")
+        # Separate, immutable, bounded team archive. No legacy data is
+        # copied merely by starting the API or opening the old database.
+        self.archive = SourceOriginalArchive(store)
 
     @staticmethod
     def _used_bytes(con: sqlite3.Connection, actor: str) -> tuple[int, int]:
@@ -332,6 +336,15 @@ class SourceJobStore:
                 raise SourceJobConflict("Cancel the running collection before deleting it")
             if row["status"] not in ("complete","partial","cancelled"):
                 raise SourceJobConflict("Collection is not deletable")
+            # Preserve every verified source original BEFORE the personal
+            # capture is removed. Archive capture and the FK cascade share
+            # this transaction: no half-archive, no silent text loss.
+            try:
+                retained = self.archive.capture_before_delete(
+                    con,row,self._manifest(row),
+                )
+            except SourceArchiveConflict as exc:
+                raise SourceJobConflict(str(exc)) from exc
             count = con.execute(
                 "SELECT COUNT(*) FROM source_collect_items WHERE job_id=?",
                 (job_id,),
@@ -357,6 +370,7 @@ class SourceJobStore:
                 "deleted":True,"job_id":job_id,
                 "deleted_checkpoints":count,"freed_source_bytes":bytes_freed,
                 "library_unchanged":True,
+                **retained,
             }
 
     def claim(self, *, lease_seconds: float = 180.0) -> dict | None:
