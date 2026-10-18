@@ -75,6 +75,13 @@ class SourceOriginalArchive:
                     ON source_original_revisions(archive_book_id,ordinal,captured_at);
                 CREATE INDEX IF NOT EXISTS ix_source_original_archive_captured
                     ON source_original_revisions(captured_at DESC);
+                CREATE TABLE IF NOT EXISTS source_original_purge_audit (
+                    revision_id TEXT NOT NULL,
+                    body_sha256 TEXT NOT NULL,
+                    admin_member_id TEXT NOT NULL,
+                    purged_at REAL NOT NULL,
+                    PRIMARY KEY(revision_id,purged_at)
+                );
             """)
 
     @staticmethod
@@ -269,10 +276,13 @@ class SourceOriginalArchive:
                 "scope":"single_verified_archived_original",
             }
 
-    def purge_revision(self, revision_id: str) -> dict:
-        """Admin takedown; removal is shared and also drops orphaned body bytes."""
+    def purge_revision(self, revision_id: str, *, admin_member_id: str) -> dict:
+        """Audit one admin-only archive takedown, remove orphaned body bytes."""
         if not isinstance(revision_id,str) or _HEX64.fullmatch(revision_id) is None:
             raise SourceArchiveMissing("Archived revision not found")
+        if (not isinstance(admin_member_id,str) or not admin_member_id or
+            len(admin_member_id)>128):
+            raise ValueError("Administrator identity required for archive purge")
         with self.store._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             row = con.execute(
@@ -281,6 +291,13 @@ class SourceOriginalArchive:
             ).fetchone()
             if row is None:
                 raise SourceArchiveMissing("Archived revision not found")
+            # Keep a metadata-only audit; do not persist deleted prose.
+            con.execute(
+                "INSERT INTO source_original_purge_audit("
+                "revision_id,body_sha256,admin_member_id,purged_at)"
+                " VALUES(?,?,?,?)",
+                (revision_id,row["body_sha256"],admin_member_id,time.time()),
+            )
             con.execute("DELETE FROM source_original_revisions WHERE revision_id=?",
                         (revision_id,))
             released = con.execute(
