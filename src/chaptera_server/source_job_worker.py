@@ -6,6 +6,7 @@ import logging
 import hashlib
 
 from .source_catalog_med import IngestError, make_adapter
+from .source_request_limiter import SourceSiteBusy
 from .source_collect import MAX_BODY_CHARS
 from .source_job_store import SourceJobStore, SourceJobConflict, MAX_ITEM_BYTES
 
@@ -36,6 +37,15 @@ class SourceCollectionWorker:
             result = self.jobs.finish(job_id,token,body=body)
             log.info("source chapter checkpoint saved: job=%s ordinal=%s %s/%s",
                      job_id,ch["ordinal"],result["completed"],result["total"])
+        except SourceSiteBusy as exc:
+            # An upstream throttle or our own site budget is NOT a corrupt
+            # chapter: release the job lease and retry later, without burning
+            # a manual retry pass or deleting any verified checkpoint.
+            try:
+                self.jobs.defer(job_id, token, retry_after=exc.retry_after,
+                                reason=exc.reason)
+            except SourceJobConflict:
+                log.warning("lost source job lease during site deferral: %s", job_id)
         except (IngestError, ValueError) as exc:
             # A source's login/CAPTCHA/locked text is a failure receipt,
             # not a valid chapter. Explicit actor retry is required.
