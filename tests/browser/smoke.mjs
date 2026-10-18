@@ -478,7 +478,7 @@ try{
   await choose(page,'jobs');
   await page.locator('#jobs-refresh').click();
   await page.waitForFunction(()=>document.querySelector('#gemini-quota-status')
-    ?.textContent.includes('Локальный суточный лимит не настроен'));
+    ?.textContent.includes('Лимиты Gemini учитываются отдельно для ваших проектов'));
   const offlineQuota=await api('/v1/quota/gemini',issued);
   assert.equal(offlineQuota.status,200);
   assert.equal(offlineQuota.data.enabled,false);
