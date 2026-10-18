@@ -27,7 +27,7 @@ Existing destination folders, not to be recreated:
 
 Preserve both previously authorized roots and owner OAuth credentials:
 
-\`\`\`text
+```text
 Источники/
   Firegod/
     Название книги [stable-book-key]/
@@ -36,17 +36,17 @@ Preserve both previously authorized roots and owner OAuth credentials:
   Firegod/
     Название книги [stable-book-key]/
       Глава 001.txt
-\`\`\`
+```
 
-Here \`Firegod\` is only an example; the actual folder is named after
-\`books.owner_member_id\` in SQLite. \`jobs.actor_id\` does not choose
+Here `Firegod` is only an example; the actual folder is named after
+`books.owner_member_id` in SQLite. `jobs.actor_id` does not choose
 the Drive folder. Both the moderator folder and the nested book folder
-have private, stable \`appProperties\` identity tags. Retrying an export
+have private, stable `appProperties` identity tags. Retrying an export
 reuses folder and TXT IDs even when a human renames them. The exporter
 never modifies or deletes already-exported TXT bytes.
 
-**Existing data:** older flat \`root/book/chapter\` folders must not be
-shadow-copied into \`root/moderator/book/chapter\`. When such a book is found,
+**Existing data:** older flat `root/book/chapter` folders must not be
+shadow-copied into `root/moderator/book/chapter`. When such a book is found,
 the exporter refuses further writes and requires an explicit, reviewed
 move of the SAME existing book folder ID beneath the moderator, with
 confirmation of both source and translation sides. Similarly, when a
