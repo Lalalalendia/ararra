@@ -39,9 +39,11 @@ class TranslationBatches:
     )
     _STATUSES = ("queued", "running", "retry_wait", "completed", "failed", "cancelled")
 
-    def __init__(self, queue: QueueStore, library: BookLibrary):
+    def __init__(self, queue: QueueStore, library: BookLibrary, *,
+                 require_personal_budget: bool = False):
         self.queue = queue
         self.library = library
+        self.require_personal_budget = require_personal_budget
         with queue._connect() as con:
             con.executescript("""
                 CREATE TABLE IF NOT EXISTS translation_batches (
@@ -167,6 +169,21 @@ class TranslationBatches:
                 # book chapter or glossary changed after submission.
                 return self._details(con, book_id, previous["id"])
 
+            if self.require_personal_budget:
+                # Admit a paid batch only when its *submitter* has at least
+                # one explicitly capped personal project. Old idempotent
+                # receipts are returned above even after key revocation.
+                admitted = con.execute("""
+                    SELECT 1 FROM member_gemini_keys AS k
+                    JOIN member_gemini_budgets AS b ON b.project_id=k.project_id
+                    WHERE k.member_id=? AND b.member_id=k.member_id
+                      AND b.daily_request_cap>0 LIMIT 1
+                """, (actor_id,)).fetchone()
+                if not admitted:
+                    raise BatchConflict(
+                        "Set a daily request cap for your Gemini project "
+                        "in the personal cabinet before submitting a batch"
+                    )
             manifest, entries = self._resolve(con, book_id, payload)
             if manifest != expected:
                 raise BatchConflict("Batch preview expired: source or options changed")
