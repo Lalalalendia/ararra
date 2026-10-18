@@ -132,6 +132,45 @@ controlled. VPS installation requires monitored disk budgets and a
 well-defined retention/quota policy before opening bulk uploads to a larger
 team. Deleting a source job does not rewrite/undo any published book.
 
+## Cross-book verified-source quotas (RE-02-WEB-SOURCE-06)
+
+A single collection already had a 256 MiB verified-source cap, but an
+unbounded number of completed jobs could consume the shared VPS disk.
+Admission now uses **two durable logical quotas** across all retained
+checkpointed source texts:
+
+- `CHAPTERA_SOURCE_ACTOR_QUOTA_MIB` (default **512 MiB/member**).
+- `CHAPTERA_SOURCE_GLOBAL_QUOTA_MIB` (default **2048 MiB/shared SQLite**).
+  The global limit must be at least the per-member limit. Both values must
+  be positive integers with a hard upper bound of 1 TiB.
+- Every successful source chapter updates usage via the same
+  `BEGIN IMMEDIATE` SQLite transaction that checks its per-job, per-actor
+  and global budget. Already accepted checkpoints are never dropped to
+  satisfy quota. Over-budget chapters record a visible **failure receipt**;
+  they are not accepted as a completed source. The actor can explicitly
+  clean up retained completed captures and retry only the failed chapter.
+- An actor that has exhausted storage cannot create new collection jobs;
+  an idempotent replay of an existing accepted job ID still succeeds.
+  Quotas count **all verified raw text retained**, including old completed
+  jobs after a process restart, and do not rely on a volatile counter.
+- `GET /v1/source-books/jobs` includes an actor-only `usage` object:
+  their retained raw bytes, their own limit, and effective space remaining.
+  It never exposes the exact global usage belonging to other team members.
+  The Jinja history view shows remaining source capacity.
+
+Both `serve` and `source-worker` **must run with matching environment
+configuration** and the same database. The defaults are designed for small
+VPS installations; operators must size quotas against their actual disk
+and backup capacity before enabling the crawler for multiple moderators.
+
+**Important:** these are limits on durable source **body bytes**, not an
+OS filesystem quota. SQLite WAL/database overhead, original catalog
+manifests, all other chapter/import data, exported temporary files,
+encrypted backups and filesystem allocation still consume disk.
+`DELETE` releases logical quota but the SQLite file may not shrink until
+safe WAL checkpoint/VACUUM during an approved maintenance window.
+Use OS disk-space monitoring, backups and capacity alarms independently.
+
 ## Operational / release gates
 
 - Run **one** source-worker initially alongside the standard Gemini worker; they use different queues. `CHAPTERA_GEMINI_API_KEY` is **not required** for the crawler worker. Start via `chaptera-server source-worker` in an explicitly managed unit/service.
