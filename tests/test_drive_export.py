@@ -141,7 +141,9 @@ def test_two_folder_upload_and_repeat_are_idempotent(tmp_path):
         receipt["source_file_id"],receipt["translation_file_id"]))
     assert service.files[receipt["source_file_id"]]["parents"]!=(
         service.files[receipt["translation_file_id"]]["parents"])
-    folders=[service.files[k] for k in service.creates[:2]]
+    folders=[service.files[k] for k in service.creates
+             if service.files[k]["mimeType"]=="application/vnd.google-apps.folder"]
+    assert len(folders)==2
     assert all("Проверка романа том 1" in x["name"] for x in folders)
     assert run_export(db,jid,service)==receipt
     assert len(service.creates)==4
@@ -158,8 +160,9 @@ def test_both_chatgpt_edits_remain_after_repeat(tmp_path):
     # Renaming them must not make the exporter create shadow copies.
     service.files[src_id]["name"]="Исправленный оригинал.txt"
     service.files[ru_id]["name"]="Ручная редакция.txt"
-    for fid in service.creates[:2]:
-        service.files[fid]["name"]="Моя папка — "+service.files[fid]["name"]
+    for fid in service.creates:
+        if service.files[fid]["mimeType"]=="application/vnd.google-apps.folder":
+            service.files[fid]["name"]="Моя папка — "+service.files[fid]["name"]
     again=run_export(db,jid,service)
     assert again==receipt
     assert service.bodies[src_id]==b"<p>ChatGPT fixed original.</p>"
