@@ -187,6 +187,9 @@ def test_existing_sqlite_backlog_only_claims_mods_with_personal_keys(tmp_path):
     assert store.claim_next(require_personal_key=True) is None
     assert store.get_job(unready["id"])["attempts"] == 0
     keys.put("alice", "alice-project-001", KEY_ALICE)
+    # Having a credential alone does not authorize unbounded paid calls.
+    assert store.claim_next(require_personal_key=True) is None
+    keys.set_daily_cap("alice", "alice-project-001", 21)
     chosen, lease = store.claim_next(require_personal_key=True)
     assert chosen["id"] == work["id"]
     assert chosen["actor_id"] == "alice"
