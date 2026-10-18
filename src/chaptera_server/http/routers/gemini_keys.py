@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from ...personal_gemini_keys import (
     GeminiKeyConflict, GeminiKeyMissing, GeminiVaultUnavailable,
@@ -17,7 +17,9 @@ _PRIVATE = {"Cache-Control": "private, no-store", "Pragma": "no-cache",
 class SetGeminiKey(BaseModel):
     model_config = ConfigDict(extra="forbid")
     project_id: str = Field(min_length=6, max_length=64)
-    api_key: str = Field(min_length=20, max_length=256)
+    # SecretStr masks sensitive values in repr/validation error traces.
+    # Validate length/shape inside the vault without echoing user input.
+    api_key: SecretStr
 
 
 @router.get("")
@@ -34,7 +36,7 @@ def save_key(body: SetGeminiKey, request: Request, response: Response,
         # Project claim is supplied by its owner; no paid Google call at save.
         # Uniqueness and key reuse are checked transactionally in SQLite.
         return request.app.state.personal_gemini_keys.put(
-            member, body.project_id, body.api_key
+            member, body.project_id, body.api_key.get_secret_value()
         )
     except GeminiVaultUnavailable as exc:
         raise HTTPException(503, "Защищённое хранилище Gemini не настроено",
