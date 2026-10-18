@@ -8,6 +8,7 @@ export function installAuthView({auth,activateSession,clearWorkspace,
   const workspace=$('authenticated');
 
   function showLogin(){
+    document.body.dataset.authenticated='false';
     workspace.hidden=true;
     loginForm.hidden=false;
     loginForm.reset();
@@ -25,7 +26,7 @@ export function installAuthView({auth,activateSession,clearWorkspace,
       const secret=String(new FormData(loginForm).get('api_key')||'').trim();
       $('login-secret').value='';
       try {await accept(await auth.login(secret));flash('');}
-      catch(e){auth.clear();flash(e.message,true);}
+      catch(e){auth.clear();clearWorkspace();showLogin();flash(e.message,true);}
     });
   });
   $('logout').addEventListener('click',()=>{
@@ -40,7 +41,7 @@ export function installAuthView({auth,activateSession,clearWorkspace,
     try {
       const session=await auth.restore();
       if(session)await accept(session);
-    }catch(e){auth.clear();showLogin();flash('Не удалось восстановить вход: '+e.message,true);}
+    }catch(e){auth.clear();clearWorkspace();showLogin();flash('Не удалось восстановить вход: '+e.message,true);}
     finally{document.body.dataset.authReady='1';}
   });
 }

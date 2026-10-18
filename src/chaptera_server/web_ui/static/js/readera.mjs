@@ -125,6 +125,8 @@ async function activateSession(session) {
   $('identity-label').hidden=false;$('login-form').reset();
   $('metric-books').textContent=String(books.length);
   $('metric-role').textContent=identity.role==='admin'?'Администратор':'Модератор';
+  // The sidebar must be visible before showPage measures its mobile scroll.
+  document.body.dataset.authenticated='true';
   showPage(currentPage());flash('');
 }
 function clearWorkspace(){

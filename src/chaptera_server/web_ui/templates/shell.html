@@ -11,7 +11,7 @@
   <script defer src="/app-static/js/books-platform-chapter-status.js"></script>
   <script type="module" src="/app-static/js/readera.mjs"></script>
 </head>
-<body data-initial-page="{{ active_page }}">
+<body data-initial-page="{{ active_page }}" data-authenticated="false">
   <div class="shell">
     <aside class="sidebar">
       <a class="brand" href="/app/overview" data-page-link="overview">
@@ -36,11 +36,8 @@
         <span id="identity-label" class="identity-chip" hidden></span>
       </header>
       <main class="content">
-        <form id="login-form" class="ui-card login-form" autocomplete="off">
-          <p class="kicker">Авторизация</p>
-          <h1>Доступ к РидЭре</h1>
-          <p>Введите персональный ключ. Он обменивается на защищённую сессию и не сохраняется в браузере.</p>
-          <label class="ui-field"><span id="login-secret-label">Ключ участника</span>
+        <form id="login-form" class="ui-card login-form" autocomplete="off" aria-label="Вход по ключу">
+          <label class="ui-field"><span id="login-secret-label">Ключ</span>
             <input id="login-secret" class="ui-input" name="api_key" type="password" required autocomplete="off" spellcheck="false">
           </label>
           <button class="ui-button ui-button--primary" type="submit">Войти</button>
