@@ -28,7 +28,6 @@ async function login(page,key){
   if(await page.locator('#authenticated').isVisible()){
     await page.locator('#logout').click();
     await page.locator('#login-form').waitFor({state:'visible'});
-  assert.equal(await page.locator('#source-shared-body').textContent(),'');
   }
   await page.locator('#login-form [name="api_key"]').fill(key);
   await page.locator('#login-form button[type="submit"]').click();
@@ -891,6 +890,7 @@ try{
   assert.equal(await page.getByRole('button',{name:'Выдать пароль'}).count(),0);
   await page.locator('#logout').click();
   await page.locator('#login-form').waitFor({state:'visible'});
+  assert.equal(await page.locator('#source-shared-body').textContent(),'');
   assert.equal(await page.locator('[name="login_mode"]').count(),0);
   assert.equal(await page.locator('#login-member').count(),0);
   assert.equal(await page.locator('#password-change-form').count(),0);
