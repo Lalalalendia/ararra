@@ -213,6 +213,7 @@ try{
     total:2,completed:0,failed:0,pending:2,
     selected_start:1,selected_end:2,
     manual_retries:0,failures:[],
+    next_attempt_at:Date.now()/1000+600,waiting_reason:'daily_site_budget',
   };
   const createJobPattern='**/v1/source-books/jobs';
   const getJobPattern='**/v1/source-books/jobs/job-browser-123';
@@ -254,6 +255,7 @@ try{
   await page.locator('#source-job-id').waitFor({state:'visible'});
   await page.waitForFunction(()=>document.querySelector('#source-job-id')?.value==='job-browser-123');
   assert.match(await page.locator('#source-job-status').innerText(),/готово 0\/2/);
+  assert.match(await page.locator('#source-job-status').innerText(),/пауза сайта до/);
   await page.locator('#source-job-refresh').click();
   await page.getByText('готово 1/2',{exact:false}).waitFor();
   assert.equal(await page.locator('#import-map').isVisible(),false);
