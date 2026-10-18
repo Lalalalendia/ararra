@@ -19,7 +19,7 @@ export function selectBooks(catalog, query, selection, memberId) {
 
 export function createLibraryView({
   body,filter,ownerFilter,empty,request,openEditor,showError,
-  currentMember,canReassign,activeModerators,chooseOwner,reassignOwner,openExport,
+  currentMember,canReassign,activeModerators,chooseOwner,reassignOwner,openExport,openBatch,
 }) {
   let catalog=[];
 
@@ -47,6 +47,11 @@ export function createLibraryView({
     exportButton.setAttribute('aria-label','Экспортировать книгу '+book.title);
     exportButton.addEventListener('click',()=>openExport(book));
     actions.append(exportButton);
+    const batchButton=node('button','Перевести главы','ui-button ui-button--ghost');
+    batchButton.type='button';
+    batchButton.setAttribute('aria-label','Пакетный перевод книги '+book.title);
+    batchButton.addEventListener('click',()=>openBatch(book));
+    actions.append(batchButton);
     if(canReassign()){
       const transfer=node('button','Переназначить','ui-button ui-button--ghost');
       transfer.type='button';
