@@ -134,7 +134,7 @@ def test_team_can_download_only_complete_verified_txt_and_detect_change(tmp_path
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),base_url="http://test",
         ) as client:
-            root=f"/v1/source-books/jobs/shared/{jid}"
+            root=f"/v1/source-books/shared/{jid}"
             preview=await client.get(root+"/assembly",headers=BOB)
             assert preview.status_code == 200
             receipt=preview.json()
@@ -163,12 +163,12 @@ def test_team_can_download_only_complete_verified_txt_and_detect_change(tmp_path
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),base_url="http://test",
         ) as client:
-            path=f"/v1/source-books/jobs/shared/{jid}/chapters/2"
+            path=f"/v1/source-books/shared/{jid}/chapters/2"
             assert (await client.get(path,headers=BOB)).status_code == 409
             assert (await client.get(path,headers=BOB)).json()["detail"].find(
                 "checksum") >= 0
             preview=await client.get(
-                f"/v1/source-books/jobs/shared/{jid}/assembly",headers=BOB,
+                f"/v1/source-books/shared/{jid}/assembly",headers=BOB,
             )
             assert preview.status_code == 200 and preview.json()["ready"] is False
     asyncio.run(corrupted())
@@ -232,6 +232,6 @@ def test_disabled_or_bad_team_keys_cannot_read_originals(tmp_path):
         ) as client:
             for key in ("wrong",""):
                 assert (await client.get(
-                    f"/v1/source-books/jobs/shared/{jid}/chapters/1",
+                    f"/v1/source-books/shared/{jid}/chapters/1",
                     headers={"X-API-Key":key})).status_code == 401
     asyncio.run(scenario())
