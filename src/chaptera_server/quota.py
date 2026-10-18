@@ -9,7 +9,9 @@ this SQLite worker and does not replace remote RPM/TPM or billing limits.
 from __future__ import annotations
 
 import re
+import sqlite3
 import time
+from typing import Callable
 from datetime import datetime, timedelta, time as clock_time
 from zoneinfo import ZoneInfo
 
@@ -65,7 +67,8 @@ class DailyQuotaExhausted(RuntimeError):
 class DailyQuotaLedger:
     """Atomic ledger shared by every key/worker using the same project + DB."""
 
-    def __init__(self, store: QueueStore, project: str, model: str, limit: int):
+    def __init__(self, store: QueueStore, project: str, model: str, limit: int,
+                 *, limit_reader: Callable[[sqlite3.Connection], int] | None = None):
         if not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", project):
             raise ValueError("Explicit non-secret Gemini project quota scope required")
         if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}", model):
@@ -73,6 +76,7 @@ class DailyQuotaLedger:
         if not 1 <= limit <= 1_000_000:
             raise ValueError("Gemini requests-per-day cap must be between 1 and 1000000")
         self.store, self.project, self.model, self.limit = store, project, model, limit
+        self.limit_reader = limit_reader
         with self.store._connect() as con:
             con.execute("""
                 CREATE TABLE IF NOT EXISTS gemini_daily_requests (
@@ -86,8 +90,11 @@ class DailyQuotaLedger:
             """)
 
     def status(self, *, now: float | None = None) -> dict:
+        with self.store._connect() as con:
+            current_limit = (self.limit_reader(con) if self.limit_reader
+                             else self.limit)
         return read_daily_quota_status(
-            self.store, self.project, self.model, self.limit, now=now
+            self.store, self.project, self.model, max(0, current_limit), now=now
         )
 
     def reserve(self, *, now: float | None = None) -> dict:
@@ -96,11 +103,22 @@ class DailyQuotaLedger:
         day, reset = pacific_window(moment)
         with self.store._connect() as con:
             con.execute("BEGIN IMMEDIATE")
+            # Read the live per-project cap UNDER the same write lock that
+            # reserves an attempt. Lowering/revoking a cap cannot race a
+            # cached in-flight provider and allow an extra paid call.
+            limit = self.limit_reader(con) if self.limit_reader else self.limit
+            if not 1 <= limit <= self.limit:
+                # A dynamic cap may be 0 when the project has been removed.
+                # Externally configured global ceilings remain a hard maximum.
+                if limit <= 0:
+                    con.execute("ROLLBACK")
+                    raise DailyQuotaExhausted(reset)
+                limit = min(limit, self.limit)
             row = con.execute("""
                 SELECT used, externally_blocked FROM gemini_daily_requests
                 WHERE project=? AND model=? AND pacific_day=?
             """, (self.project, self.model, day)).fetchone()
-            if row and (row["externally_blocked"] or row["used"] >= self.limit):
+            if row and (row["externally_blocked"] or row["used"] >= limit):
                 con.execute("ROLLBACK")
                 raise DailyQuotaExhausted(reset)
             con.execute("""
