@@ -80,9 +80,11 @@ async def _run_source_worker(settings: Settings) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Chaptera team translation backend")
-    parser.add_argument("command", choices=["serve", "worker", "source-worker", "export-drive"])
+    parser.add_argument("command", choices=["serve", "worker", "source-worker", "export-drive", "drive-authorize"])
     parser.add_argument("--job-id", default="", help="Completed book translation job UUID")
     parser.add_argument("--dry-run", action="store_true", help="Inspect a job; no OAuth or Drive writes")
+    parser.add_argument("--token-file", default="", help="Absolute path for a NEW private OAuth token file")
+    parser.add_argument("--no-browser", action="store_true", help="Print consent link for manual opening on this computer")
     args = parser.parse_args()
     settings = Settings.from_env()
     logging.basicConfig(level=logging.INFO)
@@ -95,6 +97,31 @@ def main() -> None:
             asyncio.run(_run_source_worker(settings))
         except KeyboardInterrupt:
             pass
+    elif args.command == "drive-authorize":
+        from pathlib import Path
+        from .drive_oauth_setup import DriveAuthorizationError, authorize_owner
+        from .drive_export import DriveExportError
+        if not args.token_file:
+            parser.error("--token-file is required for drive-authorize")
+        source_folder = os.environ.get("CHAPTERA_DRIVE_SOURCE_FOLDER_ID", "").strip()
+        translation_folder = os.environ.get("CHAPTERA_DRIVE_TRANSLATION_FOLDER_ID", "").strip()
+        client_id = _read_systemd_credential(
+            "google_drive_client_id","CHAPTERA_DRIVE_CLIENT_ID","",
+        ).strip()
+        client_secret = _read_systemd_credential(
+            "google_drive_client_secret","CHAPTERA_DRIVE_CLIENT_SECRET","",
+        ).strip()
+        try:
+            result=authorize_owner(
+                client_id=client_id,client_secret=client_secret,
+                source_folder_id=source_folder,
+                translation_folder_id=translation_folder,
+                token_file=Path(args.token_file),
+                open_browser=not args.no_browser,
+            )
+        except (DriveAuthorizationError,DriveExportError) as exc:
+            parser.error(str(exc))
+        print(json.dumps(result,ensure_ascii=False))
     elif args.command == "export-drive":
         from .drive_export import (
             DriveExportError, GoogleDriveClient, read_completed_job, export_completed_job,
