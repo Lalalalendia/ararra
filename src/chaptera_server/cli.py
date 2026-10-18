@@ -136,15 +136,33 @@ def main() -> None:
         )
         from .drive_acceptance import run_drive_acceptance
         from .drive_export import GoogleDriveClient, DriveExportError
-        if not args.client_json or not args.token_file:
-            parser.error("drive-smoke requires --client-json and --token-file")
+        if bool(args.client_json) != bool(args.token_file):
+            parser.error("For desktop smoke provide BOTH --client-json and --token-file")
         source_folder = os.environ.get("CHAPTERA_DRIVE_SOURCE_FOLDER_ID", "").strip()
         translation_folder = os.environ.get("CHAPTERA_DRIVE_TRANSLATION_FOLDER_ID", "").strip()
         if not source_folder or not translation_folder:
             parser.error("Both preexisting Google Drive folder IDs are required")
         try:
-            client_id, client_secret = load_desktop_oauth_client(Path(args.client_json))
-            refresh_token = read_private_refresh_token(Path(args.token_file))
+            if args.client_json:
+                # Trusted owner's local computer: never echo imported secrets.
+                client_id, client_secret = load_desktop_oauth_client(Path(args.client_json))
+                refresh_token = read_private_refresh_token(Path(args.token_file))
+            else:
+                # VPS/systemd: reuse the SAME credentials as export-drive.
+                # No need to place the owner JSON/token in CLI arguments.
+                client_id = _read_systemd_credential(
+                    "google_drive_client_id","CHAPTERA_DRIVE_CLIENT_ID","",
+                ).strip()
+                client_secret = _read_systemd_credential(
+                    "google_drive_client_secret","CHAPTERA_DRIVE_CLIENT_SECRET","",
+                ).strip()
+                refresh_token = _read_systemd_credential(
+                    "google_drive_refresh_token","CHAPTERA_DRIVE_REFRESH_TOKEN","",
+                ).strip()
+                if not all((client_id, client_secret, refresh_token)):
+                    raise DriveAuthorizationError(
+                        "Owner OAuth credentials are missing from protected server settings"
+                    )
             with httpx.Client(
                 timeout=30.0,trust_env=False,follow_redirects=False,
             ) as http:
