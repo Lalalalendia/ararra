@@ -11,7 +11,7 @@ from fastapi.routing import APIRoute
 from chaptera_server.api import create_app
 from chaptera_server.config import Settings
 from chaptera_server.http.dependencies import require_member
-from chaptera_server.http.routers import books, health, identity, imports, jobs, editorial, quota, session, source_books, source_jobs, gemini_keys
+from chaptera_server.http.routers import books, batches, health, identity, imports, jobs, editorial, quota, session, source_books, source_jobs, gemini_keys
 from chaptera_server.storage import QueueStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -62,6 +62,10 @@ ROUTE_CONTRACT = {
     ('POST', '/v1/books/{book_id}/chapters/{chapter_id}/restore-accepted'),
     ('GET', '/v1/books/{book_id}/chapters/{chapter_id}/context'),
     ('POST', '/v1/books/{book_id}/chapters/{chapter_id}/translate'),
+    ('POST', '/v1/books/{book_id}/translation-batches/preview'),
+    ('POST', '/v1/books/{book_id}/translation-batches'),
+    ('GET', '/v1/books/{book_id}/translation-batches'),
+    ('GET', '/v1/books/{book_id}/translation-batches/{batch_id}'),
     ('POST', '/v1/imports/preview'),
     ('POST', '/v1/imports/stages'),
     ('GET', '/v1/imports/stages/{stage_id}'),
@@ -137,7 +141,7 @@ def test_http_paths_and_methods_are_unique_and_stable(tmp_path):
     # the canonical APIRouters instead of version-dependent app internals.
     http_routes = [
         route
-        for owner in (books, health, identity, imports, jobs, editorial, quota, session, source_books, source_jobs, gemini_keys)
+        for owner in (books, batches, health, identity, imports, jobs, editorial, quota, session, source_books, source_jobs, gemini_keys)
         for route in owner.router.routes
         if isinstance(route, APIRoute)
     ]
