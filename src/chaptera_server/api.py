@@ -15,6 +15,7 @@ from .source_site_http import PublicHtmlFetcher
 from .editorial import EditorialStore
 from .chapter_qa import ChapterQaStore
 from .team_credentials import TeamCredentials
+from .team_passwords import TeamPasswords
 from .team_sessions import TeamSessions
 from .team_login_throttle import BrowserLoginThrottle
 from .personal_gemini_keys import PersonalGeminiKeys
@@ -51,6 +52,9 @@ def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
     app.state.chapter_qa = ChapterQaStore(repo)
     app.state.team_credentials = TeamCredentials(repo)
     app.state.team_sessions = TeamSessions(repo)
+    # Retain historical password tables for safe backup/restore and rollback.
+    # No HTTP routes issue or verify passwords in the key-only release.
+    app.state.team_passwords = TeamPasswords(repo)
     app.state.personal_gemini_keys = PersonalGeminiKeys(repo, settings.gemini_vault_key)
     app.state.team_login_throttle = BrowserLoginThrottle(repo)
 
