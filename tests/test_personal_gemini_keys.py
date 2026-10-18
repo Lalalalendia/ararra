@@ -202,6 +202,12 @@ def test_per_member_provider_isolation_rotation_and_no_paid_keyless_job(tmp_path
     keys.put("alice", "alice-project-001", KEY_ALICE)
     keys.put("bob", "bob-project-002", KEY_BOB)
     keys.put("alice", "alice-project-003", KEY_ALICE2)
+    for member, project in (
+        ("alice", "alice-project-001"),
+        ("bob", "bob-project-002"),
+        ("alice", "alice-project-003"),
+    ):
+        keys.set_daily_cap(member, project, 21)
     used = []
 
     class FakeGemini:
