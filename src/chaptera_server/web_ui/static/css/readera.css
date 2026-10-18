@@ -266,3 +266,46 @@ textarea.ui-input {resize:vertical;}
   .batch-selector-actions .ui-button {flex:1 1 140px;white-space:normal;}
   .batch-chapter-table,.batch-progress-table-scroll .ui-table {font-size:12px;}
 }
+
+
+/* RE-03: fail-closed pre-auth view. By default the public screen contains
+ * just the login field and button. Never flash the team shell while an
+ * existing HttpOnly cookie is being checked or JavaScript is loading.
+ * Actual access to team data remains enforced by authenticated /v1 APIs.
+ */
+body:not([data-authenticated="true"]) .shell {
+  grid-template-columns:minmax(0,1fr);
+}
+body:not([data-authenticated="true"]) .sidebar,
+body:not([data-authenticated="true"]) .topbar,
+body:not([data-authenticated="true"]) #authenticated {
+  display:none !important;
+}
+body:not([data-authenticated="true"]) .workspace {
+  min-height:100vh;
+  min-height:100dvh;
+  display:grid;
+  place-items:center;
+}
+body:not([data-authenticated="true"]) .content {
+  width:min(100%,450px);
+  max-width:450px;
+  padding:16px;
+}
+body:not([data-authenticated="true"]) #login-form {
+  width:100%;
+  max-width:none;
+  margin:0;
+  padding:26px;
+}
+body:not([data-authenticated="true"]) #login-form .ui-field {
+  margin:0 0 16px;
+}
+body:not([data-auth-ready="1"]) #login-form {
+  visibility:hidden;
+}
+@media (max-width:540px) {
+  body:not([data-authenticated="true"]) #login-form {
+    padding:20px;
+  }
+}
