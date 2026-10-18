@@ -31,6 +31,14 @@ def test_jinja_pages_render_without_credentials_but_never_expose_team_state(tmp_
                 assert "script-src 'self'" in response.headers["content-security-policy"]
                 assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
                 assert 'data-initial-page="' in response.text
+                assert 'data-authenticated="false"' in response.text
+                login_markup = response.text.split('id="login-form"', 1)[1].split('</form>', 1)[0]
+                assert 'aria-label="Вход по ключу"' in login_markup
+                assert '<h1>' not in login_markup
+                assert 'РидЭра' not in login_markup
+                assert 'Ключ</span>' in login_markup
+                assert 'name="api_key"' in login_markup
+                assert 'type="submit">Войти</button>' in login_markup
                 assert 'src="/app-static/js/readera.mjs"' in response.text
                 assert "secret-admin-key" not in response.text
                 assert "secret-mod-key" not in response.text
@@ -40,6 +48,15 @@ def test_jinja_pages_render_without_credentials_but_never_expose_team_state(tmp_
             assert (await client.get("/v1/admin/members")).status_code == 401
             assert (await client.get("/v1/books", headers={"X-API-Key": "secret-mod-key"})).status_code == 200
 
+            login_css = await client.get("/app-static/css/readera.css")
+            assert login_css.status_code == 200
+            assert 'body:not([data-authenticated="true"]) .sidebar' in login_css.text
+            assert 'body:not([data-authenticated="true"]) .topbar' in login_css.text
+            assert 'body:not([data-authenticated="true"]) #authenticated' in login_css.text
+            assert 'body:not([data-auth-ready="1"]) #login-form' in login_css.text
+            login_js = await client.get("/app-static/js/login-view.mjs")
+            assert 'document.body.dataset.authenticated=\'true\'' in login_js.text
+            assert 'document.body.dataset.authenticated=\'false\'' in login_js.text
             css = await client.get("/app-static/css/books-platform-chapter-import.css")
             assert css.status_code == 200
             assert "chapter-import-upload" in css.text
