@@ -59,8 +59,9 @@ try{
   const page=await context.newPage();spy(page,'desktop');
   const response=await page.goto(origin+'/app/overview');
   assert.equal(response.status(),200);
-  assert.match(await page.title(),/РидЭра/);
+  assert.equal(await page.title(),'Вход','anonymous HTML must never reveal brand in the tab');
   await page.waitForFunction(()=>document.body?.dataset.authReady==='1');
+  assert.equal(await page.title(),'Вход','anonymous restore must not brand the tab');
   // An anonymous visitor sees only the key field and submit button:
   // no branded title, sidebar, navigation, topbar or team content.
   assert.equal(await page.locator('#login-form').isVisible(),true);
@@ -78,6 +79,7 @@ try{
   assert.equal(await page.locator('.topbar').isVisible(),true);
   assert.equal(await page.locator('body').getAttribute('data-authenticated'),'true');
   assert.match(await page.locator('#identity-label').innerText(),/Администратор/);
+  assert.match(await page.title(),/РидЭра/,'verified admin can see branded tab');
   // RE-04: logout belongs to the account row, not a detached content row.
   assert.equal(await page.locator('.workspace-actions').count(),0);
   assert.equal(await page.locator('.topbar-account #logout').count(),1);
@@ -108,6 +110,7 @@ try{
   assert.equal((await page.locator('#gemini-keys-list').innerText()).includes(cabinetSecret),false);
   await page.reload();
   await page.locator('#authenticated').waitFor({state:'visible'});
+  assert.match(await page.title(),/РидЭра/,'restored secure session regains branded tab');
   await page.locator('[data-page="cabinet"]').waitFor({state:'visible'});
   await page.getByText('readera-browser-project · ключ сохранён').waitFor();
   await page.locator('#gemini-keys-list button[aria-label="Удалить Gemini-ключ проекта readera-browser-project"]').click();
@@ -128,11 +131,16 @@ try{
   await screenshot(page,'02-team-desktop.png');
   await page.locator('#logout').click();
   await page.locator('#authenticated').waitFor({state:'hidden'});
+  assert.equal(await page.title(),'Вход','logout must remove branding from tab');
   assert.equal(await page.locator('body').getAttribute('data-authenticated'),'false');
   assert.equal(await page.locator('.sidebar').isVisible(),false);
   assert.equal(await page.locator('.topbar').isVisible(),false);
   assert.equal(await page.locator('#login-form').isVisible(),true);
+  await page.reload();
+  await page.waitForFunction(()=>document.body?.dataset.authReady==='1');
+  assert.equal(await page.title(),'Вход','revoked session stays anonymous on reload');
   await login(page,issued);
+  assert.match(await page.title(),/РидЭра/,'valid moderator key should reveal title');
   assert.match(await page.locator('#identity-label').innerText(),/writer/);
   await choose(page,'team');
   assert.equal(await page.locator('#team-no-admin').isVisible(),true);
@@ -578,6 +586,7 @@ try{
   const mobile=await browser.newContext({viewport:{width:390,height:844},locale:'ru-RU'});
   const mpage=await mobile.newPage();spy(mpage,'mobile');
   await mpage.goto(origin+'/app/books');
+  assert.equal(await mpage.title(),'Вход','mobile anonymous title is generic');
   await mpage.waitForFunction(()=>document.body?.dataset.authReady==='1');
   assert.equal(await mpage.locator('.sidebar').isVisible(),false);
   assert.equal(await mpage.locator('.topbar').isVisible(),false);
