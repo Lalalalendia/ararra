@@ -260,6 +260,7 @@ def test_deleted_key_during_claim_preserves_queue_retry_budget(tmp_path, monkeyp
     store = QueueStore(conf.db_path)
     keys = PersonalGeminiKeys(store, MASTER)
     keys.put("alice", "alice-project-001", KEY_ALICE)
+    keys.set_daily_cap("alice", "alice-project-001", 21)
     router = MemberGeminiProviders(store, conf, keys)
     job = store.create_job("alice", JobSpec("one", "<p>x</p>"))
     def lose_key(_job):
