@@ -68,7 +68,7 @@ export function createSharedSourceView({request,flash}) {
             .replace(/[-_]+/g,' ').slice(0,55);
         }catch{/* Only server-validated source URLs should arrive. */}
         picker.append(option(item.job_id,
-          item.source+' · '+book+' · '+item.owner_member_id+
+          item.source+' · '+book+' · '+item.collector_member_id+
           ' · '+item.verified_count+'/'+item.selected_count));
       }
       picker.value=sources.has(before)?before:'';
@@ -100,7 +100,7 @@ export function createSharedSourceView({request,flash}) {
     loaded=offset+data.chapters.length;
     nextButton.hidden=!data.has_more;
     status.textContent='Доступно проверенных глав: '+data.verified_count+
-      '. Показано '+loaded+'. Владелец сборки: '+data.owner_member_id+'.';
+      '. Показано '+loaded+'. Сборку создал: '+data.collector_member_id+'.';
   }
   refreshButton.addEventListener('click',()=>void refresh());
   picker.addEventListener('change',()=>{
