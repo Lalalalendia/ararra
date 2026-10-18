@@ -397,3 +397,19 @@ body:not([data-auth-ready="1"]) #login-form {
   #source-book-form > .field-grid {grid-template-columns:minmax(0,1fr);}
   .chapter-import-create-page #import-upload {padding:12px;}
 }
+
+
+/* Read-only shared original viewer, collapsed and compact by default. */
+#source-shared {margin-top:12px;padding-top:9px;border-top:1px solid var(--border-color);}
+#source-shared > summary {cursor:pointer;font-weight:650;color:var(--text-main);}
+#source-shared > .muted {margin:7px 0;}
+.source-shared-controls {display:grid;grid-template-columns:minmax(170px,1fr) auto auto;gap:8px;align-items:end;}
+.source-shared-body {max-height:25rem;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;
+  background:var(--bg-secondary);border:1px solid var(--border-color);
+  border-radius:var(--radius-md);padding:12px;font:inherit;line-height:1.6;}
+#source-shared-reader > .ui-field {display:block;max-width:620px;margin:8px 0;}
+#source-shared-reader .ui-button {margin:4px 8px 4px 0;}
+@media (max-width:760px) {
+  .source-shared-controls {grid-template-columns:minmax(0,1fr) minmax(0,1fr);}
+  .source-shared-controls > .ui-field {grid-column:1/-1;}
+}
