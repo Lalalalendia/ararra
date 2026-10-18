@@ -69,7 +69,9 @@ def purge_archived_revision(
     """
     _private(response)
     try:
-        return request.app.state.source_job_store.archive.purge_revision(revision_id)
+        return request.app.state.source_job_store.archive.purge_revision(
+            revision_id,admin_member_id=admin_actor,
+        )
     except (SourceArchiveMissing,SourceArchiveConflict,ValueError) as exc:
         raise _error(exc) from exc
 
