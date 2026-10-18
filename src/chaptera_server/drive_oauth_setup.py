@@ -191,6 +191,25 @@ def _restrict_windows_owner_acl(path: Path) -> None:
         ) from exc
 
 
+def read_private_refresh_token(path: Path) -> str:
+    """Load an already owner-authorized token without echoing it to CLI logs."""
+    if not path.is_absolute() or path.is_symlink() or not path.is_file():
+        raise DriveAuthorizationError("Private Google Drive token file not found")
+    info = path.stat()
+    if not 10 <= info.st_size <= 8192:
+        raise DriveAuthorizationError("Private Google Drive token size is invalid")
+    if os.name != "nt":
+        if (info.st_mode & 0o077) or info.st_uid != os.geteuid():
+            raise DriveAuthorizationError("Google Drive token must be owner-only (0600)")
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError) as exc:
+        raise DriveAuthorizationError("Cannot read private Google Drive credential") from exc
+    if (not 10 <= len(value) <= 8192 or any(ch.isspace() for ch in value)):
+        raise DriveAuthorizationError("Private Google Drive token content is invalid")
+    return value
+
+
 def _on_windows() -> bool:
     return os.name == "nt"
 
