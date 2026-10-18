@@ -113,29 +113,6 @@ def _read_verified_text(
         raise DriveExportError("Synthetic Drive TXT readback differs from expected bytes")
 
 
-def _book_folder(
-    drive: GoogleDriveClient, root: str, *, moderator_key: str,
-    moderator_name: str, book_key: str, title: str,
-) -> str:
-    moderators = [
-        item for item in drive.children(root)
-        if (item.get("appProperties") or {}).get("readeraModeratorKey") == moderator_key
-    ]
-    if (len(moderators) != 1 or moderators[0].get("mimeType") != FOLDER_MIME
-        or moderators[0].get("name") != moderator_name):
-        raise DriveExportError("Synthetic moderator folder is absent or ambiguous")
-    moderator_folder = drive._check_id(moderators[0]["id"])
-    matches = [
-        item for item in drive.children(moderator_folder)
-        if (item.get("appProperties") or {}).get("readeraBookKey") == book_key
-    ]
-    if (len(matches) != 1 or matches[0].get("mimeType") != FOLDER_MIME
-        or matches[0].get("name") != title
-        or (matches[0].get("appProperties") or {}).get("readeraModeratorKey") != moderator_key):
-        raise DriveExportError("Synthetic book folder is absent or ambiguous")
-    return drive._check_id(matches[0]["id"])
-
-
 def _edit_synthetic_file(
     drive: GoogleDriveClient, file_id: str, text: bytes,
 ) -> None:
@@ -158,14 +135,13 @@ def _edit_synthetic_file(
 def run_drive_acceptance(
     drive: GoogleDriveClient,
     *, source_folder_id: str, translation_folder_id: str,
-    live: bool = False,
+    root_folder_id: str = "", live: bool = False,
 ) -> dict:
-    """Preflight both existing folders; optionally perform a real safe smoke.
+    """Read-only old-root preflight or explicit new shared-library smoke.
 
-    LIVE creates one synthetic job in an isolated, temporary SQLite DB.
-    It writes two TXT files in moderator/book subfolders under each root,
-    edits only those two newly created files, and proves a second export
-    returns the same file IDs without undoing either edit.
+    A live run exercises root / moderator / book / source+translation folders.
+    All data is synthetic, generated in an isolated SQLite database, and
+    existing Google Drive user-edited files are never rewritten.
     """
     source = drive._check_id(source_folder_id)
     translation = drive._check_id(translation_folder_id)
@@ -173,76 +149,69 @@ def run_drive_acceptance(
         raise DriveExportError("Two distinct existing Drive folders are required")
     drive.check_destination(source)
     drive.check_destination(translation)
-    # Must be able to inspect children for idempotent retry. 403/incomplete
-    # listings stop before any synthetic writes.
     drive.children(source)
     drive.children(translation)
+    root = ""
+    if root_folder_id:
+        root = drive._check_id(root_folder_id)
+        drive.check_destination(root)
+        drive.children(root)
     if not live:
         return {
             "stage": "read_only_preflight",
             "both_folders_writable": True,
             "listing_access_verified": True,
+            "shared_root_verified": bool(root),
             "drive_mutations": 0,
         }
+    if not root:
+        raise DriveExportError(
+            "CHAPTERA_DRIVE_ROOT_FOLDER_ID is required for the new live smoke"
+        )
 
     with tempfile.TemporaryDirectory(prefix="readera-drive-acceptance-") as temp:
         store, job_id = _create_synthetic_completed_job(Path(temp))
         snapshot = read_completed_job(store, job_id)
-        book_key = hashlib.sha256(snapshot.book_id.encode("utf-8")).hexdigest()[:20]
-        moderator_key = hashlib.sha256(
-            snapshot.owner_member_id.encode("utf-8")
-        ).hexdigest()[:20]
-        moderator_name = _clean_name(snapshot.owner_member_id)
-        folder_name = f"{_clean_name(snapshot.book_title)} [{book_key[:10]}]"
-        # Check BOTH roots before mutating. A previous synthetic moderator
-        # folder is expected after earlier smokes and may be reused.
-        for root in (source, translation):
-            existing = drive.children(root)
-            if any(
-                item.get("name") == folder_name or
-                (item.get("appProperties") or {}).get("readeraBookKey") == book_key
-                for item in existing
-            ):
-                raise DriveExportError("Synthetic legacy book identity collision")
-            moderators = [
-                item for item in existing
-                if (item.get("appProperties") or {}).get("readeraModeratorKey")
-                == moderator_key
-            ]
-            named = [item for item in existing if item.get("name") == moderator_name]
-            if len(moderators) > 1 or len(named) > 1 or (
-                named and (not moderators or named[0]["id"] != moderators[0]["id"])
-            ):
-                raise DriveExportError("Synthetic moderator folder collision")
-            if moderators:
-                if moderators[0].get("mimeType") != FOLDER_MIME:
-                    raise DriveExportError("Synthetic moderator folder is not a folder")
-                if any(
-                    item.get("name") == folder_name or
-                    (item.get("appProperties") or {}).get("readeraBookKey") == book_key
-                    for item in drive.children(drive._check_id(moderators[0]["id"]))
-                ):
-                    raise DriveExportError("Synthetic book identity collision")
-
         first = export_completed_job(
-            store, drive, job_id,
-            source_folder_id=source, translation_folder_id=translation,
+            store, drive, job_id, root_folder_id=root,
+            legacy_source_folder_id=source,
+            legacy_translation_folder_id=translation,
         )
-        folders = {
-            "source": _book_folder(drive, source, moderator_key=moderator_key,
-                                   moderator_name=moderator_name,
-                                   book_key=book_key, title=folder_name),
-            "translation": _book_folder(drive, translation, moderator_key=moderator_key,
-                                        moderator_name=moderator_name,
-                                        book_key=book_key, title=folder_name),
-        }
+        owner_id = first["moderator_folder_id"]
+        book_id = first["book_folder_id"]
+        book_key = hashlib.sha256(snapshot.book_id.encode("utf-8")).hexdigest()[:20]
+        moderator_key = hashlib.sha256(snapshot.owner_member_id.encode("utf-8")).hexdigest()[:20]
+        moderator_name = _clean_name(snapshot.owner_member_id)
+        expected_book_name = f"{_clean_name(snapshot.book_title)} [{book_key[:10]}]"
+        moderator = [
+            x for x in drive.children(root) if x.get("id") == owner_id
+        ]
+        if (len(moderator) != 1 or moderator[0].get("name") != moderator_name
+            or moderator[0].get("mimeType") != FOLDER_MIME
+            or (moderator[0].get("appProperties") or {}).get("readeraModeratorKey")
+            != moderator_key):
+            raise DriveExportError("Synthetic moderator parent identity changed")
+        book = [x for x in drive.children(owner_id) if x.get("id") == book_id]
+        if (len(book) != 1 or book[0].get("name") != expected_book_name
+            or book[0].get("mimeType") != FOLDER_MIME
+            or (book[0].get("appProperties") or {}).get("readeraBookKey") != book_key):
+            raise DriveExportError("Synthetic book parent identity changed")
+        folders = {}
+        for part, folder_name in (("source", "Источники"), ("translation", "Переводы")):
+            folder_id = first[f"{part}_folder_id"]
+            folder = [x for x in drive.children(book_id) if x.get("id") == folder_id]
+            if (len(folder) != 1 or folder[0].get("name") != folder_name
+                or folder[0].get("mimeType") != FOLDER_MIME
+                or (folder[0].get("appProperties") or {}).get("readeraPartFolder") != part
+                or (folder[0].get("appProperties") or {}).get("readeraBookKey") != book_key):
+                raise DriveExportError("Synthetic source/translation parent identity changed")
+            folders[part] = folder_id
+
         for part, body in (("source", snapshot.source), ("translation", snapshot.translation)):
             _read_verified_text(
                 drive, first[f"{part}_file_id"], expected_parent=folders[part],
                 job_id=job_id, part=part, expected=body,
             )
-        # The probe modifies ONLY the two files created and verified above;
-        # the next real exporter call must not replace human-edited bytes.
         marker = _EDIT_MARKER.encode("utf-8")
         edited = {
             "source": snapshot.source + marker,
@@ -255,26 +224,30 @@ def run_drive_acceptance(
                 job_id=job_id, part=part, expected=edited[part],
             )
         second = export_completed_job(
-            store, drive, job_id,
-            source_folder_id=source, translation_folder_id=translation,
+            store, drive, job_id, root_folder_id=root,
+            legacy_source_folder_id=source,
+            legacy_translation_folder_id=translation,
         )
         if first != second:
-            raise DriveExportError("Repeated exporter call changed a synthetic file ID")
+            raise DriveExportError("Repeated exporter changed a synthetic file or folder ID")
         for part in ("source", "translation"):
             _read_verified_text(
                 drive, first[f"{part}_file_id"], expected_parent=folders[part],
                 job_id=job_id, part=part, expected=edited[part],
             )
-            # No extra files in the newly generated synthetic book subfolder.
             matching = [
-                obj for obj in drive.children(folders[part])
-                if (obj.get("appProperties") or {}).get("readeraJobId") == job_id
+                item for item in drive.children(folders[part])
+                if (item.get("appProperties") or {}).get("readeraJobId") == job_id
             ]
             if len(matching) != 1 or matching[0].get("id") != first[f"{part}_file_id"]:
                 raise DriveExportError("Repeated export created duplicate synthetic chapters")
+
         return {
             "stage": "live_two_folder_export_verified",
+            "layout": "moderator/book/source_translation",
             "job_id": job_id,
+            "moderator_folder_id": owner_id,
+            "book_folder_id": book_id,
             "source_folder_id": folders["source"],
             "translation_folder_id": folders["translation"],
             "source_file_id": first["source_file_id"],
