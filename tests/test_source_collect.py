@@ -31,10 +31,21 @@ def test_med_rejects_untrusted_urls():
             validate_url(url, "royalroad")
 
 
-def test_conflicting_chapter_numbers_never_silently_deduplicated():
+def test_royalroad_author_repeated_numbers_do_not_drop_real_chapters():
+    # Source chapter IDs and observed ordering, not user-entered labels,
+    # establish the actual published Royal Road chapter sequence.
     bad = CATALOG.replace("2 - Second", "1 - Second").replace("/2-second", "/1-second")
-    with pytest.raises(IngestError):
-        catalog_from_html("royalroad", URL, bad)
+    result = catalog_from_html("royalroad", URL, bad)
+    assert [(c.ordinal,c.source_id) for c in result.chapters] == [(1,"60001"),(2,"60002")]
+
+
+def test_royalroad_conflicting_url_for_same_source_id_is_rejected():
+    duplicate = CATALOG.replace(
+        "</div>",
+        '<a href="/fiction/142007/aura/chapter/60001/changed-slug">Another link</a></div>',
+    )
+    with pytest.raises(IngestError,match="Same chapter ID"):
+        catalog_from_html("royalroad", URL, duplicate)
 
 
 def test_exact_selection_and_successful_ordered_export():

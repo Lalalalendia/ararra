@@ -48,8 +48,15 @@ export function createSourceBookImportView({request,flash,onStage}) {
     end.max=String(data.last_ordinal);
     catalogSection.hidden=false;
     const gaps=data.catalog_gaps||[];
-    summary.textContent='Найдено '+data.chapter_count+' глав в текущем оглавлении. '+
-      'Диапазон: '+data.first_ordinal+'–'+data.last_ordinal+'.'+
+    const coverage=data.coverage_state==='declared_count_matched'
+      ?'Счётчик сайта: '+data.declared_chapter_count+
+        ', все заявленные главы обнаружены в публичном HTML.'
+      :'Сайт не подтвердил общее число глав: полнота книги не установлена.';
+    summary.textContent='Найдено '+data.chapter_count+' глав. '+
+      'Просмотрено страниц оглавления: '+(data.toc_page_count||1)+'. '+
+      'Диапазон: '+data.first_ordinal+'–'+data.last_ordinal+'. '+
+      coverage+' '+
+      'Номера для Royal Road соответствуют позиции в оглавлении, а не заголовку автора.'+
       (gaps.length?' Недостающие номера: '+gaps.slice(0,15).join(', '):'');
   }
   form.addEventListener('submit',event=>{

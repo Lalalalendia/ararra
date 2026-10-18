@@ -30,6 +30,45 @@ Reference implementation principles: uploaded `book_crawler.zip` modules `chapte
 - `POST /v1/source-books/jobs/{id}/cancel`: revoke pending/current work.
 - `POST /v1/source-books/jobs/{id}/stage`: verified contiguous 1..20 chapter range to existing import stage; deterministic idempotency key and provenance receipts.
 
+## Source TOC coverage and bounded pagination (RE-02-WEB-SOURCE-05)
+
+A successful source export has always proved integrity only for the chosen
+manifest. That is **not** enough to prove that all chapters published on a
+source site were discovered.
+
+- **Royal Road:** the public table may include prologues, interludes, Roman
+  chapter numbers and manually reordered chapters. Parser identity now
+  follows the observed official TOC order and stable same-book source IDs;
+  displayed ordinal means *position in the observed TOC*, not the chapter
+  number typed into a title by its author.
+- **Bounded explicit pagination:** collector follows up to 12 linked public
+  HTML TOC pages whose URL is the *exact same source host + book path* and
+  contains only a single positive numeric `page=N` query. Unsupported,
+  cross-book, unsafe, sparse or dynamic load-more pagination is rejected
+  rather than silently creating a truncated catalog. No guessed AJAX calls,
+  cookies, paywall/CAPTCHA bypass or site-specific private API requests.
+- **Advertised chapter count:** when Royal Road exposes an explicit
+  `N Chapters` marker, the collected public links must match it exactly.
+  Inconsistency blocks the catalog; a missing marker is reported as
+  `observed_html_only`. A matched marker is reported as
+  `declared_count_matched`, **not** a guarantee that off-site, deleted,
+  private, locked or unpublished content is accessible.
+- **Provenance:** actor-scoped SQLite catalogs save page URLs, number of pages,
+  the advertised count where available, and coverage state. Additive schema
+  migration does not destroy already stored source chapters or jobs.
+  Browser preview shows the scope and warns when a site did not publish a
+  comparable count. The unchanged SHA-256 selection digest still covers
+  exact chapter ordinal, source ID and URL.
+
+The resulting job's `complete` flag still means every **chosen observed**
+chapter has been verified and checkpointed, and the original TXT export still
+requires an exact manifest and content receipt. A book marked stubbed or
+partly hosted elsewhere must not be described as the complete novel.
+
+Follow-up: inspect permitted real site markup and `robots.txt` and add
+separately verified coverage adapters for SPA/AJAX TOCs. The current
+implementation only covers explicitly linked HTML pagination.
+
 ## Full original TXT assembly (RE-02-WEB-SOURCE-03)
 
 `GET /v1/source-books/jobs/{job_id}/assembly` is an actor-authenticated

@@ -11,6 +11,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from .source_catalog_med import IngestError, make_adapter, validate_url, source_book_id
+from .source_toc_discovery import merge_observed_pages, discover_pages
 
 MAX_CHAPTERS = 100
 MAX_HTML_CHARS = 2_000_000
@@ -33,6 +34,9 @@ class SourceCatalog:
     book_url: str
     chapters: tuple[SourceChapter, ...]
     catalog_sha256: str
+    page_urls: tuple[str, ...] = ()
+    declared_chapter_count: int | None = None
+    coverage_state: str = "observed_html_only"
 
 
 @dataclass(frozen=True)
@@ -85,30 +89,36 @@ class CollectedBook:
         return ("\n\n".join(blocks) + "\n").encode("utf-8")
 
 
+def _build_catalog(source, book_url, discovery) -> SourceCatalog:
+    entries, pages, declared, coverage = discovery
+    chapters = tuple(
+        SourceChapter(ch.ordinal, ch.title, ch.source_id, ch.url)
+        for ch in entries
+    )
+    canonical = "\n".join(
+        f"{ch.ordinal}\t{ch.source_id}\t{ch.url}" for ch in chapters
+    )
+    return SourceCatalog(
+        source, book_url, chapters,
+        hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        pages, declared, coverage,
+    )
+
+
 def catalog_from_html(source: str, book_url: str, page_html: str) -> SourceCatalog:
-    """Build immutable TOC preview from an already fetched public book page."""
     validate_url(book_url, source)
-    if not 0 < len(page_html) <= MAX_HTML_CHARS:
-        raise ValueError("Source catalog HTML outside safety limits")
-    adapter = make_adapter(source, book_url)
-    parsed = adapter.parse_catalog(page_html)
-    if not parsed:
-        raise IngestError("catalog_missing", "No source-owned numbered chapters")
-    if len(parsed) > 50_000:
-        raise ValueError("Source catalog too large")
-    chapters = tuple(SourceChapter(ch.ordinal, ch.title, ch.source_id, ch.url) for ch in parsed)
-    if len({c.ordinal for c in chapters}) != len(chapters):
-        raise ValueError("Duplicate chapter ordinals")
-    if len({c.source_id for c in chapters}) != len(chapters):
-        raise ValueError("Duplicate source chapter IDs")
-    fingerprint = "\n".join(f"{c.ordinal}\t{c.source_id}\t{c.url}" for c in chapters)
-    return SourceCatalog(source, book_url, chapters, hashlib.sha256(fingerprint.encode()).hexdigest())
+    return _build_catalog(
+        source, book_url,
+        merge_observed_pages(source, book_url, [(1,book_url,page_html)]),
+    )
 
 
 async def fetch_catalog(source: str, book_url: str, fetch_html: FetchHtml) -> SourceCatalog:
     validate_url(book_url, source)
-    return catalog_from_html(source, book_url, await fetch_html(book_url))
-
+    return _build_catalog(
+        source, book_url,
+        await discover_pages(source, book_url, fetch_html),
+    )
 
 async def collect_selected(
     catalog: SourceCatalog,
