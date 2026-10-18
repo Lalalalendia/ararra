@@ -80,6 +80,12 @@ class MemberGeminiProviders:
                 self.settings.gemini_requests_per_day,
             )
             provider = QuotaControlledProvider(provider, ledger)
+        # Check revocation again AFTER the desktop scheduler has admitted
+        # the call, immediately before spending RPD / sending Gemini HTTP.
+        provider = _BoundMemberProvider(
+            provider, self.keys, self.credentials, self.settings,
+            member, project, fingerprint,
+        )
         result = ScheduledGeminiProvider(
             provider, rpm_limit=self.settings.gemini_rpm,
             tpm_limit=self.settings.gemini_tpm,
