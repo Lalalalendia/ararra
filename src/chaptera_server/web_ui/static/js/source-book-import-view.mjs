@@ -3,6 +3,7 @@
  */
 import {createSourceJobView} from './source-book-job-view.mjs';
 import {createSharedSourceView} from './source-shared-view.mjs';
+import {createSourceArchiveView} from './source-archive-view.mjs';
 
 export function createSourceBookImportView({request,flash,onStage}) {
   const $=id=>document.getElementById(id);
@@ -20,6 +21,7 @@ export function createSourceBookImportView({request,flash,onStage}) {
   let busy=false;
   const jobs=createSourceJobView({request,flash,onStage,getCatalog:()=>catalog});
   const shared=createSharedSourceView({request,flash});
+  const archive=createSourceArchiveView({request,flash});
   const setBusy=value=>{
     busy=value;
     discover.disabled=value;
@@ -122,6 +124,6 @@ export function createSourceBookImportView({request,flash,onStage}) {
   });
   return {
     hide(){root.hidden=true;},
-    reset(){root.hidden=false;form.reset();clearCatalog();jobs.reset();shared.reset();},
+    reset(){root.hidden=false;form.reset();clearCatalog();jobs.reset();shared.reset();archive.reset();},
   };
 }

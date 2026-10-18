@@ -315,3 +315,66 @@ redistribute copyrighted material.
 No additional source-worker is enabled on VPS and no real site is contacted
 during this implementation. The live-site permissions/robots/TLS and VPS
 physical RAM/disk/backup gates in issues #65 and #83 still apply.
+
+## RE-02 immutable team archive on source job removal (2026-10-19)
+
+[Follow-up #88](https://github.com/Lalalalendia/ararra/issues/88)
+addresses the retention gap after team source reading [PR #87].
+This is an archive/dedup first slice, not automatic site crawling.
+
+### Verified text lifecycle
+
+The existing source_collect_items records remain readable by the whole team
+as long as a collection job exists. When its collector explicitly deletes a
+complete/partial/cancelled job, SourceJobStore.delete_finished() checks each
+successful chapter's manifest index, ordinal, source chapter ID, exact
+allowlisted HTTPS URL, UTF-8 bytes and SHA-256. Under the SAME SQLite
+BEGIN IMMEDIATE transaction, it inserts the immutable content-addressed
+body and source revision in the team archive, then removes the personal job
+and checkpoints. If integrity or the archive budget fails, the deletion
+rolls back, preserving the originals and the job.
+
+- source_original_bodies is keyed by SHA-256. Identical original bytes are
+  stored once **inside the archive** and may be referenced by different
+  source chapter identities.
+- source_original_revisions stores exact reviewed site/book/chapter/URL/body
+  provenance, the first collecting member and capture time. Revised text
+  creates a new revision and never overwrites a prior one.
+- The initial archive quota is 256 MiB of unique UTF-8 body bytes. This
+  EXCLUDES SQLite indexes, free pages, WAL, other source jobs and offsite
+  backup copies. Physical disk availability + an actual backup/restore
+  remain release blockers on the memory-limited VPS.
+- Existing source jobs are not auto-copied on startup. Additive SQLite tables
+  preserve all old checkpoints. Archived text is created on explicit job
+  deletion, one verified chapter at a time; never from an external network GET.
+
+### Separate team archive API
+
+All GETs require valid team authentication and return no-store responses:
+
+- GET /v1/source-books/archive lists books with retained originals.
+- GET /v1/source-books/archive/{archive_book_id} lists bounded, distinct
+  source chapter revisions by content hash.
+- GET /v1/source-books/archive/revisions/{revision_id} returns exactly one
+  checksum-verified original. Browser rendering uses textContent, not HTML.
+- DELETE /v1/source-books/archive/revisions/{revision_id} is ADMIN-ONLY:
+  removes exactly this archive revision and the unique physical body only
+  if no other revision references it. Personal source checkpoints and the
+  accepted BookLibrary are NOT touched. A complete content takedown across
+  all these stores is an additional audited operator procedure.
+
+The Import page has two collapsed readers: live shared source jobs and the
+durable archive. A moderator cannot purge archived revisions or manage
+another moderator's collection job. The personal delete confirmation warns
+that verified originals remain in the team archive; a full archive returns
+409 instead of silently losing text.
+
+### Still outstanding
+
+Automatic reuse of an archived chapter to prevent repeated third-party
+HTTP requests is NOT enabled. Such a feature requires site-specific
+permission/robots/terms acceptance, freshness/version semantics and
+race-safe attribution and cancellation. Bulk source-worker remains disabled.
+Physical archive/WAL disk monitoring, backups/restore and permission
+revocation are production release gates. Do not declare issue #88 fully
+closed from this first archive slice.
