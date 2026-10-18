@@ -227,7 +227,7 @@ def test_desktop_client_json_and_windows_acl_fail_closed(tmp_path,monkeypatch):
 
 def test_failed_windows_acl_never_creates_secret(tmp_path,monkeypatch):
     # Simulate NT path handling on Linux while exercising actual token writer.
-    monkeypatch.setattr(oauth.os,"name","nt")
+    monkeypatch.setattr(oauth,"_on_windows",lambda:True)
     def blocked(argv, **kwargs):
         raise subprocess.CalledProcessError(5,argv)
     monkeypatch.setattr(oauth.subprocess,"run",blocked)
