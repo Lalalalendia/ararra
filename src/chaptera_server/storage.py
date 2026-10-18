@@ -235,7 +235,8 @@ class QueueStore:
                                (job_id, max(1, min(limit, 200)))).fetchall()
             return [dict(row) for row in reversed(rows)]
 
-    def claim_next(self, *, lease_seconds: float = 300.0) -> tuple[dict[str, Any], str] | None:
+    def claim_next(self, *, lease_seconds: float = 300.0,
+                   require_personal_key: bool = False) -> tuple[dict[str, Any], str] | None:
         now = time.time()
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
@@ -281,6 +282,16 @@ class QueueStore:
             # Depth is the COUNT of ready chapters, never HTML length or tokens.
             # Window aggregation is done in the existing atomic claim; no
             # scheduler tables, new worker, or schema migration required.
+            eligible_key = """
+                AND EXISTS (
+                    SELECT 1 FROM member_gemini_keys AS credentials
+                    WHERE credentials.member_id=jobs.actor_id
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM team_access_credentials AS disabled
+                    WHERE disabled.member_id=jobs.actor_id AND disabled.active=0
+                )
+            """ if require_personal_key else ""
             row = con.execute("""
                 SELECT * FROM (
                     SELECT jobs.*,
@@ -288,6 +299,7 @@ class QueueStore:
                     FROM jobs
                     WHERE status IN ('queued', 'retry_wait')
                       AND run_after <= ? AND cancel_requested = 0
+            """ + eligible_key + """
                 )
                 ORDER BY ready_chapters ASC, run_after ASC, created_at ASC, id ASC
                 LIMIT 1
@@ -304,6 +316,33 @@ class QueueStore:
             updated = con.execute("SELECT * FROM jobs WHERE id=?", (row["id"],)).fetchone()
             con.execute("COMMIT")
             return {**dict(updated), "input": json.loads(updated["input_json"])}, token
+
+    def defer_for_missing_gemini_key(self, job_id: str, lease_owner: str) -> bool:
+        """Requeue after key deletion/rotation race; no paid calls or retry loss."""
+        now = time.time()
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            row = con.execute(
+                "SELECT attempts,cancel_requested FROM jobs "
+                "WHERE id=? AND status='running' AND lease_owner=?",
+                (job_id, lease_owner),
+            ).fetchone()
+            if row is None:
+                con.execute("COMMIT")
+                return False
+            cancelled = bool(row["cancel_requested"])
+            status = "cancelled" if cancelled else "retry_wait"
+            con.execute("""
+                UPDATE jobs SET status=?, attempts=?, run_after=?, lease_owner=NULL,
+                    lease_until=NULL, updated_at=?, last_error=?
+                WHERE id=? AND lease_owner=?
+            """, (status, int(row["attempts"]) if cancelled else max(0, int(row["attempts"]) - 1),
+                  now if cancelled else now + 30, now,
+                  "" if cancelled else "Gemini key unavailable; waiting for moderator",
+                  job_id, lease_owner))
+            self._event(con, job_id, status, "Credential unavailable; no API call", now)
+            con.execute("COMMIT")
+        return True
 
     def heartbeat(self, job_id: str, lease_owner: str, *, lease_seconds: float = 300.0) -> bool:
         now = time.time()

@@ -20,6 +20,7 @@ from .quota import DailyQuotaExhausted, pacific_window
 from .atom_checkpoints import SQLiteAtomCheckpoint, AtomCheckpointConflict
 from chaptera_translation_core.prompt_policy import GlossaryVersionConflict
 from .storage import QueueStore
+from .personal_gemini_keys import GeminiKeyMissing, GeminiVaultUnavailable
 from .library import BookLibrary, LibraryNotFound, StaleBookJob
 from .context_prepass import ContextPrepassRejected, ContextPrepassUnserviceable, generate_chapter_context
 
@@ -36,10 +37,10 @@ class TranslationWorker:
         self.heartbeat_seconds = heartbeat_seconds
         self._fatal_provider_error: str | None = None
 
-    def _model_identity(self) -> str:
+    def _model_identity(self, current_provider=None) -> str:
         # Resolve only the non-secret model name through the RPD/scheduler
         # decorators; the Gemini credential is never a cache key.
-        provider = self.provider
+        provider = current_provider if current_provider is not None else self.provider
         for _ in range(4):
             model = getattr(provider, "model", "")
             if model:
@@ -51,14 +52,16 @@ class TranslationWorker:
 
     def _uncheckpointed_completed_work(self, calls_before: int,
                                       checkpoint: SQLiteAtomCheckpoint | None,
-                                      context_durable_calls: int) -> bool:
+                                      context_durable_calls: int, current_provider=None) -> bool:
         """Only undurable successful responses count as expensive replay risk.
 
         Every packet saved by the existing desktop CoverageMap gate and every
         *fully persisted* context preflight remains reusable next day.
         Unvalidated 200 replies and incomplete context windows remain at risk.
         """
-        completed = max(0, int(getattr(self.provider, "completed_calls", calls_before)) -
+        completed = max(0, int(getattr(
+                            current_provider if current_provider is not None else self.provider,
+                            "completed_calls", calls_before)) -
                         int(calls_before))
         durable_packets = checkpoint.saved_this_run if checkpoint is not None else 0
         return completed > durable_packets + context_durable_calls
@@ -76,23 +79,31 @@ class TranslationWorker:
         # or request configuration. One project/key: do not burn other queued jobs.
         if self._fatal_provider_error is not None:
             return False
-        claim = self.store.claim_next(lease_seconds=self.lease_seconds)
+        personal = hasattr(self.provider, "for_job")
+        claim = (self.store.claim_next(
+            lease_seconds=self.lease_seconds, require_personal_key=True,
+        ) if personal else self.store.claim_next(lease_seconds=self.lease_seconds))
         if claim is None:
             return False
         job, token = claim
         jid = job["id"]
+        try:
+            provider = self.provider.for_job(job) if personal else self.provider
+        except (GeminiKeyMissing, GeminiVaultUnavailable):
+            self.store.defer_for_missing_gemini_key(jid, token)
+            return True
         data = job["input"]
-        calls_before = getattr(self.provider, "completed_calls", 0)
+        calls_before = getattr(provider, "completed_calls", 0)
         context_durable_calls = 0
         stop = asyncio.Event()
         heartbeat_task = asyncio.create_task(self._heartbeat(jid, token, stop))
         # One already-proven, lease-fenced SQLite checkpoint adapter serves
         # BOTH context windows and desktop atom/repair packets for this job.
         checkpoint = SQLiteAtomCheckpoint(
-            self.store, jid, token, model_id=self._model_identity(),
+            self.store, jid, token, model_id=self._model_identity(provider),
         )
         core = TranslationCore(
-            self.provider,
+            provider,
             is_cancelled=lambda: self.store.cancellation_requested(jid, token),
             on_event=lambda event: self.store.record_event(jid, token, event.stage, event.detail),
             atom_checkpoint=checkpoint if data.get("transport") == "atoms_v1" else None,
@@ -107,9 +118,9 @@ class TranslationWorker:
                 predecessor = managed.predecessor
                 if snapshot is None:
                     self.store.record_event(jid, token, 'context_preparing', 'server-owned windowed preflight')
-                    context_calls_before = getattr(self.provider, "completed_calls", 0)
+                    context_calls_before = getattr(provider, "completed_calls", 0)
                     snapshot = await generate_chapter_context(
-                        self.provider, managed,
+                        provider, managed,
                         on_event=lambda stage, detail: self.store.record_event(jid, token, stage, detail),
                         is_cancelled=lambda: self.store.cancellation_requested(jid, token),
                         checkpoint=checkpoint,
@@ -122,7 +133,7 @@ class TranslationWorker:
                     # as durable, avoiding double subtraction from the actual
                     # sent-to-Gemini count when translation later partially fails.
                     context_completed = max(
-                        0, getattr(self.provider, "completed_calls", 0) - context_calls_before,
+                        0, getattr(provider, "completed_calls", 0) - context_calls_before,
                     )
                     context_durable_calls = max(
                         0, context_completed - checkpoint.saved_this_run,
@@ -164,7 +175,7 @@ class TranslationWorker:
             # If the job already sent multiple requests, avoid an unbounded
             # paid replay every day without durable sub-request checkpoints.
             partial_work = self._uncheckpointed_completed_work(
-                calls_before, checkpoint, context_durable_calls,
+                calls_before, checkpoint, context_durable_calls, provider,
             )
             self.store.defer_for_daily_quota(
                 jid, token, reset_at=exc.reset_at, made_calls=partial_work,
@@ -176,7 +187,7 @@ class TranslationWorker:
             # attempts for the same project/model until reset.
             reset = pacific_window(time.time())[1]
             partial_work = self._uncheckpointed_completed_work(
-                calls_before, checkpoint, context_durable_calls,
+                calls_before, checkpoint, context_durable_calls, provider,
             )
             self.store.defer_for_daily_quota(
                 jid, token, reset_at=reset, made_calls=partial_work,
@@ -223,7 +234,8 @@ class TranslationWorker:
                 self.store.record_event(jid, token, "provider_config_blocked",
                                         f"kind={kind.name}")
                 self.store.fail(jid, token, str(exc))
-                self._fatal_provider_error = kind.name
+                if not personal:
+                    self._fatal_provider_error = kind.name
             elif kind == ErrorType.API_ERROR and job["attempts"] < min(job["max_attempts"], 2):
                 self.store.retry(jid, token, str(exc), delay_seconds=3.0)
             else:

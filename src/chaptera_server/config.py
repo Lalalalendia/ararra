@@ -65,7 +65,7 @@ class Settings:
             raise ValueError("Browser session TTL must be between 300 and 604800 seconds")
         if self.gemini_requests_per_day < 0 or self.gemini_requests_per_day > 1_000_000:
             raise ValueError("Gemini daily request limit must be between 0 and 1000000")
-        if self.gemini_requests_per_day and not self.gemini_quota_project:
+        if self.gemini_requests_per_day and not self.gemini_quota_project and not self.gemini_vault_key:
             raise ValueError("CHAPTERA_GEMINI_QUOTA_PROJECT must be set for daily quota")
         if self.gemini_rpm < 0 or self.gemini_tpm < 0 or self.gemini_reserved_output_tokens < 0:
             raise ValueError("Gemini RPM, TPM and output reservation must be non-negative")
