@@ -55,7 +55,6 @@ def test_jinja_pages_render_without_credentials_but_never_expose_team_state(tmp_
             assert 'body:not([data-authenticated="true"]) #authenticated' in login_css.text
             assert 'body:not([data-auth-ready="1"]) #login-form' in login_css.text
             login_js = await client.get("/app-static/js/login-view.mjs")
-            assert 'document.body.dataset.authenticated=\'true\'' in js.text
             assert 'document.body.dataset.authenticated=\'false\'' in login_js.text
             css = await client.get("/app-static/css/books-platform-chapter-import.css")
             assert css.status_code == 200
@@ -63,6 +62,7 @@ def test_jinja_pages_render_without_credentials_but_never_expose_team_state(tmp_
             assert "Vendored unchanged from books_platform" in css.text
             js = await client.get("/app-static/js/readera.mjs")
             assert js.status_code == 200
+            assert 'document.body.dataset.authenticated=\'true\'' in js.text
             assert "import-model.mjs" in js.text
             assert "login-view.mjs" in js.text
             login_view = await client.get("/app-static/js/login-view.mjs")
