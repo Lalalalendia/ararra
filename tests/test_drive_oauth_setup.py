@@ -305,9 +305,10 @@ def test_drive_smoke_cli_uses_existing_private_token_only(tmp_path,monkeypatch,c
     oauth.save_private_token(token_file,"1//local-secret-token")
     monkeypatch.setenv("CHAPTERA_DRIVE_SOURCE_FOLDER_ID",SOURCES)
     monkeypatch.setenv("CHAPTERA_DRIVE_TRANSLATION_FOLDER_ID",TRANSLATIONS)
+    monkeypatch.setenv("CHAPTERA_DRIVE_ROOT_FOLDER_ID","syntheticReadEraLibraryRoot0001")
     seen=[]
-    def fake_acceptance(drive,*,source_folder_id,translation_folder_id,live):
-        seen.append((source_folder_id,translation_folder_id,live))
+    def fake_acceptance(drive,*,source_folder_id,translation_folder_id,root_folder_id,live):
+        seen.append((source_folder_id,translation_folder_id,root_folder_id,live))
         return {"stage":"live_two_folder_export_verified","file_ids_unchanged":True}
     monkeypatch.setattr(drive_acceptance,"run_drive_acceptance",fake_acceptance)
     class FakeClient:
@@ -322,7 +323,7 @@ def test_drive_smoke_cli_uses_existing_private_token_only(tmp_path,monkeypatch,c
     cli.main()
     result=json.loads(capsys.readouterr().out)
     assert result["file_ids_unchanged"] is True
-    assert seen==[(SOURCES,TRANSLATIONS,True)]
+    assert seen==[(SOURCES,TRANSLATIONS,"syntheticReadEraLibraryRoot0001",True)]
 
 
 
@@ -338,9 +339,10 @@ def test_drive_smoke_server_uses_protected_credentials_without_local_token(tmp_p
         lambda credential,env,default: creds.get(credential,default))
     monkeypatch.setenv("CHAPTERA_DRIVE_SOURCE_FOLDER_ID",SOURCES)
     monkeypatch.setenv("CHAPTERA_DRIVE_TRANSLATION_FOLDER_ID",TRANSLATIONS)
+    monkeypatch.delenv("CHAPTERA_DRIVE_ROOT_FOLDER_ID",raising=False)
     called=[]
-    def fake_acceptance(drive,*,source_folder_id,translation_folder_id,live):
-        called.append((source_folder_id,translation_folder_id,live))
+    def fake_acceptance(drive,*,source_folder_id,translation_folder_id,root_folder_id,live):
+        called.append((source_folder_id,translation_folder_id,root_folder_id,live))
         return {"stage":"read_only_preflight","drive_mutations":0}
     monkeypatch.setattr(drive_acceptance,"run_drive_acceptance",fake_acceptance)
     class FakeClient:
@@ -352,7 +354,7 @@ def test_drive_smoke_server_uses_protected_credentials_without_local_token(tmp_p
     cli.main()
     result=json.loads(capsys.readouterr().out)
     assert result["stage"]=="read_only_preflight"
-    assert called==[(SOURCES,TRANSLATIONS,False)]
+    assert called==[(SOURCES,TRANSLATIONS,"",False)]
 
     del creds["google_drive_refresh_token"]
     with pytest.raises(SystemExit) as error:
