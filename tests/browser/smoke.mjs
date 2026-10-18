@@ -312,14 +312,14 @@ try{
   await page.route(sharedPattern,async route=>{
     await route.fulfill({status:200,contentType:'application/json',
       body:JSON.stringify({scope:'team_verified_originals',read_only:true,sources:[{
-        job_id:foreignJob,owner_member_id:'another-moderator',can_manage:false,
+        job_id:foreignJob,collector_member_id:'another-moderator',can_manage:false,
         source:'royalroad',book_url:sourceCatalogReply.book_url,
         verified_count:1,selected_count:3,updated_at:1760757000,
       }]})});
   });
   await page.route(sharedChapterIndex,async route=>{
     await route.fulfill({status:200,contentType:'application/json',
-      body:JSON.stringify({job_id:foreignJob,owner_member_id:'another-moderator',
+      body:JSON.stringify({job_id:foreignJob,collector_member_id:'another-moderator',
         source:'royalroad',book_url:sourceCatalogReply.book_url,
         selected_count:3,verified_count:1,offset:0,has_more:false,
         chapters:[{ordinal:1,title:'Shared synthetic',source_id:'60001',
@@ -328,7 +328,7 @@ try{
   });
   await page.route(sharedBodyPath,async route=>{
     await route.fulfill({status:200,contentType:'application/json',
-      body:JSON.stringify({job_id:foreignJob,owner_member_id:'another-moderator',
+      body:JSON.stringify({job_id:foreignJob,collector_member_id:'another-moderator',
         source:'royalroad',ordinal:1,title:'Shared synthetic',body:foreignBody,
         sha256:'b'.repeat(64),scope:'single_verified_original'})});
   });
