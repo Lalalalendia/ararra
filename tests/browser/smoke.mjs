@@ -28,6 +28,7 @@ async function login(page,key){
   if(await page.locator('#authenticated').isVisible()){
     await page.locator('#logout').click();
     await page.locator('#login-form').waitFor({state:'visible'});
+  assert.equal(await page.locator('#source-shared-body').textContent(),'');
   }
   await page.locator('#login-form [name="api_key"]').fill(key);
   await page.locator('#login-form button[type="submit"]').click();
@@ -301,6 +302,53 @@ try{
   const sourceTxtDownload=await fileEvent;
   assert.equal(sourceTxtDownload.suggestedFilename(),'readera-original-royalroad-1-2.txt');
   assert.deepEqual(readFileSync(await sourceTxtDownload.path()),txtBytes);
+  // Another moderator's stored originals are readable, not manageable.
+  // Even hostile-looking chapter prose must render as plain text.
+  const foreignJob='shared-browser-foreign';
+  const foreignBody='<img src=x onerror=alert(1)> Synthetic chapter content.';
+  const sharedPattern='**/v1/source-books/jobs/shared?limit=30';
+  const sharedChapterIndex='**/v1/source-books/jobs/shared/'+foreignJob+'?offset=0&limit=50';
+  const sharedBodyPath='**/v1/source-books/jobs/shared/'+foreignJob+'/chapters/1';
+  await page.route(sharedPattern,async route=>{
+    await route.fulfill({status:200,contentType:'application/json',
+      body:JSON.stringify({scope:'team_verified_originals',read_only:true,sources:[{
+        job_id:foreignJob,owner_member_id:'another-moderator',can_manage:false,
+        source:'royalroad',book_url:sourceCatalogReply.book_url,
+        verified_count:1,selected_count:3,updated_at:1760757000,
+      }]})});
+  });
+  await page.route(sharedChapterIndex,async route=>{
+    await route.fulfill({status:200,contentType:'application/json',
+      body:JSON.stringify({job_id:foreignJob,owner_member_id:'another-moderator',
+        source:'royalroad',book_url:sourceCatalogReply.book_url,
+        selected_count:3,verified_count:1,offset:0,has_more:false,
+        chapters:[{ordinal:1,title:'Shared synthetic',source_id:'60001',
+          url:sourceCatalogReply.chapters[0].url,bytes:foreignBody.length,
+          sha256:'b'.repeat(64)}],scope:'verified_original_checkpoints'})});
+  });
+  await page.route(sharedBodyPath,async route=>{
+    await route.fulfill({status:200,contentType:'application/json',
+      body:JSON.stringify({job_id:foreignJob,owner_member_id:'another-moderator',
+        source:'royalroad',ordinal:1,title:'Shared synthetic',body:foreignBody,
+        sha256:'b'.repeat(64),scope:'single_verified_original'})});
+  });
+  await page.locator('#source-shared').evaluate(el=>{el.open=true;});
+  await page.locator('#source-shared-refresh').click();
+  await page.getByText('Сохранённых сборок с проверенными исходниками: 1',
+    {exact:false}).waitFor();
+  await page.locator('#source-shared-list').selectOption(foreignJob);
+  await page.locator('#source-shared-open').click();
+  await page.locator('#source-shared-reader').waitFor({state:'visible'});
+  await page.locator('#source-shared-chapters').selectOption('1');
+  await page.locator('#source-shared-read').click();
+  await page.locator('#source-shared-body').waitFor({state:'visible'});
+  assert.equal(await page.locator('#source-shared-body').textContent(),foreignBody);
+  assert.equal(await page.locator('#source-shared-body img').count(),0,
+    'Stored source text must never be inserted into the DOM as HTML');
+  assert.equal(await page.locator('#source-shared').locator('#source-job-history-delete').count(),0);
+  await page.unroute(sharedPattern);
+  await page.unroute(sharedChapterIndex);
+  await page.unroute(sharedBodyPath);
   // The server history allows restoring without retaining a UUID in localStorage.
   await page.locator('#source-job-history-refresh').click();
   await page.getByText('Доступно своих сборок: 1',{exact:false}).waitFor();
