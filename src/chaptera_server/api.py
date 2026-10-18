@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .config import Settings
 from .library import BookLibrary
+from .chapter_batches import TranslationBatches
 from .import_sessions import ImportSessions
 from .source_site_storage import SourceCatalogStore
 from .source_job_store import SourceJobStore
@@ -19,7 +20,7 @@ from .team_login_throttle import BrowserLoginThrottle
 from .team_passwords import TeamPasswords
 from .personal_gemini_keys import PersonalGeminiKeys
 from .storage import QueueStore
-from .http.routers import books, health, identity, imports, jobs, quota, ui, editorial, session, source_books, source_jobs, gemini_keys
+from .http.routers import books, batches, health, identity, imports, jobs, quota, ui, editorial, session, source_books, source_jobs, gemini_keys
 from .http.routers.ui import ASSETS as UI_ASSETS
 
 # Keep historical Python imports of request models working for existing callers.
@@ -38,6 +39,7 @@ def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.store = repo
     app.state.library = BookLibrary(repo)
+    app.state.translation_batches = TranslationBatches(repo, app.state.library)
     app.state.import_sessions = ImportSessions(repo)
     app.state.source_catalog_store = SourceCatalogStore(repo)
     app.state.source_job_store = SourceJobStore(
@@ -59,6 +61,7 @@ def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
     app.include_router(session.router)
     app.include_router(gemini_keys.router)
     app.include_router(books.router)
+    app.include_router(batches.router)
     app.include_router(imports.router)
     app.include_router(source_books.router)
     app.include_router(source_jobs.router)

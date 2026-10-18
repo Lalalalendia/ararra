@@ -173,6 +173,32 @@ class QueueStore:
             result["atom_provenance"] = json.loads(row["provenance_json"]) if row["provenance_json"] else []
         return result
 
+    @staticmethod
+    def _enqueue_in_transaction(con: sqlite3.Connection, actor_id: str, spec: JobSpec,
+                                now: float, *, idempotency_key: str | None = None) -> sqlite3.Row:
+        """Insert an ordinary queue job into an existing caller-owned transaction.
+
+        Used by atomic book batches and single-chapter create_job alike. The
+        caller owns COMMIT/ROLLBACK; no extra connection or worker is started.
+        """
+        if not actor_id.strip() or not spec.chapter_id.strip() or not spec.source_html.strip():
+            raise ValueError("actor_id, chapter_id and nonempty source_html required")
+        if spec.transport not in {"html_v0", "atoms_v1"}:
+            raise ValueError("Unsupported transport")
+        if spec.max_attempts < 1 or spec.max_attempts > 10:
+            raise ValueError("max_attempts must be between 1 and 10")
+        request_json = json.dumps(spec.normalized(), sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+        digest = hashlib.sha256(request_json.encode("utf-8")).hexdigest()
+        jid = str(uuid.uuid4())
+        con.execute("""
+            INSERT INTO jobs (id, actor_id, chapter_id, input_json, request_hash, idempotency_key,
+                              status, max_attempts, run_after, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?)
+        """, (jid, actor_id, spec.chapter_id, request_json, digest,
+              idempotency_key, spec.max_attempts, now, now, now))
+        QueueStore._event(con, jid, "queued", actor_id, now)
+        return con.execute("SELECT * FROM jobs WHERE id = ?", (jid,)).fetchone()
+
     def create_job(self, actor_id: str, spec: JobSpec, idempotency_key: str | None = None) -> dict[str, Any]:
         if not actor_id.strip() or not spec.chapter_id.strip() or not spec.source_html.strip():
             raise ValueError("actor_id, chapter_id and nonempty source_html required")
@@ -185,7 +211,7 @@ class QueueStore:
         key = (idempotency_key or "").strip() or None
         if key is not None and len(key) > 128:
             raise ValueError("idempotency_key too long")
-        jid, now = str(uuid.uuid4()), time.time()
+        now = time.time()
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             if key is not None:
@@ -204,13 +230,7 @@ class QueueStore:
                             raise IdempotencyConflict("Idempotency key refers to different input")
                     con.execute("COMMIT")
                     return self._public(existing)
-            con.execute("""
-                INSERT INTO jobs (id, actor_id, chapter_id, input_json, request_hash, idempotency_key,
-                                  status, max_attempts, run_after, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?)
-            """, (jid, actor_id, spec.chapter_id, request_json, digest, key, spec.max_attempts, now, now, now))
-            self._event(con, jid, "queued", actor_id, now)
-            row = con.execute("SELECT * FROM jobs WHERE id = ?", (jid,)).fetchone()
+            row = self._enqueue_in_transaction(con, actor_id, spec, now, idempotency_key=key)
             con.execute("COMMIT")
             return self._public(row)
 
