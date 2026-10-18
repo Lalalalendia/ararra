@@ -88,3 +88,23 @@ def test_quota_status_reads_ledger_without_reserving_calls_or_leaking_project(
             assert "private-project-123" not in blocked.text
             assert (await client.get("/v1/quota/gemini")).status_code == 401
     asyncio.run(scenario())
+
+
+def test_personal_vault_never_exposes_stale_shared_project_quota(tmp_path):
+    cfg = Settings(
+        db_path=tmp_path / "personal-quota.sqlite3",
+        team_tokens={"moderator": "test-moderator-key"},
+        gemini_model="test-model", gemini_requests_per_day=21,
+        gemini_quota_project="old-host-project",
+        gemini_vault_key="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    )
+    app = create_app(cfg)
+
+    async def scenario():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://readera.test"
+        ) as client:
+            response = await client.get("/v1/quota/gemini", headers=MOD)
+            assert response.json() == {"enabled": False, "model": "test-model"}
+            assert "old-host-project" not in response.text
+    asyncio.run(scenario())
