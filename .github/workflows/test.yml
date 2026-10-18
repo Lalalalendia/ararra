@@ -65,6 +65,7 @@ jobs:
         env:
           CHAPTERA_DB_PATH: /tmp/readera-e2e.sqlite3
           CHAPTERA_ADMIN_MEMBER_ID: administrator
+          CHAPTERA_GEMINI_VAULT_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
           CHAPTERA_BROWSER_SESSION_SECURE: "0" # disposable HTTP-only Chromium test
           CHAPTERA_TEAM_TOKENS_JSON: '{"administrator":"test-local-administrator-only","moderator":"test-local-moderator-only"}'
         run: |

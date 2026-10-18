@@ -37,6 +37,8 @@ class Settings:
     browser_session_secure: bool = True
     browser_session_ttl_seconds: int = 12 * 60 * 60
     gemini_api_key: str = field(default="", repr=False)
+    # Identical server-held AES-256 vault secret for API + worker, never browser.
+    gemini_vault_key: str = field(default="", repr=False)
     gemini_model: str = "gemini-3.8-flash"
     # Opt-in local safety cap. Google quota belongs to PROJECT + MODEL, not key.
     gemini_quota_project: str = ""
@@ -94,6 +96,7 @@ class Settings:
                                    not in {"0", "false", "no", "off"},
             browser_session_ttl_seconds=int(os.environ.get("CHAPTERA_BROWSER_SESSION_TTL_SECONDS", "43200")),
             gemini_api_key=_read_systemd_credential("gemini_api_key", "CHAPTERA_GEMINI_API_KEY", "").strip(),
+            gemini_vault_key=_read_systemd_credential("gemini_vault_key", "CHAPTERA_GEMINI_VAULT_KEY", "").strip(),
             gemini_model=os.environ.get("CHAPTERA_GEMINI_MODEL", "gemini-3.8-flash").strip(),
             gemini_quota_project=os.environ.get("CHAPTERA_GEMINI_QUOTA_PROJECT", "").strip(),
             gemini_requests_per_day=int(os.environ.get("CHAPTERA_GEMINI_REQUESTS_PER_DAY", "0")),
