@@ -395,7 +395,7 @@ def export_completed_job(
                     named and (not owned or named[0]["id"] != owned[0]["id"])
                 ):
                     raise DriveExportError(
-                        "Existing chapter filename or Drive identity is ambiguous"
+                        "Duplicate chapter filenames or Drive file identity"
                     )
                 if owned and owned[0].get("mimeType") != TEXT_MIME:
                     raise DriveExportError("Existing job export has incorrect content type")
