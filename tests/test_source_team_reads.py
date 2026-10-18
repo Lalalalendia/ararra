@@ -75,7 +75,7 @@ def test_team_can_read_single_verified_chapter_but_not_manage_other_jobs(tmp_pat
                 assert len(entries) == 1
                 entry = entries[0]
                 assert entry["job_id"] == jid
-                assert entry["owner_member_id"] == "alice"
+                assert entry["collector_member_id"] == "alice"
                 assert entry["verified_count"] == 1
                 assert entry["selected_count"] == 3
                 assert entry["can_manage"] is False
@@ -188,7 +188,7 @@ def test_only_checkpointed_chapters_are_shared_and_deletion_revokes_reader(tmp_p
     assert len(source)==1 and source[0]["can_manage"] is False
     assert reader.list_recent("alice")[0]["can_manage"] is True
     assert reader.chapters(jid,offset=1)["chapters"] == []
-    assert reader.chapter(jid,1)["owner_member_id"] == "alice"
+    assert reader.chapter(jid,1)["collector_member_id"] == "alice"
     with pytest.raises(SourceJobMissing):
         reader.chapter(jid,2)
 
