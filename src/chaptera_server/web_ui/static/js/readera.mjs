@@ -127,9 +127,13 @@ async function activateSession(session) {
   $('metric-role').textContent=identity.role==='admin'?'Администратор':'Модератор';
   // The sidebar must be visible before showPage measures its mobile scroll.
   document.body.dataset.authenticated='true';
-  showPage(currentPage());flash('');
+  showPage(currentPage());
+  // Only reveal branding in the browser chrome after the session passes API checks.
+  document.title='РидЭра — переводческая платформа';
+  flash('');
 }
 function clearWorkspace(){
+  document.title='Вход';
   editor?.reset();
   batchView.reset();
   auth.clear();identity=null;books=[];members=[];staged=null;rows=[];confirmed=null;

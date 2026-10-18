@@ -32,6 +32,10 @@ def test_jinja_pages_render_without_credentials_but_never_expose_team_state(tmp_
                 assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
                 assert 'data-initial-page="' in response.text
                 assert 'data-authenticated="false"' in response.text
+                # Tab title is parsed before JS/session restoration: never disclose
+                # the team application's branding in the initial anonymous HTML.
+                assert '<title>Вход</title>' in response.text
+                assert '<title>РидЭра' not in response.text
                 login_markup = response.text.split('id="login-form"', 1)[1].split('</form>', 1)[0]
                 assert 'aria-label="Вход по ключу"' in login_markup
                 assert '<h1>' not in login_markup
