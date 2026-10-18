@@ -465,3 +465,52 @@ def test_drive_outbox_refuses_non_book_completion(tmp_path):
     assert claimed is not None
     assert db.complete(job["id"],claimed[1],"<p>ru</p>","a"*64,1)
     assert outbox.status()["pending"] == 0
+
+
+def test_drive_outbox_expired_lease_blocks_all_other_jobs(tmp_path):
+    """Never export a second chapter while an expired owner may still write."""
+    db,library,first_id = make_job(tmp_path / "serialized", completed=False)
+    outbox = DriveOutbox(db)
+    outbox.set_enabled(True)
+    second_spec = library.new_job(
+        "book-1","chapter-1",
+        source_language="en",target_language="Russian",
+        style_instructions="",max_attempts=1,
+    )
+    second_id = db.create_job("another-moderator",second_spec)["id"]
+    finish_pending_book_job(db,first_id)
+    finish_pending_book_job(db,second_id)
+    assert outbox.status()["pending"] == 2
+    claim = outbox.claim_next()
+    assert claim is not None and claim[0] == first_id
+    with db._connect() as con:
+        con.execute("UPDATE drive_export_outbox SET lease_until=0 WHERE job_id=?", (first_id,))
+    assert outbox.claim_next() is None
+    assert outbox.status()["hold"] == 1
+    assert outbox.status()["pending"] == 1
+    assert outbox.run_once(lambda _: pytest.fail("must not overlap stale Drive writer"))["stage"] == "no_eligible_export"
+    assert outbox.retry_held(first_id)
+    assert outbox.claim_next() is not None
+
+
+def test_drive_outbox_retry_held_refuses_active_export(tmp_path):
+    db,library,first_id = make_job(tmp_path / "mutex", completed=False)
+    outbox = DriveOutbox(db)
+    outbox.set_enabled(True)
+    second_spec = library.new_job(
+        "book-1","chapter-1",
+        source_language="en",target_language="Russian",
+        style_instructions="",max_attempts=1,
+    )
+    second_id = db.create_job("another-moderator",second_spec)["id"]
+    finish_pending_book_job(db,first_id)
+    finish_pending_book_job(db,second_id)
+    first = outbox.claim_next()
+    assert first and first[0] == first_id
+    assert outbox.hold(first_id,first[1],error_code="ambiguous_remote_write")
+    second = outbox.claim_next()
+    assert second and second[0] == second_id
+    assert not outbox.retry_held(first_id)
+    assert outbox.status()["hold"] == 1
+    assert outbox.finish(second_id,second[1],{"status":"ok"})
+    assert outbox.retry_held(first_id)

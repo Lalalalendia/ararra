@@ -115,6 +115,16 @@ class DriveOutbox:
             ).fetchone():
                 con.execute("COMMIT")
                 return None
+            # A timed-out process may STILL be alive and writing to Drive.
+            # Until an operator resolves that uncertainty, allow no other
+            # export; a fresh lease would not fence Google's remote API.
+            if con.execute("""
+                SELECT 1 FROM drive_export_outbox
+                WHERE status='hold' AND error_code='expired_lease_requires_review'
+                LIMIT 1
+            """).fetchone():
+                con.execute("COMMIT")
+                return None
             row = con.execute("""
                 SELECT job_id FROM drive_export_outbox
                 WHERE status='pending' AND run_after <= ?
@@ -160,12 +170,21 @@ class DriveOutbox:
         """Operator-reviewed reconciliation after a possibly partial write."""
         now = time.time()
         with self.store._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            # Requeue does NOT run the exporter. Refuse to clear a stale
+            # claim while a different export process is still active.
+            if con.execute(
+                "SELECT 1 FROM drive_export_outbox WHERE status='running' LIMIT 1"
+            ).fetchone():
+                con.execute("COMMIT")
+                return False
             count = con.execute("""
                 UPDATE drive_export_outbox
                 SET status='pending',run_after=?,error_code='',
                     lease_token=NULL,lease_until=NULL,updated_at=?
                 WHERE job_id=? AND status='hold'
             """,(now,now,job_id)).rowcount
+            con.execute("COMMIT")
         return count==1
 
     def run_once(self, export: Callable[[str],dict]) -> dict:
