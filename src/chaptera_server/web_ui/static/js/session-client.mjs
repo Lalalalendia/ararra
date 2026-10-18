@@ -22,30 +22,6 @@ export function createSessionClient() {
       body:JSON.stringify({api_key:apiKey}),
     }));
   }
-  async function loginPassword(memberId,password) {
-    return receive(await fetchSession('/v1/session/password',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({member_id:memberId,password}),
-    }));
-  }
-  async function changePassword(currentPassword,newPassword) {
-    if(!csrfToken)throw new Error('Войдите с паролем, прежде чем менять его.');
-    const response=await fetchSession('/v1/session/password/change',{
-      method:'POST',headers:{
-        'Content-Type':'application/json','X-ReadEra-CSRF':csrfToken,
-      },
-      body:JSON.stringify({current_password:currentPassword,new_password:newPassword}),
-    });
-    if(!response.ok){
-      let detail='';
-      try {
-        const data=await response.json();
-        if(typeof data.detail==='string')detail=data.detail.slice(0,180);
-      }catch{ /* Secrets and untrusted response bodies are never logged. */ }
-      throw new Error(detail||'Смена пароля отклонена ('+response.status+').');
-    }
-    csrfToken='';
-  }
   async function restore() {
     const response=await fetchSession('/v1/session');
     if(response.status===401){csrfToken='';return null;}
@@ -82,5 +58,5 @@ export function createSessionClient() {
     }
     return responseType==='raw'?response:response.json();
   }
-  return {login,loginPassword,changePassword,restore,logout,clear,request};
+  return {login,restore,logout,clear,request};
 }
