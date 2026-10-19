@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 
 import httpx
 import pytest
@@ -49,6 +50,15 @@ class OfflineGemini:
         self.requests = 0
 
     async def generate(self, request):
+        if request.chapter_id.startswith("context:"):
+            return json.dumps({"c0": {
+                "summary": "Глава для теста.", "pov": "третье лицо",
+                "tone_and_register": "нейтральный", "setting": [],
+                "active_entities": [], "relationships": [],
+                "important_events": [], "continuity_in": [],
+                "continuity_out": [], "ambiguous_references": [],
+                "reveal_constraints": [], "semantic_terms": [],
+            }}, ensure_ascii=False)
         self.requests += 1
         return (request.source_html_with_markers
                 .replace(SOURCE[0], "Мир горит.")
