@@ -128,6 +128,7 @@ def test_med_stage_requires_every_decision_and_preserves_explicit_aux_heading(tm
 
 def test_med_empty_service_marker_can_be_staged_and_explicitly_skipped(tmp_path):
     store = QueueStore(tmp_path / "empty-aux.sqlite3")
+    BookLibrary(store)
     sessions = ImportSessions(store)
     staged = sessions.stage("member", "book.txt",
                             "Глава 1\nТекст.\n\n请假条".encode())
