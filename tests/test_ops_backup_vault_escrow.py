@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from chaptera_server.library import BookLibrary
-from chaptera_server.ops_backup import BackupRejected, snapshot
+from chaptera_server.ops_backup import BackupRejected, restore, snapshot
 from chaptera_server.ops_backup_crypto import generate_key, seal, unseal
 from chaptera_server.ops_backup_vault import main as vault_cli, verify_restored_vault
 from chaptera_server.personal_gemini_keys import (
@@ -138,3 +138,30 @@ def test_encrypted_disaster_restore_requires_backup_key_and_gemini_vault_key(tmp
     # credentials, and the live original is never overwritten.
     assert db.is_file() and recovered.is_file()
     assert wrong_dest.exists() is False
+
+
+def test_vault_witness_rejects_empty_vault_and_online_inputs(tmp_path):
+    source = tmp_path / "wal-backed.sqlite3"
+    store = QueueStore(source)
+    master = base64.b64encode(os.urandom(32)).decode("ascii")
+    PersonalGeminiKeys(store, master)  # Valid table, but no key to verify.
+    snapshots = _private(tmp_path, "empty-snapshots")
+    offline_dir = _private(tmp_path, "empty-restore")
+    escrow = _private(tmp_path, "empty-escrow")
+    vault_file = escrow / "gemini_vault_key"
+    vault_file.write_text(master, encoding="ascii")
+    vault_file.chmod(0o600)
+
+    manifest = snapshot(source, snapshots)
+    offline = restore(manifest, offline_dir / "candidate.sqlite3")
+    with pytest.raises(BackupRejected, match="No encrypted Gemini credentials"):
+        verify_restored_vault(offline, vault_file)
+
+    # A live WAL-backed database (even with valid rows) is not a recovery image.
+    source.chmod(0o600)
+    with pytest.raises(BackupRejected):
+        verify_restored_vault(source, vault_file)
+
+    vault_file.chmod(0o644)
+    with pytest.raises(BackupRejected):
+        verify_restored_vault(offline, vault_file)
