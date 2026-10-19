@@ -63,3 +63,13 @@ test('preface is never silently lost',()=>{
   assert.equal(validateDraft(rows,{...newBook,prefix_policy:'preserve'},prefaced).length,0);
   assert.equal(confirmation(rows,{...newBook,prefix_policy:'discard'},prefaced).prefix_policy,'discard');
 });
+
+test('ordered source positions are suggested without renumbering original chapter identity',()=>{
+  const original=preview([7,1,3]);
+  original.chapters.forEach((c,i)=>{c.destination_position=i+1;});
+  const rows=createDraft(original);
+  assert.deepEqual(rows.map(x=>x.detected_number),[7,1,3]);
+  assert.deepEqual(rows.map(x=>x.chapter_index),['1','2','3']);
+  assert.deepEqual(rows.map(x=>x.chapter_id),['1','2','3']);
+  assert.deepEqual(validateDraft(rows,newBook,stage),[]);
+});

@@ -43,12 +43,21 @@ export function createSourceJobView({request,flash,onStage,getCatalog}) {
     invalidateTxt();
     txtStatus.textContent='Проверка полного исходника ещё не выполнена.';
     if(changed){
-      from.value=String(job.selected_start);
-      to.value=String(Math.min(job.selected_start+19,job.selected_end));
+      if(job.selection_mode==='ordered'){
+        from.value='1';
+        to.value=String(Math.min(20,job.total));
+      }else{
+        from.value=String(job.selected_start);
+        to.value=String(Math.min(job.selected_start+19,job.selected_end));
+      }
     }
+    from.closest('label').querySelector('span').textContent=
+      job.selection_mode==='ordered'?'Позиция в плане с':'Сохранить в импорт с главы';
+    to.closest('label').querySelector('span').textContent=
+      job.selection_mode==='ordered'?'По позицию':'По главу';
     actions.hidden=false;
     const labels={queued:'В очереди',running:'Скачивается',
-      complete:'Выбранный диапазон собран',partial:'Нужна проверка',
+      complete:'Выбранный набор собран',partial:'Нужна проверка',
       cancelled:'Отменено'};
     const delay=job.next_attempt_at;
     const next=job.status==='queued' && Number.isFinite(delay) && delay>Date.now()/1000
@@ -77,6 +86,31 @@ export function createSourceJobView({request,flash,onStage,getCatalog}) {
     if(ticket!==sessionGeneration)return null;
     render(job);
     return job;
+  }
+  async function createFromSelection(catalog,selection){
+    if(busy)return;
+    if(!catalog||!selection?.selection_id||
+       selection.catalog_id!==catalog.catalog_id||
+       selection.catalog_sha256!==catalog.catalog_sha256)
+      throw new Error('Сохранённый план не соответствует оглавлению');
+    setBusy(true);
+    try{
+      const job=await request('/v1/source-books/jobs',{
+        method:'POST',
+        headers:{'Content-Type':'application/json',
+          'Idempotency-Key':'source-plan:'+selection.selection_id+':'+
+            selection.selection_sha256.slice(0,24)},
+        body:JSON.stringify({
+          catalog_id:catalog.catalog_id,
+          expected_catalog_sha256:catalog.catalog_sha256,
+          selection_id:selection.selection_id,
+          expected_selection_sha256:selection.selection_sha256,
+        }),
+      });
+      render(job);void history.refresh();
+      flash('Запущен сбор '+job.total+' выбранных глав в сохранённом порядке.');
+      return job;
+    }finally{setBusy(false);}
   }
   create.addEventListener('click',()=>{
     if(busy)return;
@@ -150,16 +184,21 @@ export function createSourceJobView({request,flash,onStage,getCatalog}) {
   stage.addEventListener('click',()=>{
     if(!current||busy||current.completed===0)return;
     const lo=Number(from.value),hi=Number(to.value);
+    const ordered=current.selection_mode==='ordered';
     if(!Number.isSafeInteger(lo)||!Number.isSafeInteger(hi)||
-       lo<current.selected_start||hi>current.selected_end||hi<lo||hi-lo>=20){
-      flash('Выберите не более 20 уже сохранённых глав.',true);return;
+       (ordered ? (lo<1||hi>current.total) :
+         (lo<current.selected_start||hi>current.selected_end))||
+       hi<lo||hi-lo>=20){
+      flash('Выберите не более 20 уже сохранённых глав или позиций.',true);return;
     }
     void (async()=>{
       setBusy(true);
       try{
         const result=await request('/v1/source-books/jobs/'+encodeURIComponent(current.job_id)+'/stage',{
           method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({start_ordinal:lo,end_ordinal:hi}),
+          body:JSON.stringify(ordered ?
+            {start_position:lo,end_position:hi} :
+            {start_ordinal:lo,end_ordinal:hi}),
         });
         if(result.status!=='staged'||!result.stage_id)
           throw new Error('Сервер не подтвердил подготовку импорта.');
@@ -180,11 +219,13 @@ export function createSourceJobView({request,flash,onStage,getCatalog}) {
         const report=await request('/v1/source-books/jobs/'+encodeURIComponent(jobId)+'/assembly');
         if(current?.job_id!==jobId)return;
         if(report.ready && /^[a-f0-9]{64}$/.test(report.content_sha256||'')){
+          if(!['selected_catalog_range_only','selected_catalog_selection_only'].includes(report.scope))
+            throw new Error('Неизвестная область исходников');
           txtReceipt={jobId,manifest:report.manifest_sha256,
-            sha:report.content_sha256,bytes:report.content_bytes,
+            sha:report.content_sha256,bytes:report.content_bytes,scope:report.scope,
             source:report.source,from:report.start_ordinal,to:report.end_ordinal};
           txtStatus.textContent='Готово: '+report.verified_count+'/'+report.selected_count+
-            ' глав, '+report.content_bytes+' байт. Полон только выбранный диапазон каталога.';
+            ' глав, '+report.content_bytes+' байт. Полон только подтверждённый набор.';
         }else{
           const problems=(report.issues||[]).slice(0,8)
             .map(x=>(x.ordinal===null?'Сбор':('Глава '+x.ordinal))+
@@ -210,7 +251,7 @@ export function createSourceJobView({request,flash,onStage,getCatalog}) {
           '&expected_content_sha256='+receipt.sha;
         const response=await request(url,{responseType:'raw'});
         if(response.headers.get('X-ReadEra-Manifest-SHA256')!==receipt.manifest ||
-          response.headers.get('X-ReadEra-Source-Scope')!=='selected_catalog_range_only')
+          response.headers.get('X-ReadEra-Source-Scope')!==receipt.scope)
           throw new Error('Не совпадает подтверждение выбранного диапазона.');
         const data=await response.arrayBuffer();
         if(data.byteLength!==receipt.bytes)
@@ -221,13 +262,15 @@ export function createSourceJobView({request,flash,onStage,getCatalog}) {
         const blobUrl=URL.createObjectURL(blob);
         const a=document.createElement('a');
         const site=String(receipt.source||'source').replace(/[^a-z0-9_-]/gi,'').slice(0,25)||'source';
-        a.download='readera-original-'+site+'-'+receipt.from+'-'+receipt.to+'.txt';
+        a.download='readera-original-'+site+'-'+
+          (receipt.scope==='selected_catalog_selection_only'?'selected':
+            receipt.from+'-'+receipt.to)+'.txt';
         a.href=blobUrl;document.body.append(a);
         try{a.click();}finally{
           a.remove();setTimeout(()=>URL.revokeObjectURL(blobUrl),30000);
         }
         txtStatus.textContent='TXT проверен по SHA-256 и передан браузеру. Это исходный текст.';
-        flash('Исходный TXT собран из всех проверенных глав выбранного диапазона.');
+        flash('Исходный TXT собран из всех проверенных выбранных глав.');
       }catch(err){
         invalidateTxt();
         txtStatus.textContent='Выгрузка отклонена. Проверьте полноту повторно.';
@@ -235,5 +278,5 @@ export function createSourceJobView({request,flash,onStage,getCatalog}) {
       }finally{setBusy(false);}
     })();
   });
-  return {reset,render};
+  return {reset,render,createFromSelection};
 }

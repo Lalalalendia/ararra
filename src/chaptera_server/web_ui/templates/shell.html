@@ -225,6 +225,10 @@
                 <button id="source-discover" class="ui-button ui-button--ghost"
                         type="submit">Получить оглавление</button>
               </form>
+              <div class="compact-form">
+                <button id="source-selection-restore" type="button"
+                        class="ui-button ui-button--ghost">Восстановить сохранённый план</button>
+              </div>
               <div id="source-catalog" hidden>
                 <p id="source-summary" role="status" aria-live="polite"></p>
                 <div class="field-grid">
@@ -233,6 +237,49 @@
                   <label class="ui-field"><span>Конечная глава</span>
                     <input id="source-end" class="ui-input" type="number" min="1" step="1"></label>
                 </div>
+                <section id="source-selection-editor" aria-label="Редактор оглавления">
+                  <h3>Шаг 1 — выбор и порядок глав</h3>
+                  <p class="muted">Снимите галочки с лишних глав, измените порядок кнопками ↑/↓
+                    или перетаскиванием строк. Полные тексты до запуска сбора не скачиваются.</p>
+                  <div class="field-grid">
+                    <label class="ui-field"><span>Поиск по главам</span>
+                      <input id="source-selection-filter" class="ui-input"
+                             type="search" placeholder="Название, номер или ID источника"></label>
+                  </div>
+                  <div class="compact-form">
+                    <button id="source-select-all" class="ui-button ui-button--ghost"
+                            type="button">Выбрать все</button>
+                    <button id="source-select-none" class="ui-button ui-button--ghost"
+                            type="button">Снять все</button>
+                    <button id="source-select-visible" class="ui-button ui-button--ghost"
+                            type="button">Выбрать найденные</button>
+                  </div>
+                  <p id="source-selected-summary" role="status" aria-live="polite"></p>
+                  <div class="table-scroll"><table class="ui-table">
+                    <thead><tr><th>Собирать</th><th>Порядок</th><th>№ сайта</th>
+                      <th>Глава</th><th>Исходный ID</th><th>Тип</th></tr></thead>
+                    <tbody id="source-rows"></tbody>
+                  </table></div>
+                  <div class="compact-form">
+                    <button id="source-selection-prev" class="ui-button ui-button--ghost"
+                            type="button">Назад</button>
+                    <span id="source-selection-page" aria-live="polite"></span>
+                    <button id="source-selection-next" class="ui-button ui-button--ghost"
+                            type="button">Вперёд</button>
+                  </div>
+                  <h3>Шаг 2 — подтвердить и собрать</h3>
+                  <p class="muted">Сначала сохраняется точный выбранный порядок на сервере.
+                    Фоновая загрузка и проверка происходят только после подтверждения.</p>
+                  <div class="compact-form">
+                    <button id="source-selection-save" type="button"
+                            class="ui-button ui-button--ghost">Сохранить план</button>
+                    <button id="source-selection-start" type="button"
+                            class="ui-button ui-button--primary">Проверить и начать сбор</button>
+                  </div>
+                </section>
+                <h3>Режим совместимости — непрерывный диапазон</h3>
+                <p class="muted">Настройки ниже относятся только к старому быстрому режиму,
+                  а не к галочкам и перестановке в редакторе.</p>
                 <p class="muted">Быстрый импорт — до 20 глав; для диапазона до 2000 глав используйте
                   отдельный фоновый сбор с контрольными точками. Недоступные главы не принимаются за прочитанные.</p>
                 <button id="source-collect" class="ui-button ui-button--primary"
@@ -240,12 +287,7 @@
                 <button id="source-job-create" class="ui-button ui-button--ghost"
                         type="button">Создать фоновое задание на выбранный диапазон</button>
                 <p id="source-result" role="status" aria-live="polite"></p>
-                <div class="table-scroll"><table class="ui-table">
-                  <thead><tr><th>№</th><th>Глава</th><th>Идентификатор источника</th></tr></thead>
-                  <tbody id="source-rows"></tbody>
-                </table></div>
-                <p class="muted">Первые 80 записей оглавления показаны для проверки.
-                  Номера остальных глав можно указать в диапазоне выше.</p>
+
               </div>
               <div id="source-job-panel" class="source-job-panel" aria-labelledby="source-job-title">
                 <h3 id="source-job-title">Фоновый сбор</h3>
