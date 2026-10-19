@@ -90,7 +90,10 @@ class EncryptedDriveBackups:
     def probe(self) -> None:
         # Particularly important for drive.file: the separate OAuth application
         # may not see a folder created through another Google Drive connector.
-        self.drive.check_destination(self.folder)
+        try:
+            self.drive.check_destination(self.folder)
+        except DriveExportError as exc:
+            raise DriveBackupRejected("Google Drive backup folder missing or not writable") from exc
 
     def _file_metadata(self, file_id: str) -> dict:
         fid = self.drive._check_id(file_id)
@@ -286,10 +289,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.probe_folder and args.allow_upload:
         parser.error("A read-only folder probe cannot authorize upload")
     try:
+        client_id, client_secret, refresh_token = _credentials()
         with httpx.Client(timeout=60.0, trust_env=False, follow_redirects=False) as http:
             drive = GoogleDriveClient(
-                client_id=_credentials()[0], client_secret=_credentials()[1],
-                refresh_token=_credentials()[2], http=http,
+                client_id=client_id, client_secret=client_secret,
+                refresh_token=refresh_token, http=http,
             )
             remote = EncryptedDriveBackups(drive, args.folder_id)
             if args.probe_folder:
