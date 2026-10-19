@@ -112,7 +112,8 @@ class ImportSessions:
         return result
 
     def stage(self, actor: str, filename: str, data: bytes,
-              *, idempotency_key: str | None = None) -> dict:
+              *, idempotency_key: str | None = None,
+              suggested_positions: list[int] | None = None) -> dict:
         key = (idempotency_key or "").strip() or None
         if key is not None and len(key) > 128:
             raise ValueError("Idempotency-Key exceeds 128 characters")
@@ -123,6 +124,15 @@ class ImportSessions:
             )
         if any(not _meaningful(item.html) for item in candidates):
             raise ImportFormatError("Empty chapters must be corrected before staging")
+        if suggested_positions is not None:
+            if (len(suggested_positions) != len(candidates) or
+                any(type(n) is not int or not 1 <= n <= 10_000_000
+                    for n in suggested_positions) or
+                len(set(suggested_positions)) != len(suggested_positions)):
+                raise ImportFormatError("Invalid destination position hints")
+            for chapter, position in zip(preview["chapters"], suggested_positions):
+                chapter["destination_position"] = position
+                chapter["suggested_index"] = position
         payload = {
             "chapters": [{
                 "sequence": n,

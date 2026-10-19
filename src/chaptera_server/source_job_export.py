@@ -76,7 +76,8 @@ class VerifiedSourceTXT:
                    else SourceJobStore._owned(con, actor, job_id))
             selected = SourceJobStore._manifest(job)
             source = job["source"]
-            start, end = selected[0]["ordinal"], selected[-1]["ordinal"]
+            start = min(ch["ordinal"] for ch in selected)
+            end = max(ch["ordinal"] for ch in selected)
             rows = con.execute(
                 "SELECT item_index,ordinal,source_id,url,status,body,sha256,error,bytes "
                 "FROM source_collect_items WHERE job_id=? ORDER BY item_index",
@@ -169,7 +170,9 @@ class VerifiedSourceTXT:
                 byte_length += 1
             result = {
                 "ready": ready,
-                "scope": "selected_catalog_range_only",
+                "scope": ("selected_catalog_selection_only"
+                          if job["selection_mode"] == "ordered"
+                          else "selected_catalog_range_only"),
                 "source": source,
                 "catalog_sha256": job["catalog_sha256"],
                 "manifest_sha256": job["manifest_sha256"],

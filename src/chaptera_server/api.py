@@ -10,6 +10,7 @@ from .library import BookLibrary
 from .chapter_batches import TranslationBatches
 from .import_sessions import ImportSessions
 from .source_site_storage import SourceCatalogStore
+from .source_selection_store import SourceSelectionStore
 from .source_job_store import SourceJobStore
 from .source_site_http import PublicHtmlFetcher
 from .source_request_limiter import SourceRequestLimiter
@@ -45,6 +46,7 @@ def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
     )
     app.state.import_sessions = ImportSessions(repo)
     app.state.source_catalog_store = SourceCatalogStore(repo)
+    app.state.source_selection_store = SourceSelectionStore(repo)
     app.state.source_job_store = SourceJobStore(
         repo,
         actor_quota_bytes=settings.source_actor_quota_mib * 1024 * 1024,
