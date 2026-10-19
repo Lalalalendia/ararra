@@ -12,11 +12,16 @@ export function createDraft(preview) {
     const recommended = Number.isSafeInteger(c.destination_position) && c.destination_position>0
       ? c.destination_position : (unique ? c.detected_number : null);
     const number = recommended===null ? '' : String(recommended);
+    const entryType = c.entry_type || 'chapter';
+    const needsReview = entryType === 'extra' || entryType === 'service';
     return {
       sequence: c.sequence, title: c.title, sample: c.sample,
       detected_number: c.detected_number, characters: c.characters,
-      action: 'create', chapter_id: number,
-      chapter_index: number, chapter_path: number ? 'chapters/' + number + '.xhtml' : '',
+      entry_type: entryType, catalog_ordinal: c.catalog_ordinal ?? c.sequence,
+      author_number: c.author_number ?? c.detected_number,
+      action: needsReview ? 'review' : 'create', chapter_id: needsReview ? '' : number,
+      chapter_index: needsReview ? '' : number,
+      chapter_path: needsReview ? '' : (number ? 'chapters/' + number + '.xhtml' : ''),
       expected_revision: 0, verified_book_id: null, verified_chapter_id: null,
     };
   });
@@ -65,6 +70,10 @@ export function validateDraft(rows, target, stage, now=Date.now()/1000) {
   const ids=new Set(), indexes=new Set(), paths=new Set();
   let selected=0;
   for (const r of rows) {
+    if (r.action === 'review') {
+      errors.push('Запись '+r.sequence+': выберите действие для дополнительной или служебной записи.');
+      continue;
+    }
     if (r.action === 'skip') continue;
     selected++;
     const id=r.chapter_id.trim(), index=Number(r.chapter_index), path=r.chapter_path.trim();
@@ -82,6 +91,9 @@ export function validateDraft(rows, target, stage, now=Date.now()/1000) {
   return [...new Set(errors)];
 }
 export function confirmation(rows,target,stage) {
+  if (rows.some(r => r.action === 'review')) {
+    throw new Error('Unreviewed auxiliary entries cannot be confirmed');
+  }
   return {
     book_id: target.book_id.trim(), book_mode: target.book_mode,
     title: target.book_mode === 'create' ? target.title.trim() : null,

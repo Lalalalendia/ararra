@@ -122,7 +122,7 @@ class ImportSessions:
             raise ImportFormatError(
                 "Metadata-only catalogs contain no chapter text; source import is forbidden"
             )
-        if any(not _meaningful(item.html) for item in candidates):
+        if any(not _meaningful(item.html) and item.entry_type == 'chapter' for item in candidates):
             raise ImportFormatError("Empty chapters must be corrected before staging")
         if suggested_positions is not None:
             if (len(suggested_positions) != len(candidates) or
@@ -138,12 +138,14 @@ class ImportSessions:
                 "sequence": n,
                 "title": item.title,
                 "detected_number": item.number,
+                "entry_type": item.entry_type,
+                "catalog_ordinal": n,
                 "source_path": item.path,
                 # The preview extractor separates detected headings from
                 # bodies; restore the original heading in canonical source HTML.
                 "source_html": (
                     "<h1>" + escape_html(item.title) + "</h1>\n" + item.html
-                    if item.number is not None else item.html
+                    if item.number is not None or item.entry_type != 'chapter' else item.html
                 ),
             } for n, item in enumerate(candidates, start=1)]
         }
