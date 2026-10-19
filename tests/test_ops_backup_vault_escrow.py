@@ -7,6 +7,7 @@ survive host loss for moderator project credentials to remain usable.
 from __future__ import annotations
 
 import base64
+import hashlib
 import os
 from pathlib import Path
 
@@ -78,6 +79,7 @@ def test_encrypted_disaster_restore_requires_backup_key_and_gemini_vault_key(tmp
     assert not wrong_dest.exists()
 
     recovered = unseal(archive, backup_key, destination / "jobs.sqlite3")
+    before_witness_sha256 = hashlib.sha256(recovered.read_bytes()).hexdigest()
     # An independent operator should recover the *original* systemd vault
     # credential from a distinct escrow, never from the .rbe or the RBE key.
     escrow = _private(tmp_path, "separate-vault-escrow")
@@ -108,6 +110,12 @@ def test_encrypted_disaster_restore_requires_backup_key_and_gemini_vault_key(tmp
     assert rejected.err == "vault_escrow=REJECTED\\n".replace("\\n", "\n")
     assert rejected.out == ""
     assert test_api_key not in rejected.err
+
+    # The proof must not mutate the offline SQLite file, even on failures.
+    assert hashlib.sha256(recovered.read_bytes()).hexdigest() == before_witness_sha256
+    assert not (destination / "jobs.sqlite3-wal").exists()
+    assert not (destination / "jobs.sqlite3-shm").exists()
+    assert not (destination / "jobs.sqlite3-journal").exists()
 
     restored_store = QueueStore(recovered)
     assert BookLibrary(restored_store).get_chapter(
