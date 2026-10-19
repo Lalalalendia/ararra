@@ -86,6 +86,7 @@ def begin_job(
             idempotency_key=idempotency_key,
             preserve_order=preserve_order,
             selection_sha256=(body.expected_selection_sha256 if preserve_order else None),
+            selection_id=(body.selection_id if preserve_order else None),
         )
     except (SourceJobConflict,SourceCatalogMissing,SourceCatalogExpired,
             SourceSelectionMissing,SourceSelectionExpired,SourceSelectionConflict) as exc:

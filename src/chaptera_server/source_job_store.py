@@ -19,6 +19,7 @@ from .source_collect import (
     CollectedBook, CollectedChapter, SourceCatalog, MAX_BODY_CHARS,
 )
 from .source_site_storage import _fingerprint
+from .source_selection_store import _digest as _selection_digest
 from .source_original_archive import SourceOriginalArchive, SourceArchiveConflict
 from .storage import QueueStore
 
@@ -191,6 +192,13 @@ class SourceJobStore:
             validate_url(ch["url"],row["source"])
             if source_book_id(ch["url"],row["source"]) != source_book_id(row["book_url"],row["source"]):
                 raise SourceJobConflict("Foreign source book chapter in manifest")
+        if row["selection_mode"] == "ordered":
+            if row["selection_sha256"] != _selection_digest(
+                row["catalog_sha256"], [ch["ordinal"] for ch in chapters]
+            ):
+                raise SourceJobConflict("Ordered selection digest mismatch")
+        elif row["selection_mode"] != "range" or row["selection_sha256"] is not None:
+            raise SourceJobConflict("Invalid stored source selection mode")
         return chapters
 
     @staticmethod
@@ -250,11 +258,14 @@ class SourceJobStore:
         *, idempotency_key: str | None = None,
         preserve_order: bool = False,
         selection_sha256: str | None = None,
+        selection_id: str | None = None,
     ) -> dict:
         if (type(preserve_order) is not bool or
             (preserve_order and (not isinstance(selection_sha256, str) or
-                                 re.fullmatch(r"[a-f0-9]{64}", selection_sha256) is None)) or
-            (not preserve_order and selection_sha256 is not None)):
+                                 re.fullmatch(r"[a-f0-9]{64}", selection_sha256) is None or
+                                 not isinstance(selection_id, str) or not selection_id)) or
+            (not preserve_order and (selection_sha256 is not None or
+                                     selection_id is not None))):
             raise SourceJobConflict("Invalid selection mode or digest")
         if not catalog_id or len(catalog_id) > 128:
             raise SourceJobConflict("Valid source catalog reference required")
@@ -279,6 +290,27 @@ class SourceJobStore:
         now = time.time()
         with self.store._connect() as con:
             con.execute("BEGIN IMMEDIATE")
+            if preserve_order:
+                plan = con.execute(
+                    "SELECT catalog_id,catalog_sha256,selection_sha256,"
+                    "ordered_ordinals_json,expires_at FROM source_book_selections "
+                    "WHERE id=? AND actor_id=?",
+                    (selection_id,actor),
+                ).fetchone()
+                origin = con.execute(
+                    "SELECT catalog_sha256,expires_at FROM source_book_catalogs "
+                    "WHERE id=? AND actor_id=?",
+                    (catalog_id,actor),
+                ).fetchone()
+                if (plan is None or origin is None or
+                    plan["expires_at"]<=now or origin["expires_at"]<=now or
+                    plan["catalog_id"]!=catalog_id or
+                    plan["catalog_sha256"]!=catalog.catalog_sha256 or
+                    origin["catalog_sha256"]!=catalog.catalog_sha256 or
+                    plan["selection_sha256"]!=selection_sha256 or
+                    plan["selection_sha256"]!=_selection_digest(catalog.catalog_sha256,ordinals) or
+                    plan["ordered_ordinals_json"]!=json.dumps(ordinals,separators=(",",":"))):
+                    raise SourceJobConflict("Saved selection changed before job creation")
             if key:
                 prior = con.execute(
                     "SELECT * FROM source_collect_jobs WHERE actor_id=? AND idempotency_key=?",

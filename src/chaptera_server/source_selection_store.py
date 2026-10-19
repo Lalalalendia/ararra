@@ -61,6 +61,8 @@ class SourceSelectionStore:
                 );
                 CREATE INDEX IF NOT EXISTS ix_source_book_selections_recent
                     ON source_book_selections(actor_id,updated_at DESC);
+                CREATE INDEX IF NOT EXISTS ix_source_book_selections_expiry
+                    ON source_book_selections(expires_at);
             """)
 
     @staticmethod
@@ -120,6 +122,7 @@ class SourceSelectionStore:
         digest = _digest(expected_catalog_sha256, ordered_ordinals)
         with self.store._connect() as con:
             con.execute("BEGIN IMMEDIATE")
+            con.execute("DELETE FROM source_book_selections WHERE expires_at<?", (now,))
             origin = self._catalog_row(con, actor, catalog_id, now)
             if origin["catalog_sha256"] != expected_catalog_sha256:
                 raise SourceSelectionConflict("Catalog changed during selection")

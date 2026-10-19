@@ -231,12 +231,6 @@
               </div>
               <div id="source-catalog" hidden>
                 <p id="source-summary" role="status" aria-live="polite"></p>
-                <div class="field-grid">
-                  <label class="ui-field"><span>Начальная глава</span>
-                    <input id="source-start" class="ui-input" type="number" min="1" step="1"></label>
-                  <label class="ui-field"><span>Конечная глава</span>
-                    <input id="source-end" class="ui-input" type="number" min="1" step="1"></label>
-                </div>
                 <section id="source-selection-editor" aria-label="Редактор оглавления">
                   <h3>Шаг 1 — выбор и порядок глав</h3>
                   <p class="muted">Снимите галочки с лишних глав, измените порядок кнопками ↑/↓
@@ -280,6 +274,12 @@
                 <h3>Режим совместимости — непрерывный диапазон</h3>
                 <p class="muted">Настройки ниже относятся только к старому быстрому режиму,
                   а не к галочкам и перестановке в редакторе.</p>
+                <div class="field-grid">
+                  <label class="ui-field"><span>Начальная глава</span>
+                    <input id="source-start" class="ui-input" type="number" min="1" step="1"></label>
+                  <label class="ui-field"><span>Конечная глава</span>
+                    <input id="source-end" class="ui-input" type="number" min="1" step="1"></label>
+                </div>
                 <p class="muted">Быстрый импорт — до 20 глав; для диапазона до 2000 глав используйте
                   отдельный фоновый сбор с контрольными точками. Недоступные главы не принимаются за прочитанные.</p>
                 <button id="source-collect" class="ui-button ui-button--primary"
