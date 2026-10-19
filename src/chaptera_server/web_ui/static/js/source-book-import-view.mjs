@@ -1,14 +1,13 @@
 /* Two-stage source discovery: selectable, reorderable TOC before capture.
  * All metadata originates in actor-owned server catalog snapshots. Never
- * render source strings as markup; no prose, keys, or URLs enter localStorage.
+ * render source strings as markup; no prose, keys, or URLs enter browser storage.
  */
 import {createSourceJobView} from './source-book-job-view.mjs';
 import {createSharedSourceView} from './source-shared-view.mjs';
 import {createSourceArchiveView} from './source-archive-view.mjs';
-import {
-  PAGE_SIZE,createTocPlan,selectedOrdinals,visibleOrdinals,pageOf,
-  toggleSelected,selectOrdinals,moveVisible,moveBefore,planSummary,
-} from './source-toc-plan.mjs';
+import {createTocPlan,selectedOrdinals,visibleOrdinals,selectOrdinals,planSummary}
+  from './source-toc-plan.mjs';
+import {renderTocRows} from './source-toc-rows-view.mjs';
 
 export function createSourceBookImportView({request,flash,onStage}) {
   const $=id=>document.getElementById(id);
@@ -31,7 +30,7 @@ export function createSourceBookImportView({request,flash,onStage}) {
   const nextButton=$('source-selection-next');
   const pageInfo=$('source-selection-page');
   let catalog=null,plan=null,saved=null;
-  let dirty=true,page=0,busy=false,dragged=null;
+  let dirty=true,page=0,busy=false;
   const jobs=createSourceJobView({request,flash,onStage,getCatalog:()=>catalog});
   const shared=createSharedSourceView({request,flash});
   const archive=createSourceArchiveView({request,flash});
@@ -55,64 +54,10 @@ export function createSourceBookImportView({request,flash,onStage}) {
   }
   function renderEntries(){
     if(!plan)return;
-    const view=pageOf(plan,query.value,page,PAGE_SIZE);
-    page=view.page;
-    rows.replaceChildren();
-    const visible=visibleOrdinals(plan,query.value);
-    for(const n of view.ordinals){
-      const ch=plan.source.get(n);
-      const tr=document.createElement('tr');
-      tr.draggable=true;
-      const checked=document.createElement('td');
-      const checkbox=document.createElement('input');
-      checkbox.type='checkbox';checkbox.checked=plan.selected.has(n);
-      checkbox.setAttribute('aria-label','Собирать запись '+n+': '+ch.title);
-      checkbox.disabled=busy;
-      checkbox.addEventListener('change',()=>updatePlan(toggleSelected(plan,n,checkbox.checked)));
-      checked.append(checkbox);tr.append(checked);
-      const order=document.createElement('td');
-      const up=document.createElement('button'),down=document.createElement('button');
-      for(const [button,arrow,step] of [[up,'↑',-1],[down,'↓',1]]){
-        button.type='button';button.className='ui-button ui-button--ghost';
-        button.textContent=arrow;button.disabled=busy;
-        button.setAttribute('aria-label',(step<0?'Поднять ':'Опустить ')+'запись '+n);
-        button.addEventListener('click',()=>updatePlan(moveVisible(plan,n,step,query.value)));
-      }
-      order.append(up,down);tr.append(order);
-      for(const value of [n,ch.title,ch.source_id,ch.entry_type || 'chapter']){
-        const td=document.createElement('td');td.textContent=String(value??'');
-        tr.append(td);
-      }
-      if(plan.unresolved.has(n))tr.title='Дополнительная или служебная запись: выберите включить или исключить';
-      tr.addEventListener('dragstart',event=>{
-        if(busy){event.preventDefault();return;}
-        dragged=n;event.dataTransfer.effectAllowed='move';
-        event.dataTransfer.setData('text/plain',String(n));
-      });
-      tr.addEventListener('dragover',event=>{
-        if(dragged!==null && dragged!==n && !busy){
-          event.preventDefault();event.dataTransfer.dropEffect='move';
-        }
-      });
-      tr.addEventListener('drop',event=>{
-        if(dragged===null||busy)return;
-        event.preventDefault();
-        updatePlan(moveBefore(plan,dragged,n));
-        dragged=null;
-      });
-      tr.addEventListener('dragend',()=>{dragged=null;});
-      rows.append(tr);
-    }
-    const stats=planSummary(plan);
-    selectedStatus.textContent='Всего '+stats.total+' · выбрано '+stats.selected+
-      ' · исключено '+stats.excluded+' · переставлено '+stats.moved+
-      (stats.unresolved?' · требуют решения '+stats.unresolved:'')+
-      (dirty?' · изменения не сохранены':' · план сохранён')+
-      (stats.first.length?' · начало: '+stats.first.join(', '):'');
-    pageInfo.textContent='Страница '+(view.page+1)+' из '+view.pages+
-      ' · найдено '+view.total;
-    prevButton.disabled=busy||view.page===0;
-    nextButton.disabled=busy||view.page+1>=view.pages;
+    page=renderTocRows({
+      plan,search:query.value,page,busy,dirty,rows,selectedStatus,pageInfo,
+      prevButton,nextButton,onUpdate:updatePlan,
+    });
   }
   function renderCatalog(data,restored=null){
     if(!Array.isArray(data.chapters))throw new Error('Оглавление отсутствует');

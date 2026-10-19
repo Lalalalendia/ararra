@@ -25,7 +25,6 @@ from .storage import QueueStore
 from .http.routers import books, batches, health, identity, imports, jobs, quota, ui, editorial, session, source_books, source_team, source_archive, source_jobs, gemini_keys
 from .http.routers.ui import ASSETS as UI_ASSETS
 
-# Keep historical Python imports of request models working for existing callers.
 from .http.schemas import (  # noqa: F401
     AcceptTranslation, CreateBook, SaveChapter, SaveGlossary,
     SubmitChapter, TranslateBookChapter,
@@ -60,8 +59,7 @@ def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
     app.state.chapter_qa = ChapterQaStore(repo)
     app.state.team_credentials = TeamCredentials(repo)
     app.state.team_sessions = TeamSessions(repo)
-    # Retain historical password tables for safe backup/restore and rollback.
-    # No HTTP routes issue or verify passwords in the key-only release.
+    # Keep historical password tables for backup/restore, not authentication.
     app.state.team_passwords = TeamPasswords(repo)
     app.state.personal_gemini_keys = PersonalGeminiKeys(repo, settings.gemini_vault_key)
     app.state.team_login_throttle = BrowserLoginThrottle(repo)
@@ -80,8 +78,7 @@ def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
     app.include_router(editorial.router)
     app.include_router(jobs.router)
     app.include_router(quota.router)
-    # Jinja2 shell + static sources copied/adapted from books_platform.
-    # Existing /v1 API and the optional React pilot are untouched.
+    # Jinja2 shell and existing /v1 routes remain separate.
     app.mount("/app-static", StaticFiles(directory=str(UI_ASSETS / "static")),
               name="readera-static")
     app.include_router(ui.router)

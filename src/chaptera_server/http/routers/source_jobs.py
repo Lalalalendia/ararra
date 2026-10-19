@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import asdict
-from hashlib import sha256
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Query
 from fastapi.responses import StreamingResponse
@@ -14,9 +12,10 @@ from ...source_job_store import SourceJobConflict, SourceJobMissing
 from ...source_job_export import VerifiedSourceTXT, SourceExportNotReady
 from ...source_site_storage import SourceCatalogMissing, SourceCatalogExpired
 from ...source_selection_store import (
-    SourceSelectionStore, SourceSelectionMissing,
+    SourceSelectionMissing,
     SourceSelectionExpired, SourceSelectionConflict,
 )
+from ...source_job_stage import stage_verified_source_job
 from ..dependencies import require_member, get_import_sessions
 
 router = APIRouter(prefix="/v1/source-books/jobs", dependencies=[Depends(require_member)])
@@ -144,54 +143,13 @@ def stage_job(
     actor: str = Depends(require_member),
     sessions = Depends(get_import_sessions),
 ) -> dict:
-    jobs = request.app.state.source_job_store
     try:
-        state = jobs.get(actor,job_id)
-        if state["selection_mode"] == "ordered":
-            if (body.start_ordinal is not None or body.end_ordinal is not None or
-                body.start_position is None or body.end_position is None or
-                body.end_position < body.start_position or
-                body.end_position - body.start_position + 1 > 20 or
-                body.end_position > state["total"]):
-                raise ValueError("Choose 1..20 ordered selection positions for staging")
-            lo,hi = body.start_position,body.end_position
-            selected=state["selected_ordinals"][lo-1:hi]
-            hints=list(range(lo,hi+1))
-        else:
-            if (body.start_position is not None or body.end_position is not None or
-                body.start_ordinal is None or body.end_ordinal is None or
-                body.end_ordinal < body.start_ordinal or
-                body.end_ordinal - body.start_ordinal + 1 > 20):
-                raise ValueError("Stage no more than 20 contiguous chapters")
-            selected=list(range(body.start_ordinal,body.end_ordinal+1))
-            lo,hi = body.start_ordinal,body.end_ordinal
-            hints=None
-        collected = jobs.materialize(actor,job_id,selected)
-        payload = collected.as_import_html()
-        # Idempotent exact-byte and position fence across browser retries.
-        fingerprint = sha256(payload).hexdigest()[:32]
-        key = f"source-job:{job_id}:{lo}:{hi}:{fingerprint}"
-        stage = sessions.stage(
-            actor, f"verified-{job_id[:8]}-{lo}-{hi}.html",
-            payload,idempotency_key=key[:128],suggested_positions=hints,
+        return stage_verified_source_job(
+            request.app.state.source_job_store, sessions,
+            request.app.state.source_catalog_store, actor, job_id,
+            start_ordinal=body.start_ordinal, end_ordinal=body.end_ordinal,
+            start_position=body.start_position, end_position=body.end_position,
         )
-        details = [asdict(ch)|{"body":None, "destination_position":hints[i] if hints else None}
-                   for i,ch in enumerate(collected.chapters)]
-        store=request.app.state.source_catalog_store
-        try:
-            store.save_stage_receipt(actor,state["catalog_id"],stage["stage_id"],
-                                     state["catalog_sha256"],details)
-        except sqlite3.IntegrityError:
-            old=store.stage_receipt(actor,stage["stage_id"])
-            if (old["catalog_id"] != state["catalog_id"] or
-                old["catalog_sha256"] != state["catalog_sha256"] or
-                old["chapters"] != details):
-                raise SourceJobConflict("Source stage receipt changed")
-        return {
-            "status":"staged", "job_id":job_id, "stage_id":stage["stage_id"],
-            "collected_count":len(collected.chapters),
-            "file_sha256":stage["file_sha256"],
-        }
     except (SourceJobMissing,SourceJobConflict,SourceCatalogMissing,
             sqlite3.IntegrityError,StageTooLarge,ValueError) as exc:
         raise _errors(exc) from exc
