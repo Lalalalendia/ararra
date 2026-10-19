@@ -10,6 +10,7 @@ import base64
 import hashlib
 import os
 from pathlib import Path
+import sqlite3
 
 import pytest
 
@@ -173,3 +174,41 @@ def test_vault_witness_rejects_empty_vault_and_online_inputs(tmp_path):
     vault_file.chmod(0o644)
     with pytest.raises(BackupRejected):
         verify_restored_vault(offline, vault_file)
+
+
+
+def test_vault_witness_checks_all_projects_not_only_first(tmp_path):
+    db = tmp_path / "two-projects.sqlite3"
+    store = QueueStore(db)
+    master = base64.b64encode(os.urandom(32)).decode("ascii")
+    vault = PersonalGeminiKeys(store, master)
+    vault.put("alice", "alice-project-001", "AIzaTEST_disaster_alice_key_0123456789")
+    vault.put("bob", "bob-project-002", "AIzaTEST_disaster_bob_key_0123456789")
+    vault.set_daily_cap("alice", "alice-project-001", 2)
+    vault.set_daily_cap("bob", "bob-project-002", 3)
+    snapshot_dir = _private(tmp_path, "two-snapshots")
+    restore_dir = _private(tmp_path, "two-restored")
+    escrow = _private(tmp_path, "two-escrow")
+    vault_file = escrow / "gemini_vault_key"
+    vault_file.write_text(master + "\n", encoding="ascii")
+    vault_file.chmod(0o600)
+    recovered = restore(snapshot(db, snapshot_dir),
+                        restore_dir / "restored.sqlite3")
+
+    assert verify_restored_vault(recovered, vault_file)["projects_checked"] == 2
+
+    # SQLite itself remains structurally valid if an encrypted credential is
+    # corrupted. Recovery must fail, rather than accepting the first good key.
+    with sqlite3.connect(recovered) as con:
+        old = con.execute(
+            "SELECT encrypted_key FROM member_gemini_keys "
+            "WHERE project_id='bob-project-002'"
+        ).fetchone()[0]
+        altered = bytearray(old)
+        altered[-1] ^= 1
+        con.execute(
+            "UPDATE member_gemini_keys SET encrypted_key=? "
+            "WHERE project_id='bob-project-002'", (bytes(altered),)
+        )
+    with pytest.raises(BackupRejected, match="cannot decrypt recovered row"):
+        verify_restored_vault(recovered, vault_file)
