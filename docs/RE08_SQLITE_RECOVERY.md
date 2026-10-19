@@ -142,6 +142,53 @@ separate retention/secure disposal policy. The current code does not schedule
 backups, upload to S3/Drive, verify replication to another host, rotate keys or
 restore the production database in place.
 
+### RE-08-VAULT-ESCROW-01 — second key needed after disaster restore
+
+**Two different encryption secrets are required** when the restored SQLite
+contains moderators' encrypted Gemini project API keys:
+
+1. The **binary 32-byte recovery key** for the off-host `.rbe` archive
+   (`ops_backup_crypto`). It restores the SQLite bytes, *not* personal Gemini keys.
+2. The **Base64-encoded 32-byte `gemini_vault_key`** that the restricted
+   API and worker load from protected systemd credentials. This credential
+   is created during the one-time host bootstrap and is **not inside SQLite,
+   `.rbe`, the S3 object or the release wheelhouse**. If it is lost, project
+   credentials already stored in the recovered SQLite cannot be decrypted.
+   Operators would have to revoke and re-enter those keys after restoring
+   books/jobs. No automatic vault-key regeneration or silent rotation is safe.
+
+Both secrets require **separately approved, independently retrievable
+off-host escrow**; do not store either in Git, CI artifacts, Notion, public
+logs, the S3 ciphertext bucket or beside an unprotected plaintext database.
+The `team_tokens_json` systemd credential and any protected OAuth credentials
+needed for actual sign-in/Google Drive are also independent of the SQLite
+archive. Recovering just the database is not full production recovery.
+
+After downloading an authentic S3 `.rbe` and using the separately recovered
+RBE key to `unseal` into a **NEW, offline, operator-owned 0700 directory**,
+copy the independent Gemini vault credential into a *different* private 0700
+directory, with a **0600** file. Then run:
+
+```bash
+python -m chaptera_server.ops_backup_vault \\
+  --database /private/offline-recovery/jobs.sqlite3 \\
+  --vault-key-file /private/escrow-witness/gemini_vault_key
+```
+
+This read-only witness validates SQLite integrity, standalone journal mode
+and every saved Gemini project using authenticated decryption and keyed
+fingerprints. It prints only `vault_escrow=PASS` and
+`projects_checked=<count>`. It returns a nonzero code and redacted
+`vault_escrow=REJECTED` if a key is missing/incorrect, a credential is
+corrupted, no encrypted credentials exist to prove the key, or the target
+could be a live WAL database. It **never outputs recovered API keys**,
+master key bytes, identities, book text or absolute private paths.
+
+The acceptance still requires **independent host and identity**, proof of
+sealed object retention, validated Reader/API behavior, team-key and OAuth
+credential availability and operator-reviewed rollback. An offline CI test
+using disposable keys does not satisfy the live disaster-recovery gate.
+
 Operational acceptance is tracked in
 [ararra #56](https://github.com/Lalalalendia/ararra/issues/56). Passing
 cryptographic tests and rootless VPS smoke is not a substitute for a tested,
