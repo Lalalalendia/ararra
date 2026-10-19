@@ -89,6 +89,7 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="Inspect a job; no OAuth or Drive writes")
     parser.add_argument("--token-file", default="", help="Absolute path for a NEW private OAuth token file")
     parser.add_argument("--client-json", default="", help="Local Desktop OAuth client JSON downloaded from Google Cloud")
+    parser.add_argument("--backup-folder-id", default="", help="Opt in to selecting/checking a third Google Drive backup folder")
     parser.add_argument("--no-browser", action="store_true", help="Print consent link for manual opening on this computer")
     parser.add_argument("--live-smoke", action="store_true", help="Explicitly create and re-edit a synthetic Drive chapter pair")
     parser.add_argument("--enable", action="store_true", help="Opt in to QUEUE ONLY future completed book jobs")
@@ -97,6 +98,8 @@ def main() -> None:
     parser.add_argument("--allow-drive-write", action="store_true", help="Explicit permission for outbox remote mutations")
     parser.add_argument("--retry-held", action="store_true", help="Explicitly requeue one held job after review")
     args = parser.parse_args()
+    if args.backup_folder_id and args.command not in ("drive-authorize", "drive-smoke"):
+        parser.error("--backup-folder-id is only supported for drive-authorize or drive-smoke")
     settings = Settings.from_env()
     logging.basicConfig(level=logging.INFO)
     if args.command == "serve":
@@ -137,6 +140,7 @@ def main() -> None:
                 client_id=client_id,client_secret=client_secret,
                 source_folder_id=source_folder,
                 translation_folder_id=translation_folder,
+                backup_folder_id=args.backup_folder_id,
                 token_file=Path(args.token_file),
                 open_browser=not args.no_browser,
             )
@@ -154,6 +158,8 @@ def main() -> None:
         from .drive_export import GoogleDriveClient, DriveExportError
         if bool(args.client_json) != bool(args.token_file):
             parser.error("For desktop smoke provide BOTH --client-json and --token-file")
+        if args.backup_folder_id and args.live_smoke:
+            parser.error("Backup-folder preflight must be read-only; omit --live-smoke")
         source_folder = os.environ.get("CHAPTERA_DRIVE_SOURCE_FOLDER_ID", "").strip()
         translation_folder = os.environ.get("CHAPTERA_DRIVE_TRANSLATION_FOLDER_ID", "").strip()
         if not source_folder or not translation_folder:
@@ -186,6 +192,10 @@ def main() -> None:
                     client_id=client_id,client_secret=client_secret,
                     refresh_token=refresh_token,http=http,
                 )
+                # Check the new backup destination before any optional source
+                # acceptance. This is read-only and never touches the live DB.
+                if args.backup_folder_id:
+                    drive.check_destination(args.backup_folder_id)
                 receipt = run_drive_acceptance(
                     drive,
                     source_folder_id=source_folder,
@@ -193,6 +203,9 @@ def main() -> None:
                     root_folder_id=os.environ.get("CHAPTERA_DRIVE_ROOT_FOLDER_ID", "").strip(),
                     live=args.live_smoke,
                 )
+                if args.backup_folder_id:
+                    receipt = {**receipt, "backup_folder_access": "PASS",
+                               "backup_folder_id": args.backup_folder_id}
             print(json.dumps(receipt,ensure_ascii=False))
         except (DriveAuthorizationError,DriveExportError) as exc:
             parser.error(str(exc))
