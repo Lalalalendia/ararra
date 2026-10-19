@@ -1,4 +1,4 @@
-"""Owner-mediated first Google Drive authorization for the two existing folders.
+"""Owner-mediated Google Drive authorization for two or three selected folders.
 
 Run on the owner's trusted workstation (not a remote headless VPS).
 Google Picker OnePick grants the desktop OAuth client narrow drive.file
@@ -43,12 +43,16 @@ class ConsentRequest:
 def make_consent_request(
     client_id: str, redirect_uri: str, source_folder_id: str,
     translation_folder_id: str, *,
+    backup_folder_id: str = "",
     verifier: str | None = None, state: str | None = None,
 ) -> ConsentRequest:
-    for folder in (source_folder_id,translation_folder_id):
+    folders = (source_folder_id, translation_folder_id)
+    if backup_folder_id:
+        folders += (backup_folder_id,)
+    for folder in folders:
         GoogleDriveClient._check_id(folder)
-    if source_folder_id == translation_folder_id:
-        raise DriveAuthorizationError("Source and translation folders must differ")
+    if len(set(folders)) != len(folders):
+        raise DriveAuthorizationError("All selected Drive folders must differ")
     if not client_id.strip():
         raise DriveAuthorizationError("Google OAuth client ID is missing")
     url=urlsplit(redirect_uri)
@@ -72,7 +76,7 @@ def make_consent_request(
         "trigger_onepick":"true","allow_multiple":"true",
         "allow_folder_selection":"true",
         "mimetypes":"application/vnd.google-apps.folder",
-        "file_ids":",".join((source_folder_id,translation_folder_id)),
+        "file_ids":",".join(folders),
         "include_granted_scopes":"false",
     }
     return ConsentRequest(
@@ -84,6 +88,7 @@ def make_consent_request(
 def verify_callback(
     callback_path: str, *, state: str,
     source_folder_id: str, translation_folder_id: str,
+    backup_folder_id: str = "",
 ) -> str:
     parsed=urlsplit(callback_path)
     if parsed.path != "/oauth2callback" or parsed.fragment or len(callback_path)>8192:
@@ -96,9 +101,12 @@ def verify_callback(
     if not secrets.compare_digest(query["state"][0],state):
         raise DriveAuthorizationError("OAuth state mismatch")
     picked=query["picked_file_ids"][0].split(",")
-    expected={source_folder_id,translation_folder_id}
-    if len(picked)!=2 or len(set(picked))!=2 or set(picked)!=expected:
-        raise DriveAuthorizationError("Both existing Drive folders must be selected")
+    required=(source_folder_id,translation_folder_id)
+    if backup_folder_id:
+        required+=(backup_folder_id,)
+    expected=set(required)
+    if len(picked)!=len(required) or len(set(picked))!=len(required) or set(picked)!=expected:
+        raise DriveAuthorizationError("All required Drive folders must be selected")
     code=query["code"][0]
     if not code or len(code)>4096:
         raise DriveAuthorizationError("Invalid OAuth authorization code")
@@ -245,8 +253,9 @@ def authorize_owner(
     source_folder_id: str, translation_folder_id: str,
     token_file: Path, open_browser: bool = True,
     client: httpx.Client | None = None,
+    backup_folder_id: str = "",
 ) -> dict:
-    """Local-only consent with state+PKCE, verify both folders, then save token."""
+    """Local consent with state+PKCE: verify all selected folders, then save NEW token."""
     if not client_secret:
         raise DriveAuthorizationError("Configured OAuth client secret is missing")
     if not token_file.is_absolute() or token_file.exists():
@@ -256,12 +265,14 @@ def authorize_owner(
         redirect=f"http://{server.expected_host}/oauth2callback"
         consent=make_consent_request(
             client_id,redirect,source_folder_id,translation_folder_id,
+            backup_folder_id=backup_folder_id,
         )
         server.callback=None
         server.denied=False
         server.state=consent.state
         server.source_folder_id=source_folder_id
         server.translation_folder_id=translation_folder_id
+        server.backup_folder_id=backup_folder_id
         print("Google Drive authorization URL (open on this same workstation):")
         print(consent.url)
         if open_browser:
@@ -292,9 +303,11 @@ def authorize_owner(
         try:
             drive.check_destination(source_folder_id)
             drive.check_destination(translation_folder_id)
+            if backup_folder_id:
+                drive.check_destination(backup_folder_id)
         except DriveExportError as exc:
             raise DriveAuthorizationError(
-                "OAuth did not grant writable access to BOTH selected folders"
+                "OAuth did not grant writable access to ALL required selected folders"
             ) from exc
         save_private_token(token_file,refresh_token)
     finally:
@@ -304,6 +317,7 @@ def authorize_owner(
         "authorized":True,
         "source_folder_id":source_folder_id,
         "translation_folder_id":translation_folder_id,
+        **({"backup_folder_id": backup_folder_id} if backup_folder_id else {}),
         "credential_path":str(token_file),
         "token_printed":False,
     }
@@ -324,6 +338,7 @@ class _ConsentHandler(BaseHTTPRequestHandler):
                 self.path,state=server.state,
                 source_folder_id=server.source_folder_id,
                 translation_folder_id=server.translation_folder_id,
+                backup_folder_id=server.backup_folder_id,
             )
         except DriveAuthorizationError as exc:
             if "cancelled" in str(exc):
@@ -331,7 +346,7 @@ class _ConsentHandler(BaseHTTPRequestHandler):
             self._reply(400,"The Google Drive selection was not accepted")
             return
         server.callback=code
-        self._reply(200,"Both folders selected. Return to the application.")
+        self._reply(200,"All required folders selected. Return to the application.")
 
     def _reply(self,status: int,message: str) -> None:
         body=(message+"\n").encode("utf-8")
