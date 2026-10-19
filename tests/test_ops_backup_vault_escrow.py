@@ -15,6 +15,7 @@ import pytest
 from chaptera_server.library import BookLibrary
 from chaptera_server.ops_backup import BackupRejected, snapshot
 from chaptera_server.ops_backup_crypto import generate_key, seal, unseal
+from chaptera_server.ops_backup_vault import main as vault_cli, verify_restored_vault
 from chaptera_server.personal_gemini_keys import (
     GeminiVaultUnavailable, PersonalGeminiKeys,
 )
@@ -77,6 +78,21 @@ def test_encrypted_disaster_restore_requires_backup_key_and_gemini_vault_key(tmp
     assert not wrong_dest.exists()
 
     recovered = unseal(archive, backup_key, destination / "jobs.sqlite3")
+    # An independent operator should recover the *original* systemd vault
+    # credential from a distinct escrow, never from the .rbe or the RBE key.
+    escrow = _private(tmp_path, "separate-vault-escrow")
+    vault_file = escrow / "gemini_vault_key"
+    vault_file.write_text(vault_master + "\n", encoding="ascii")
+    vault_file.chmod(0o600)
+    wrong_vault_file = escrow / "wrong_vault"
+    wrong_vault_file.write_text(wrong_master, encoding="ascii")
+    wrong_vault_file.chmod(0o600)
+    assert verify_restored_vault(recovered, vault_file) == {
+        "schema": "readera.gemini-vault-recovery.v1", "projects_checked": 1,
+    }
+    with pytest.raises(BackupRejected):
+        verify_restored_vault(recovered, wrong_vault_file)
+
     restored_store = QueueStore(recovered)
     assert BookLibrary(restored_store).get_chapter(
         "synthetic-novel", "first",
