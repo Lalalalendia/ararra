@@ -123,18 +123,21 @@ def test_job_persists_selected_order_restart_and_selected_only_export(tmp_path):
         expected_selection_sha256=None)
     created=jobs.create("alice",discovered["catalog_id"],cat,[3,1],
         idempotency_key="ordered-3-1",preserve_order=True,
-        selection_sha256=saved["selection_sha256"])
+        selection_sha256=saved["selection_sha256"],
+        selection_id=saved["selection_id"])
     assert created["selection_mode"]=="ordered"
     assert created["selected_ordinals"]==[3,1]
     assert created["total"]==2
     assert (created["selected_start"],created["selected_end"])==(1,3)
     assert jobs.create("alice",discovered["catalog_id"],cat,[3,1],
         idempotency_key="ordered-3-1",preserve_order=True,
-        selection_sha256=saved["selection_sha256"])["job_id"]==created["job_id"]
+        selection_sha256=saved["selection_sha256"],
+        selection_id=saved["selection_id"])["job_id"]==created["job_id"]
     with pytest.raises(SourceJobConflict,match="Idempotency"):
         jobs.create("alice",discovered["catalog_id"],cat,[1,3],
             idempotency_key="ordered-3-1",preserve_order=True,
-            selection_sha256=saved["selection_sha256"])
+            selection_sha256=saved["selection_sha256"],
+        selection_id=saved["selection_id"])
     one=jobs.claim()
     assert one["chapter"]["ordinal"]==3 and one["item_index"]==0
     jobs.finish(one["job_id"],one["lease_token"],body=("Original third source. "*20))
@@ -267,3 +270,17 @@ def test_ordered_selection_api_stage_and_book_index_are_in_user_order(tmp_path):
             assert result.headers["x-readera-source-scope"]=="selected_catalog_selection_only"
             assert result.content.index(b"chapter 3")<result.content.index(b"chapter 1")
     asyncio.run(scenario())
+
+
+def test_ordered_job_rejects_changed_persisted_selection_digest(tmp_path):
+    store,_,selections,jobs,cat,discovered=create_fixture(tmp_path)
+    saved=selections.save("alice",discovered["catalog_id"],cat,[3,1],
+        expected_catalog_sha256=cat.catalog_sha256,expected_selection_sha256=None)
+    created=jobs.create("alice",discovered["catalog_id"],cat,[3,1],
+        preserve_order=True,selection_sha256=saved["selection_sha256"],
+        selection_id=saved["selection_id"])
+    with store._connect() as con:
+        con.execute("UPDATE source_collect_jobs SET selection_sha256=? WHERE id=?",
+                    ("0"*64,created["job_id"]))
+    with pytest.raises(SourceJobConflict,match="Ordered selection digest"):
+        jobs.get("alice",created["job_id"])

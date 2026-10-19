@@ -14,7 +14,9 @@ Issue: https://github.com/Lalalalendia/ararra/issues/96
    ordered_ordinals, expected_catalog_sha256 and optional CAS
    expected_selection_sha256. The server accepts only ordinals belonging
    to the immutable actor-owned catalog; SHA256 covers version, catalog
-   fingerprint and exact **ordered** selection. The 30-minute catalog expiry
+   fingerprint and exact **ordered** selection. Job creation also rechecks
+   catalog expiry and the plan CAS inside the same SQLite write transaction,
+   closing the change-between-lookup-and-insert race. The 30-minute catalog expiry
    also bounds the plan. GET /v1/source-books/selections/recent can restore
    the last live plan after refresh without browser-side credential storage.
 4. Confirm: POST /v1/source-books/jobs using selection_id and
