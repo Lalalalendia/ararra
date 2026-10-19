@@ -106,7 +106,10 @@ def verify_callback(
         required+=(backup_folder_id,)
     expected=set(required)
     if len(picked)!=len(required) or len(set(picked))!=len(required) or set(picked)!=expected:
-        raise DriveAuthorizationError("All required Drive folders must be selected")
+        raise DriveAuthorizationError(
+            "All THREE Drive folders must be selected" if backup_folder_id
+            else "Both existing Drive folders must be selected"
+        )
     code=query["code"][0]
     if not code or len(code)>4096:
         raise DriveAuthorizationError("Invalid OAuth authorization code")
