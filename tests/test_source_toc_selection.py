@@ -133,11 +133,19 @@ def test_job_persists_selected_order_restart_and_selected_only_export(tmp_path):
         idempotency_key="ordered-3-1",preserve_order=True,
         selection_sha256=saved["selection_sha256"],
         selection_id=saved["selection_id"])["job_id"]==created["job_id"]
-    with pytest.raises(SourceJobConflict,match="Idempotency"):
+    with pytest.raises(SourceJobConflict,match="Saved selection changed"):
         jobs.create("alice",discovered["catalog_id"],cat,[1,3],
             idempotency_key="ordered-3-1",preserve_order=True,
             selection_sha256=saved["selection_sha256"],
-        selection_id=saved["selection_id"])
+            selection_id=saved["selection_id"])
+    modified=selections.save("alice",discovered["catalog_id"],cat,[1,3],
+        expected_catalog_sha256=cat.catalog_sha256,
+        expected_selection_sha256=saved["selection_sha256"])
+    with pytest.raises(SourceJobConflict,match="Idempotency"):
+        jobs.create("alice",discovered["catalog_id"],cat,[1,3],
+            idempotency_key="ordered-3-1",preserve_order=True,
+            selection_sha256=modified["selection_sha256"],
+            selection_id=modified["selection_id"])
     one=jobs.claim()
     assert one["chapter"]["ordinal"]==3 and one["item_index"]==0
     jobs.finish(one["job_id"],one["lease_token"],body=("Original third source. "*20))
