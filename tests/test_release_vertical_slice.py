@@ -209,7 +209,10 @@ def test_book_link_to_batch_to_draft_qa_and_both_export_boundaries(tmp_path):
 
             states = [(await client.get(f"/v1/jobs/{jid}", headers=MOD)).json()
                       for jid in ids]
-            assert all(job["status"] == "completed" for job in states), [\n                {"id": j["id"], "status": j["status"], "error": j.get("error"),\n                 "events": QueueStore(db_path).events(j["id"])} for j in states\n            ]
+            assert all(job["status"] == "completed" for job in states), [
+                {"id": j["id"], "status": j["status"], "error": j.get("error"),
+                 "events": QueueStore(db_path).events(j["id"])} for j in states
+            ]
             assert "Мир горит." in states[0]["translated_html"]
             assert "Небо плачет." in states[1]["translated_html"]
 
