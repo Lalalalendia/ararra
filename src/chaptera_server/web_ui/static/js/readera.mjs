@@ -363,7 +363,8 @@ function stageShown(stage) {
   $('import-book-id').value='book-'+stage.stage_id.slice(0,8);
   $('import-book-title').value=stage.preview.title || '';
   $('stage-details').textContent=stage.preview.filename+' · '+stage.preview.chapter_count+
-    ' глав · ID временной сессии: '+stage.stage_id+
+    ' записей (сюжетных глав: '+(stage.preview.story_chapter_count ?? stage.preview.chapter_count)+
+    ') · ID временной сессии: '+stage.stage_id+
     ' · истекает '+new Date(stage.expires_at*1000).toLocaleString('ru-RU');
   $('prefix-fieldset').hidden=!stage.unassigned_prefix_saved;
   $('prefix-preview').value=stage.unassigned_prefix_html || stage.preview.unassigned_prefix_sample || '';
@@ -409,13 +410,16 @@ function renderMapping() {
     const tr=document.createElement('tr');
     const info=document.createElement('td');
     text(info,'#'+row.sequence+' · '+row.title,'strong');
-    text(info,row.detected_number===null?'Без номера':'Глава '+row.detected_number,'small');
+    const kind=row.entry_type==='extra'?'Дополнительная запись':
+      row.entry_type==='service'?'Служебная запись':'Сюжетная глава';
+    text(info,kind+' · '+(row.detected_number===null?'Без номера':'№ '+row.detected_number),'small');
     text(info,shorten(row.sample,90),'small');
     tr.append(info);
     const cellAction=document.createElement('td');
     const select=document.createElement('select');select.className='ui-input';
     select.setAttribute('aria-label','Действие главы '+row.sequence);
-    for (const [value,label] of [['create','Создать'],['replace','Заменить'],['skip','Пропустить']]){
+    for (const [value,label] of [['review','Требует решения'],['create','Создать'],['replace','Заменить'],['skip','Пропустить']]){
+      if(value==='review'&&row.action!=='review')continue;
       const option=document.createElement('option');option.value=value;option.textContent=label;
       option.selected=value===row.action;
       option.disabled=value==='replace'&&document.querySelector('input[name="book_mode"]:checked')?.value==='create';
@@ -440,9 +444,9 @@ function renderMapping() {
       tdEl.append(input);tr.append(tdEl);
     }
     const revision=document.createElement('td');
-    const status=text(revision,row.action==='replace'
+    const status=text(revision,row.action==='review'?'Нужно решение':row.action==='replace'
       ? (row.expected_revision===null?'Не проверена':'rev '+row.expected_revision)
-      : 'Новая','span');
+      : row.action==='skip'?'Пропуск':'Новая','span');
     status.dataset.revNote='';
     if(row.action==='replace') {
       const check=text(revision,'Проверить','button');
