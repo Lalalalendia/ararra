@@ -1,4 +1,4 @@
-import {verifySha256} from './book-export-view.mjs';
+import {createSourceJobTxtView} from './source-job-txt-view.mjs';
 import {createSourceJobHistoryView} from './source-job-history-view.mjs';
 /* Durable source collection UI, isolated from the 20-chapter quick import.
  * No credentials, job content or tokens are stored in the browser.
@@ -16,32 +16,28 @@ export function createSourceJobView({request,flash,onStage,getCatalog}) {
   const stage=$('source-job-stage');
   const retry=$('source-job-retry');
   const cancel=$('source-job-cancel');
-  const checkTxt=$('source-job-check-txt');
-  const downloadTxt=$('source-job-download-txt');
-  const txtStatus=$('source-job-txt-status');
   let current=null;
   let sessionGeneration=0;
   let busy=false;
-  let txtReceipt=null;
   const history=createSourceJobHistoryView({
     request,flash,onOpen:jobId=>load(jobId),
     onDelete:jobId=>{if(current?.job_id===jobId)reset();},
   });
-  function invalidateTxt(){
-    txtReceipt=null;
-    downloadTxt.disabled=true;
-  }
+  const txt=createSourceJobTxtView({
+    request,flash,getCurrent:()=>current,isBusy:()=>busy,
+    setBusy:value=>setBusy(value),
+  });
+  function invalidateTxt(){txt.invalidate();}
   function setBusy(value){
     busy=value;
-    for(const button of [create,refresh,stage,retry,cancel,checkTxt,downloadTxt]){
-      button.disabled=value || (button===downloadTxt && !txtReceipt);
-    }
+    for(const button of [create,refresh,stage,retry,cancel])button.disabled=value;
+    txt.setDisabled(value);
   }
   function render(job){
     const changed=current?.job_id!==job.job_id;
     current=job;id.value=job.job_id;
     invalidateTxt();
-    txtStatus.textContent='Проверка полного исходника ещё не выполнена.';
+    txt.reset();
     if(changed){
       if(job.selection_mode==='ordered'){
         from.value='1';
@@ -77,7 +73,7 @@ export function createSourceJobView({request,flash,onStage,getCatalog}) {
     sessionGeneration+=1;
     current=null;id.value='';actions.hidden=true;
     invalidateTxt();
-    txtStatus.textContent='Проверка полного исходника ещё не выполнена.';
+    txt.reset();
     state.textContent='Фоновое задание ещё не выбрано.';
   }
   async function load(jobId){
@@ -206,76 +202,6 @@ export function createSourceJobView({request,flash,onStage,getCatalog}) {
         flash('Готовые исходники переданы в проверяемый импорт. Подтвердите назначения глав.');
       }catch(err){flash(err.message,true);}
       finally{setBusy(false);}
-    })();
-  });
-  checkTxt.addEventListener('click',()=>{
-    if(!current||busy)return;
-    const jobId=current.job_id;
-    invalidateTxt();
-    void (async()=>{
-      setBusy(true);
-      txtStatus.textContent='Проверка SHA-256 каждой сохранённой главы…';
-      try {
-        const report=await request('/v1/source-books/jobs/'+encodeURIComponent(jobId)+'/assembly');
-        if(current?.job_id!==jobId)return;
-        if(report.ready && /^[a-f0-9]{64}$/.test(report.content_sha256||'')){
-          if(!['selected_catalog_range_only','selected_catalog_selection_only'].includes(report.scope))
-            throw new Error('Неизвестная область исходников');
-          txtReceipt={jobId,manifest:report.manifest_sha256,
-            sha:report.content_sha256,bytes:report.content_bytes,scope:report.scope,
-            source:report.source,from:report.start_ordinal,to:report.end_ordinal};
-          txtStatus.textContent='Готово: '+report.verified_count+'/'+report.selected_count+
-            ' глав, '+report.content_bytes+' байт. Полон только подтверждённый набор.';
-        }else{
-          const problems=(report.issues||[]).slice(0,8)
-            .map(x=>(x.ordinal===null?'Сбор':('Глава '+x.ordinal))+
-              ': '+x.code).join('; ');
-          txtStatus.textContent='TXT заблокирован: проверено '+report.verified_count+
-            '/'+report.selected_count+', пропусков '+report.missing_count+
-            ', недоступных '+report.failed_count+', повреждённых '+
-            report.damaged_count+'. '+problems;
-        }
-      }catch(err){txtStatus.textContent='Проверка TXT не завершена.';flash(err.message,true);}
-      finally{setBusy(false);}
-    })();
-  });
-  downloadTxt.addEventListener('click',()=>{
-    if(!current||busy||!txtReceipt||current.job_id!==txtReceipt.jobId)return;
-    const receipt=txtReceipt;
-    void (async()=>{
-      setBusy(true);
-      txtStatus.textContent='Получение файла и проверка SHA-256 в браузере…';
-      try{
-        const url='/v1/source-books/jobs/'+encodeURIComponent(receipt.jobId)+
-          '/export.txt?expected_manifest_sha256='+receipt.manifest+
-          '&expected_content_sha256='+receipt.sha;
-        const response=await request(url,{responseType:'raw'});
-        if(response.headers.get('X-ReadEra-Manifest-SHA256')!==receipt.manifest ||
-          response.headers.get('X-ReadEra-Source-Scope')!==receipt.scope)
-          throw new Error('Не совпадает подтверждение выбранного диапазона.');
-        const data=await response.arrayBuffer();
-        if(data.byteLength!==receipt.bytes)
-          throw new Error('Полученный файл имеет неправильный размер.');
-        await verifySha256(data,receipt.sha);
-        if(current?.job_id!==receipt.jobId)return;
-        const blob=new Blob([data],{type:'text/plain;charset=utf-8'});
-        const blobUrl=URL.createObjectURL(blob);
-        const a=document.createElement('a');
-        const site=String(receipt.source||'source').replace(/[^a-z0-9_-]/gi,'').slice(0,25)||'source';
-        a.download='readera-original-'+site+'-'+
-          (receipt.scope==='selected_catalog_selection_only'?'selected':
-            receipt.from+'-'+receipt.to)+'.txt';
-        a.href=blobUrl;document.body.append(a);
-        try{a.click();}finally{
-          a.remove();setTimeout(()=>URL.revokeObjectURL(blobUrl),30000);
-        }
-        txtStatus.textContent='TXT проверен по SHA-256 и передан браузеру. Это исходный текст.';
-        flash('Исходный TXT собран из всех проверенных выбранных глав.');
-      }catch(err){
-        invalidateTxt();
-        txtStatus.textContent='Выгрузка отклонена. Проверьте полноту повторно.';
-        flash(err.message,true);
-      }finally{setBusy(false);}
     })();
   });
   return {reset,render,createFromSelection};
