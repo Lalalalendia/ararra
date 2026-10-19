@@ -72,6 +72,14 @@ class PersonalGeminiKeys:
                 );
                 CREATE INDEX IF NOT EXISTS ix_member_gemini_keys_member
                     ON member_gemini_keys(member_id, project_id);
+                CREATE TABLE IF NOT EXISTS member_gemini_budgets (
+                    project_id TEXT PRIMARY KEY
+                        REFERENCES member_gemini_keys(project_id) ON DELETE CASCADE,
+                    member_id TEXT NOT NULL,
+                    daily_request_cap INTEGER NOT NULL
+                        CHECK(daily_request_cap BETWEEN 1 AND 1000000),
+                    updated_at REAL NOT NULL
+                );
             """)
 
     @property
@@ -86,13 +94,17 @@ class PersonalGeminiKeys:
     def list_for(self, member_id: str) -> dict:
         with self.store._connect() as con:
             rows = con.execute(
-                "SELECT project_id, updated_at FROM member_gemini_keys "
-                "WHERE member_id=? ORDER BY project_id", (member_id,)
+                "SELECT k.project_id,k.updated_at,b.daily_request_cap "
+                "FROM member_gemini_keys AS k LEFT JOIN member_gemini_budgets AS b "
+                "ON b.project_id=k.project_id AND b.member_id=k.member_id "
+                "WHERE k.member_id=? ORDER BY k.project_id", (member_id,)
             ).fetchall()
         return {
             "configured": self.configured,
             "projects": [
-                {"project_id": str(row["project_id"]), "updated_at": float(row["updated_at"])}
+                {"project_id": str(row["project_id"]), "updated_at": float(row["updated_at"]),
+                 "daily_request_cap": int(row["daily_request_cap"])
+                 if row["daily_request_cap"] is not None else None}
                 for row in rows
             ],
         }
@@ -132,6 +144,47 @@ class PersonalGeminiKeys:
                     updated_at=excluded.updated_at
             """, (project_id, member_id, nonce, ciphertext, fingerprint, now, now))
         return {"project_id": project_id, "updated_at": now}
+
+    @staticmethod
+    def _budget_in_transaction(con: sqlite3.Connection, member_id: str,
+                               project_id: str) -> int:
+        """Lookup local cap under the same transaction as a paid-call reservation."""
+        row = con.execute(
+            "SELECT b.daily_request_cap FROM member_gemini_budgets AS b "
+            "JOIN member_gemini_keys AS k ON k.project_id=b.project_id "
+            "WHERE b.project_id=? AND b.member_id=? AND k.member_id=?",
+            (project_id, member_id, member_id),
+        ).fetchone()
+        return int(row["daily_request_cap"]) if row else 0
+
+    def daily_cap_for(self, member_id: str, project_id: str) -> int:
+        with self.store._connect() as con:
+            return self._budget_in_transaction(con, member_id, project_id)
+
+    def set_daily_cap(self, member_id: str, project_id: str, limit: int) -> dict:
+        """Moderator's conservative *local* RPD cap; never a Google entitlement."""
+        self._require_key()
+        if type(limit) is not int or not 1 <= limit <= 1_000_000:
+            raise ValueError("Daily request cap must be between 1 and 1000000")
+        now = time.time()
+        with self.store._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            owns = con.execute(
+                "SELECT 1 FROM member_gemini_keys WHERE member_id=? AND project_id=?",
+                (member_id, project_id),
+            ).fetchone()
+            if not owns:
+                raise GeminiKeyMissing("Gemini project was not found")
+            con.execute("""
+                INSERT INTO member_gemini_budgets
+                    (project_id,member_id,daily_request_cap,updated_at)
+                VALUES (?,?,?,?)
+                ON CONFLICT(project_id) DO UPDATE SET
+                    daily_request_cap=excluded.daily_request_cap,
+                    updated_at=excluded.updated_at
+            """, (project_id, member_id, limit, now))
+        return {"project_id": project_id, "daily_request_cap": limit,
+                "updated_at": now}
 
     def delete(self, member_id: str, project_id: str) -> None:
         self._require_key()

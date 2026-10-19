@@ -40,7 +40,9 @@ def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.store = repo
     app.state.library = BookLibrary(repo)
-    app.state.translation_batches = TranslationBatches(repo, app.state.library)
+    app.state.translation_batches = TranslationBatches(
+        repo, app.state.library, require_personal_budget=bool(settings.gemini_vault_key),
+    )
     app.state.import_sessions = ImportSessions(repo)
     app.state.source_catalog_store = SourceCatalogStore(repo)
     app.state.source_job_store = SourceJobStore(

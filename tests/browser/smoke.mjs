@@ -106,6 +106,13 @@ try{
   await page.locator('#gemini-key-form [name="api_key"]').fill(cabinetSecret);
   await page.locator('#gemini-key-form button[type="submit"]').click();
   await page.getByText('readera-browser-project · ключ сохранён').waitFor();
+  await page.getByText('Предел не установлен: автоматические запросы Gemini',{exact:false}).waitFor();
+  await page.locator('#gemini-keys-list .gemini-budget-form input').fill('3');
+  await page.locator('#gemini-keys-list .gemini-budget-form button[type="submit"]').click();
+  await page.getByText('Локально учтено 0 из 3',{exact:false}).waitFor();
+  const privateQuota=await api('/v1/me/gemini-keys',adminKey);
+  assert.equal(privateQuota.data.projects[0].daily_request_cap,3);
+  assert.equal(privateQuota.data.projects[0].local_quota.provider_remaining_known,false);
   assert.equal(await page.locator('#gemini-key-form [name="api_key"]').inputValue(),'');
   assert.equal((await page.locator('#gemini-keys-list').innerText()).includes(cabinetSecret),false);
   await page.reload();
@@ -860,6 +867,27 @@ try{
     .getByRole('button',{name:'Пакетный перевод книги Экспортная книга'});
   const batchEndpoint='/v1/books/export-fixture/translation-batches';
   const initialJobs=(await api('/v1/jobs?limit=50',adminKey)).data.jobs.length;
+  // No personal Google-project cap => NO batch admission or paid traffic.
+  await batchButton().click();
+  const uncappedDialog=page.locator('#book-batch-dialog');
+  await uncappedDialog.locator('#book-batch-chapters input').first().waitFor();
+  await uncappedDialog.locator('#book-batch-select-all').click();
+  await uncappedDialog.locator('#book-batch-preview').click();
+  await uncappedDialog.locator('#book-batch-status')
+    .getByText(/нет локального суточного лимита/).waitFor();
+  assert.equal(await uncappedDialog.locator('#book-batch-submit').isDisabled(),true);
+  assert.equal((await api('/v1/jobs?limit=50',adminKey)).data.jobs.length,initialJobs);
+  await uncappedDialog.getByRole('button',{name:'Закрыть'}).click();
+  await uncappedDialog.waitFor({state:'hidden'});
+  // The admin explicitly authorizes a LOCAL cap; no real Gemini calls.
+  const testProject='readera-browser-budget';
+  const savedBudgetKey=await api('/v1/me/gemini-keys',adminKey,'POST',{
+    project_id:testProject,api_key:'AIzaTEST_readera_budget_key_01234567890',
+  });
+  assert.equal(savedBudgetKey.status,201);
+  const savedCap=await api('/v1/me/gemini-keys/'+testProject+'/daily-cap',
+    adminKey,'PUT',{daily_request_cap:3});
+  assert.equal(savedCap.status,200);
   await batchButton().click();
   const batchDialog=page.locator('#book-batch-dialog');
   await batchDialog.waitFor({state:'visible'});

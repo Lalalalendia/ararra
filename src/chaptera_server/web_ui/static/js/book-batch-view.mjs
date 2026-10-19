@@ -183,6 +183,12 @@ export function createBookBatchView({
       if(!activeFor(ticket,book) || selectionVersion!==selectionRevision)return;
       if(!/^[a-f0-9]{64}$/.test(result.manifest_sha256) || result.chapter_count!==payload.chapters.length)
         throw new Error('Сервер вернул некорректное подтверждение партии.');
+      if(result.personal_budget_ready===false){
+        // No queue operation and no paid call: fail closed before consent.
+        status.textContent='У вашего Gemini-проекта нет локального суточного лимита. '+
+          'Установите предел RPD в личном кабинете и повторите проверку.';
+        return;
+      }
       receipt={payload,sha:result.manifest_sha256,key:crypto.randomUUID()};
       review.hidden=false;
       reviewSummary.textContent='Проверены '+result.chapter_count+

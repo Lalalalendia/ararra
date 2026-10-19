@@ -307,7 +307,11 @@ class QueueStore:
             eligible_key = """
                 AND EXISTS (
                     SELECT 1 FROM member_gemini_keys AS credentials
+                    JOIN member_gemini_budgets AS budget
+                      ON budget.project_id=credentials.project_id
+                     AND budget.member_id=credentials.member_id
                     WHERE credentials.member_id=jobs.actor_id
+                      AND budget.daily_request_cap > 0
                 )
                 AND NOT EXISTS (
                     SELECT 1 FROM team_access_credentials AS disabled

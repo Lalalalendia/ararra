@@ -9,7 +9,7 @@ from __future__ import annotations
 from .config import Settings
 from .personal_gemini_keys import PersonalGeminiKeys, GeminiKeyMissing
 from .provider import GeminiProvider, ProviderFailure
-from .quota import DailyQuotaLedger, QuotaControlledProvider
+from .quota import DailyQuotaLedger, QuotaControlledProvider, read_daily_quota_status
 from .scheduled_provider import ScheduledGeminiProvider
 from .storage import QueueStore
 from .team_credentials import TeamCredentials
@@ -57,13 +57,18 @@ class MemberGeminiProviders:
         if not self.keys.configured:
             raise ValueError("Personal Gemini mode requires a protected vault key")
         self.credentials = TeamCredentials(store)
-        self._providers: dict[str, tuple[str, ScheduledGeminiProvider]] = {}
+        self._providers: dict[str, tuple[str, int, ScheduledGeminiProvider]] = {}
         self._rotation: dict[str, int] = {}
 
     def _provider(self, member: str, project: str, fingerprint: str) -> ScheduledGeminiProvider:
+        user_cap = self.keys.daily_cap_for(member, project)
+        if user_cap <= 0:
+            raise GeminiKeyMissing("Moderator has not configured a project daily cap")
+        host_cap = self.settings.gemini_requests_per_day
+        effective_cap = min(user_cap, host_cap) if host_cap else user_cap
         previous = self._providers.get(project)
-        if previous and previous[0] == fingerprint:
-            return previous[1]
+        if previous and previous[:2] == (fingerprint, effective_cap):
+            return previous[2]
         # Only the worker resolves plaintext, and never passes it to web UI.
         key = self.keys.resolve(member, project, fingerprint)
         output_tokens = (max(1, int(self.settings.gemini_reserved_output_tokens * 0.98))
@@ -73,12 +78,18 @@ class MemberGeminiProviders:
             max_output_tokens=output_tokens,
             stream_atoms=self.settings.gemini_stream_atoms,
         )
-        if self.settings.gemini_requests_per_day:
-            ledger = DailyQuotaLedger(
-                self.store, project, self.settings.gemini_model,
-                self.settings.gemini_requests_per_day,
-            )
-            provider = QuotaControlledProvider(provider, ledger)
+        # Every personal-key request (context, chapter, repairs) now uses the
+        # existing durable project+model ledger, with a moderator-entered cap.
+        # It cannot be raised above a separately configured host ceiling.
+        def live_cap(con):
+            value = self.keys._budget_in_transaction(con, member, project)
+            return min(value, host_cap) if host_cap else value
+
+        ledger = DailyQuotaLedger(
+            self.store, project, self.settings.gemini_model,
+            effective_cap, limit_reader=live_cap,
+        )
+        provider = QuotaControlledProvider(provider, ledger)
         # Check revocation again AFTER the desktop scheduler has admitted
         # the call, immediately before spending RPD / sending Gemini HTTP.
         provider = _BoundMemberProvider(
@@ -91,7 +102,7 @@ class MemberGeminiProviders:
             reserved_output_tokens=self.settings.gemini_reserved_output_tokens,
         )
         # Replaced credentials do not keep their old scheduler/provider in memory.
-        self._providers[project] = (fingerprint, result)
+        self._providers[project] = (fingerprint, effective_cap, result)
         return result
 
     def for_job(self, job: dict):
@@ -99,9 +110,22 @@ class MemberGeminiProviders:
         actor = job["actor_id"]
         if not self.credentials.is_active(actor, self.settings):
             raise GeminiKeyMissing("Moderator account is inactive")
-        choices = self.keys.choices(actor)
-        if not choices:
-            raise GeminiKeyMissing("Moderator has not added a Gemini key")
+        capped = [(project, fingerprint, cap)
+                  for project, fingerprint in self.keys.choices(actor)
+                  if (cap := self.keys.daily_cap_for(actor, project)) > 0]
+        if not capped:
+            raise GeminiKeyMissing("Moderator has no project with an explicit daily cap")
+        # Reuse still-available personal allowance before Pacific midnight.
+        # This is a read-only choice, never a second scheduler or reservation.
+        host_cap = self.settings.gemini_requests_per_day
+        available = [
+            (project, fingerprint) for project, fingerprint, cap in capped
+            if read_daily_quota_status(
+                self.store, project, self.settings.gemini_model,
+                min(cap, host_cap) if host_cap else cap,
+            )["remaining"] > 0
+        ]
+        choices = available or [(project, fingerprint) for project, fingerprint, _ in capped]
         position = self._rotation.get(actor, 0) % len(choices)
         self._rotation[actor] = (position + 1) % len(choices)
         project, fingerprint = choices[position]

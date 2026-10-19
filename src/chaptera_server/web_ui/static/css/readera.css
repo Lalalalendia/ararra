@@ -413,3 +413,15 @@ body:not([data-auth-ready="1"]) #login-form {
   .source-shared-controls {grid-template-columns:minmax(0,1fr) minmax(0,1fr);}
   .source-shared-controls > .ui-field {grid-column:1/-1;}
 }
+
+
+/* Per-project local RPD cap. Google-side usage is not inferred. */
+.gemini-project-controls {flex:1 1 320px;min-width:0;display:grid;gap:10px;}
+.gemini-budget-form {display:flex;flex-wrap:wrap;gap:10px;align-items:end;}
+.gemini-budget-form .ui-field {flex:1 1 200px;max-width:280px;}
+.gemini-budget-form .ui-button {flex:0 0 auto;}
+.gemini-budget-form .muted {flex:1 1 100%;margin:0;overflow-wrap:anywhere;}
+@media(max-width:540px){
+  .gemini-budget-form .ui-field {max-width:100%;}
+  .gemini-budget-form .ui-button {flex:1 1 100%;}
+}

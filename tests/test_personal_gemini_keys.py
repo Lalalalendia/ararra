@@ -187,6 +187,9 @@ def test_existing_sqlite_backlog_only_claims_mods_with_personal_keys(tmp_path):
     assert store.claim_next(require_personal_key=True) is None
     assert store.get_job(unready["id"])["attempts"] == 0
     keys.put("alice", "alice-project-001", KEY_ALICE)
+    # Having a credential alone does not authorize unbounded paid calls.
+    assert store.claim_next(require_personal_key=True) is None
+    keys.set_daily_cap("alice", "alice-project-001", 21)
     chosen, lease = store.claim_next(require_personal_key=True)
     assert chosen["id"] == work["id"]
     assert chosen["actor_id"] == "alice"
@@ -202,6 +205,12 @@ def test_per_member_provider_isolation_rotation_and_no_paid_keyless_job(tmp_path
     keys.put("alice", "alice-project-001", KEY_ALICE)
     keys.put("bob", "bob-project-002", KEY_BOB)
     keys.put("alice", "alice-project-003", KEY_ALICE2)
+    for member, project in (
+        ("alice", "alice-project-001"),
+        ("bob", "bob-project-002"),
+        ("alice", "alice-project-003"),
+    ):
+        keys.set_daily_cap(member, project, 21)
     used = []
 
     class FakeGemini:
@@ -251,6 +260,7 @@ def test_deleted_key_during_claim_preserves_queue_retry_budget(tmp_path, monkeyp
     store = QueueStore(conf.db_path)
     keys = PersonalGeminiKeys(store, MASTER)
     keys.put("alice", "alice-project-001", KEY_ALICE)
+    keys.set_daily_cap("alice", "alice-project-001", 21)
     router = MemberGeminiProviders(store, conf, keys)
     job = store.create_job("alice", JobSpec("one", "<p>x</p>"))
     def lose_key(_job):
