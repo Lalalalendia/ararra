@@ -28,7 +28,7 @@ def _private(root: Path, name: str) -> Path:
     return folder
 
 
-def test_encrypted_disaster_restore_requires_backup_key_and_gemini_vault_key(tmp_path):
+def test_encrypted_disaster_restore_requires_backup_key_and_gemini_vault_key(tmp_path, capsys):
     db = tmp_path / "host-lost.sqlite3"
     store = QueueStore(db)
     library = BookLibrary(store)
@@ -92,6 +92,22 @@ def test_encrypted_disaster_restore_requires_backup_key_and_gemini_vault_key(tmp
     }
     with pytest.raises(BackupRejected):
         verify_restored_vault(recovered, wrong_vault_file)
+
+    assert vault_cli([
+        "--database", str(recovered), "--vault-key-file", str(vault_file),
+    ]) == 0
+    output = capsys.readouterr()
+    assert output.out == "vault_escrow=PASS\\nprojects_checked=1\\n".replace("\\n", "\n")
+    assert not output.err
+    assert test_api_key not in output.out and vault_master not in output.out
+
+    assert vault_cli([
+        "--database", str(recovered), "--vault-key-file", str(wrong_vault_file),
+    ]) == 2
+    rejected = capsys.readouterr()
+    assert rejected.err == "vault_escrow=REJECTED\\n".replace("\\n", "\n")
+    assert rejected.out == ""
+    assert test_api_key not in rejected.err
 
     restored_store = QueueStore(recovered)
     assert BookLibrary(restored_store).get_chapter(
