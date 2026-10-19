@@ -293,8 +293,8 @@ def test_book_link_to_batch_to_draft_qa_and_both_export_boundaries(tmp_path):
             assert hashlib.sha256(result.content).hexdigest() == (
                 result.headers["x-readera-content-sha256"]
             )
-            assert result.text.count("Глава 1") == 1
-            assert result.text.count("Глава 2") == 1
+            assert result.text.startswith("Глава 1\n\n")
+            assert "\n\nГлава 2\n\n" in result.text
             assert "Мир горит." in result.text
             assert "Небо плачет." in result.text
 
