@@ -1,6 +1,6 @@
 /* Actor-scoped server history; job IDs stay in server-backed state, no browser secrets.
- * Deleting a completed source job frees its crawler checkpoints only; it
- * cannot delete an imported book, stage, or accepted translation.
+ * Deleting a completed personal job retains its verified originals in the
+ * shared immutable archive, with no effect on BookLibrary translations.
  */
 export function createSourceJobHistoryView({request,flash,onOpen,onDelete}) {
   const $=id=>document.getElementById(id);
@@ -45,8 +45,12 @@ export function createSourceJobHistoryView({request,flash,onOpen,onDelete}) {
         book=decodeURIComponent(path.at(-1)||'книга').replace(/[-_]+/g,' ').slice(0,60);
       }catch{/* Only server-verified public book URLs are expected. */}
       option.title=String(job.book_url||'');
+      const waiting=job.status==='queued' && Number.isFinite(job.next_attempt_at) &&
+        job.next_attempt_at>Date.now()/1000
+        ?' · пауза до '+new Date(job.next_attempt_at*1000).toLocaleTimeString('ru-RU')
+        :'';
       option.textContent=source+' · '+book+' · '+job.selected_start+'–'+job.selected_end+
-        ' · '+(stateNames[job.status]||job.status)+' · '+job.completed+'/'+job.total+
+        ' · '+(stateNames[job.status]||job.status)+waiting+' · '+job.completed+'/'+job.total+
         ' · '+time;
       picker.append(option);
     }
@@ -116,8 +120,9 @@ export function createSourceJobHistoryView({request,flash,onOpen,onDelete}) {
     const job=selected();
     if(!job||!finished.has(job.status))return;
     if(!window.confirm(
-      'Безвозвратно удалить сохранённые исходники выбранного задания? '+
-      'Уже импортированные главы в библиотеке Эриды останутся.'))return;
+      'Удалить личное задание парсера? Проверенные исходники сохранятся '+
+      'в общем архиве команды, а импортированные главы — в библиотеке. '+
+      'Если архив заполнен, удаление будет отклонено.'))return;
     void (async()=>{
       busy=true;controls();
       try {
@@ -128,9 +133,10 @@ export function createSourceJobHistoryView({request,flash,onOpen,onDelete}) {
         if(response.deleted!==true||response.job_id!==job.job_id)
           throw new Error('Сервер не подтвердил очистку выбранного задания.');
         onDelete(job.job_id);
-        status.textContent='Удалено контрольных точек: '+response.deleted_checkpoints+
-          '; байт исходников: '+response.freed_source_bytes+'.';
-        flash('Сохранённые исходники задания удалены; библиотека не изменена.');
+        status.textContent='Удалено точек личного задания: '+response.deleted_checkpoints+
+          '; освобождено из квоты модератора: '+response.freed_source_bytes+
+          ' байт; сохранено в общем архиве: '+(response.archived_verified_chapters??0)+'.';
+        flash('Задание удалено; проверенные тексты сохранены в общем архиве.');
       }catch(err){flash(err.message,true);}
       finally{
         busy=false;controls();

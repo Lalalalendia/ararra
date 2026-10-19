@@ -11,7 +11,7 @@ from fastapi.routing import APIRoute
 from chaptera_server.api import create_app
 from chaptera_server.config import Settings
 from chaptera_server.http.dependencies import require_member
-from chaptera_server.http.routers import books, batches, health, identity, imports, jobs, editorial, quota, session, source_books, source_jobs, gemini_keys
+from chaptera_server.http.routers import books, batches, health, identity, imports, jobs, editorial, quota, session, source_books, source_jobs, source_team, source_archive, gemini_keys
 from chaptera_server.storage import QueueStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,15 +30,12 @@ ROUTE_CONTRACT = {
     ('DELETE', '/v1/me/gemini-keys/{project_id}'),
     ('PUT', '/v1/me/gemini-keys/{project_id}/daily-cap'),
     ('POST', '/v1/session'),
-    ('POST', '/v1/session/password'),
-    ('POST', '/v1/session/password/change'),
     ('GET', '/v1/session'),
     ('POST', '/v1/session/logout'),
     ('GET', '/v1/admin/members'),
     ('POST', '/v1/admin/members'),
     ('POST', '/v1/admin/members/{member_id}/rotate'),
     ('POST', '/v1/admin/members/{member_id}/disable'),
-    ('POST', '/v1/admin/members/{member_id}/password'),
     ('POST', '/v1/books'),
     ('GET', '/v1/books'),
     ('GET', '/v1/books/{book_id}'),
@@ -93,6 +90,15 @@ ROUTE_CONTRACT = {
     ('GET', '/v1/source-books/jobs'),
     ('DELETE', '/v1/source-books/jobs/{job_id}'),
     ('GET', '/v1/source-books/jobs/{job_id}/export.txt'),
+    ('GET', '/v1/source-books/shared'),
+    ('GET', '/v1/source-books/shared/{job_id}'),
+    ('GET', '/v1/source-books/shared/{job_id}/chapters/{ordinal}'),
+    ('GET', '/v1/source-books/shared/{job_id}/assembly'),
+    ('GET', '/v1/source-books/shared/{job_id}/export.txt'),
+    ('GET', '/v1/source-books/archive'),
+    ('GET', '/v1/source-books/archive/{book_id}'),
+    ('GET', '/v1/source-books/archive/revisions/{revision_id}'),
+    ('DELETE', '/v1/source-books/archive/revisions/{revision_id}'),
 }
 
 
@@ -142,7 +148,7 @@ def test_http_paths_and_methods_are_unique_and_stable(tmp_path):
     # the canonical APIRouters instead of version-dependent app internals.
     http_routes = [
         route
-        for owner in (books, batches, health, identity, imports, jobs, editorial, quota, session, source_books, source_jobs, gemini_keys)
+        for owner in (books, batches, health, identity, imports, jobs, editorial, quota, session, source_books, source_jobs, source_team, source_archive, gemini_keys)
         for route in owner.router.routes
         if isinstance(route, APIRoute)
     ]
@@ -159,8 +165,7 @@ def test_http_paths_and_methods_are_unique_and_stable(tmp_path):
     assert set(routes) == ROUTE_CONTRACT
     for route in http_routes:
         # Login/restore/logout validate session credentials in their own router.
-        if route.path in {'/healthz', '/v1/session', '/v1/session/logout',
-                              '/v1/session/password', '/v1/session/password/change'}:
+        if route.path in {'/healthz', '/v1/session', '/v1/session/logout'}:
             continue
         # Import preview authenticates at router level, others at endpoint level.
         assert any(dep.call is require_member for dep in route.dependant.dependencies), (

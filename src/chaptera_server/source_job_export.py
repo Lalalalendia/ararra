@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import BinaryIO
 
 from .source_job_store import SourceJobStore, SourceJobConflict
+from .source_team_reader import SourceTeamReader
 from .storage import QueueStore
 
 MAX_SOURCE_TXT_BYTES = 64 * 1024 * 1024
@@ -54,7 +55,8 @@ class VerifiedSourceTXT:
     def __init__(self, repo: QueueStore):
         self.repo = repo
 
-    def _scan(self, actor: str, job_id: str, *, sink: BinaryIO | None = None) -> dict:
+    def _scan(self, actor: str, job_id: str, *, sink: BinaryIO | None = None,
+              team_read: bool = False) -> dict:
         digest = hashlib.sha256()
         byte_length = 0
         checked = 0
@@ -68,7 +70,10 @@ class VerifiedSourceTXT:
             # A single SQLite read snapshot protects against a worker updating
             # checkpoints between integrity checks and output assembly.
             con.execute("BEGIN")
-            job = SourceJobStore._owned(con, actor, job_id)
+            # Team-readable source bodies are a deliberate, authenticated
+            # read boundary; owner-only API operations still use _owned().
+            job = (SourceTeamReader._shared(con, job_id) if team_read
+                   else SourceJobStore._owned(con, actor, job_id))
             selected = SourceJobStore._manifest(job)
             source = job["source"]
             start, end = selected[0]["ordinal"], selected[-1]["ordinal"]
@@ -183,13 +188,14 @@ class VerifiedSourceTXT:
             }
             return result
 
-    def inspect(self, actor: str, job_id: str) -> dict:
-        """Return source coverage and exact-manifest receipt, but never prose."""
-        return self._scan(actor, job_id)
+    def inspect(self, actor: str, job_id: str, *, team_read: bool = False) -> dict:
+        """Return coverage and manifest receipt, never original prose."""
+        return self._scan(actor, job_id, team_read=team_read)
 
     def render(
         self, actor: str, job_id: str,
         expected_manifest_sha256: str, expected_content_sha256: str,
+        *, team_read: bool = False,
     ) -> tuple[dict, SourceTXTResult]:
         """Build a fully checked file before exposing the first HTTP byte.
 
@@ -198,7 +204,7 @@ class VerifiedSourceTXT:
         """
         handle = tempfile.TemporaryFile(mode="w+b")
         try:
-            report = self._scan(actor, job_id, sink=handle)
+            report = self._scan(actor, job_id, sink=handle, team_read=team_read)
             if (not report["ready"] or
                 report["manifest_sha256"] != expected_manifest_sha256 or
                 report["content_sha256"] != expected_content_sha256):

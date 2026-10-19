@@ -50,10 +50,13 @@ export function createSourceJobView({request,flash,onStage,getCatalog}) {
     const labels={queued:'В очереди',running:'Скачивается',
       complete:'Выбранный диапазон собран',partial:'Нужна проверка',
       cancelled:'Отменено'};
+    const delay=job.next_attempt_at;
+    const next=job.status==='queued' && Number.isFinite(delay) && delay>Date.now()/1000
+      ?' · пауза сайта до '+new Date(delay*1000).toLocaleString('ru-RU'):'';
     state.textContent=(labels[job.status]||job.status)+
       ' · готово '+job.completed+'/'+job.total+
       ' · ошибок '+job.failed+
-      ' · осталось '+job.pending+
+      ' · осталось '+job.pending+next+
       ' · ID: '+job.job_id+
       (job.failures?.length?' · '+job.failures.slice(0,8)
         .map(f=>'Глава '+f.ordinal+': '+f.error).join('; '):'');

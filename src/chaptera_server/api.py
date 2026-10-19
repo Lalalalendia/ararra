@@ -12,15 +12,16 @@ from .import_sessions import ImportSessions
 from .source_site_storage import SourceCatalogStore
 from .source_job_store import SourceJobStore
 from .source_site_http import PublicHtmlFetcher
+from .source_request_limiter import SourceRequestLimiter
 from .editorial import EditorialStore
 from .chapter_qa import ChapterQaStore
 from .team_credentials import TeamCredentials
+from .team_passwords import TeamPasswords
 from .team_sessions import TeamSessions
 from .team_login_throttle import BrowserLoginThrottle
-from .team_passwords import TeamPasswords
 from .personal_gemini_keys import PersonalGeminiKeys
 from .storage import QueueStore
-from .http.routers import books, batches, health, identity, imports, jobs, quota, ui, editorial, session, source_books, source_jobs, gemini_keys
+from .http.routers import books, batches, health, identity, imports, jobs, quota, ui, editorial, session, source_books, source_team, source_archive, source_jobs, gemini_keys
 from .http.routers.ui import ASSETS as UI_ASSETS
 
 # Keep historical Python imports of request models working for existing callers.
@@ -49,11 +50,16 @@ def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
         actor_quota_bytes=settings.source_actor_quota_mib * 1024 * 1024,
         global_quota_bytes=settings.source_global_quota_mib * 1024 * 1024,
     )
-    app.state.public_source_fetcher = PublicHtmlFetcher()
+    app.state.source_request_limiter = SourceRequestLimiter(repo)
+    app.state.public_source_fetcher = PublicHtmlFetcher(
+        request_limiter=app.state.source_request_limiter,
+    )
     app.state.editorial = EditorialStore(repo)
     app.state.chapter_qa = ChapterQaStore(repo)
     app.state.team_credentials = TeamCredentials(repo)
     app.state.team_sessions = TeamSessions(repo)
+    # Retain historical password tables for safe backup/restore and rollback.
+    # No HTTP routes issue or verify passwords in the key-only release.
     app.state.team_passwords = TeamPasswords(repo)
     app.state.personal_gemini_keys = PersonalGeminiKeys(repo, settings.gemini_vault_key)
     app.state.team_login_throttle = BrowserLoginThrottle(repo)
@@ -66,6 +72,8 @@ def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
     app.include_router(batches.router)
     app.include_router(imports.router)
     app.include_router(source_books.router)
+    app.include_router(source_team.router)
+    app.include_router(source_archive.router)
     app.include_router(source_jobs.router)
     app.include_router(editorial.router)
     app.include_router(jobs.router)

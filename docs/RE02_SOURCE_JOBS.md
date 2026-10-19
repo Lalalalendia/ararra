@@ -188,3 +188,193 @@ Use OS disk-space monitoring, backups and capacity alarms independently.
 - Duplicate source-body fail closed; tampering of saved source text detected.
 - Auth-isolated HTTP job create/status/stage; deterministic duplicate stage replay.
 - Existing book ownership, explicit import CAS, editor and browser auth must remain green.
+
+
+## RE-02-WEB-SOURCE-07 — Profiles and multi-user collection
+
+Implementation: [issue #83](https://github.com/Lalalalendia/ararra/issues/83).
+This extends the durable source jobs and verified text-storage quotas.
+The profile budgets below are ReadEra's **own conservative constraints**,
+not official site scraping permission.
+
+| Site | Allowed HTTPS hosts | Minimum delay | Requests / UTC day |
+|---|---|---:|---:|
+| Royal Road | royalroad.com, www.royalroad.com | 4 seconds | 240 |
+| WebNovel | webnovel.com, www.webnovel.com | 8 seconds | 100 |
+| UUKanshu | uukanshu.cc | 6 seconds | 180 |
+
+The typed source_site_profiles.py registry drives the strict source-to-host
+allowlist and authenticated site directory. A new source must have a reviewed
+parser and real permitted metadata fixture; an arbitrary wildcard or
+moderator-supplied CSS profile is not acceptable. robots.txt can impose a
+longer delay or forbid access; login, paid, CAPTCHA and JS/AJAX-only pages
+are not bypassed. The release gate is [issue #65](https://github.com/Lalalalendia/ararra/issues/65).
+
+### Site-wide concurrency and request caps
+
+Both authenticated API import and source-worker share SourceRequestLimiter
+against the **same SQLite database**. Before every outbound GET, including
+robots.txt, a BEGIN IMMEDIATE transaction reserves a unique fenced token for
+the site (www/non-www aliases share limits), honoring a one-request-at-a-time
+lease, site interval, UTC daily counter and shared upstream cooldown.
+
+Successful admissions count toward the daily site budget; a process crash
+leaves a 75-second expiring lease, never a permanent network lock. A stale
+token cannot release the successor. Regular pacing waits no more than 12
+seconds; longer saturation returns HTTP 429 with Retry-After. An upstream
+HTTP 429 triggers a bounded site-wide cooldown. UTC rollover resets only
+the counter, not a live lease or cooldown. Network security checks and
+robots.txt remain mandatory.
+
+### Fair job distribution and durable waiting
+
+New additive job fields are dispatch_turn, ready_at and defer_reason.
+SQLite per-actor turns rotate moderators while per-job turns rotate a
+moderator's multiple books; long books cannot monopolize all dispatches.
+An existing verified chapter is immutable; a denied/busy site postpones
+only the next chapter without a failure receipt or a manual retry count.
+
+Pending bounds are three active source jobs per member, twelve per site,
+and thirty-two global (queued + running). Existing logical text storage
+bounds remain 256 MiB per job, and configurable 512 MiB per actor /
+2048 MiB global by default. These limits **exclude** SQLite/WAL/temp,
+indexes, media, other books and backups. Actual disk headroom and
+backup/restore are still separate release gates. Job status exposes only
+the owner's next_attempt_at and waiting_reason, never another moderator's
+content, ID or aggregate disk usage.
+
+### Source-worker operational gate
+
+The current VPS runs API and Gemini worker but has **no systemd-managed
+source-worker yet**. No PR here automatically activates crawling.
+Before enabling a single reviewed source-worker: independently validate
+the real public-site robots/TLS/TOC behavior under #65, enforce unit
+RAM/CPU and disk/WAL/temp monitoring, verify backup/restore, and ensure
+the Reader remains healthy on the memory-limited VPS. No credential
+sharing with translation or parallel worker multiplication to force speed.
+
+Tests: two independently opened SQLite handles and a parallel reservation
+race; robots GET pacing, remote 429, day rollover, expiry fencing,
+round-robin actor turns across worker restarts, deferred chapter restart,
+global/site pending caps, actor-only API and Chromium waiting-state UI.
+
+
+## RE-02 — Shared originals are team-readable (owner clarification, 2026-10-19)
+
+**Owner decision:** All authenticated ReadEra team members may READ originals
+and accepted translations. The existing BookLibrary already shares imported
+chapters, translation revisions and context among the team; the book
+owner_member_id field denotes editorial responsibility, not a read ACL.
+
+Background source collection jobs had a separate actor-only SQLite boundary.
+That boundary remains for controls, quotas, stage sessions and job status,
+but does **not** restrict access to checksum-verified original text.
+
+### Read-only source collection endpoints
+
+- GET /v1/source-books/shared?limit=30 — bounded team index of **only**
+  jobs with at least one stored verified original chapter, including the
+  responsible moderator, source URL and number of verified checkpoints.
+  No raw prose, private failures, quota of other members or secrets.
+- GET /v1/source-books/shared/{job_id}?offset=0&limit=50 —
+  paginated read-only identities of stored verified chapters.
+- GET /v1/source-books/shared/{job_id}/chapters/{ordinal} —
+  exactly one original chapter, after matching its manifest index,
+  source ID, URL, byte count and SHA-256 against SQLite. Return 404 for
+  nonexistent/unverified chapters; 409 for corrupted original data.
+  Respond with Cache-Control: no-store, private; browser inserts only
+  textContent, never executable HTML.
+- GET /v1/source-books/shared/{job_id}/assembly — original TXT
+  completeness/digest preview with no prose. GET the companion
+  /export.txt?expected_manifest_sha256=...&expected_content_sha256=...
+  only after complete SHA-verified selection. Partial books still permit
+  reading their individually verified chapters.
+- The Import page includes a compact collapsed Общие исходники команды
+  reader, which clears previous text and selection on logout. It has no
+  retry/cancel/stage/delete/edit controls.
+
+GET requires the current valid team key or cookie for every request. Personal
+job list, job DELETE, retry/cancel, mutable import stage and per-member
+quotas remain actor-only. A team read does not create a duplicate checkpoint,
+consume another member's quota, pay for Gemini, or fetch the source URL.
+Role revocation must immediately prevent new HTTP reads; no browser
+persistent cache is used.
+
+### Retention and future dedup
+
+This is **sharing of existing verified checkpoints**, not yet a global
+physical deduplication cache. The original submitting moderator may delete
+their own completed source job, and the shared source reader then stops
+listing its checkpoints. Chapters previously confirmed into BookLibrary
+remain team-shared and unaffected. A separately designed durable common
+archive/reference-counted cache can later prevent deletion of the last
+readable copy, and avoid repeat HTTP requests after same-source catalog
+revision and rights checks. Do not conflate this with arbitrary license to
+redistribute copyrighted material.
+
+No additional source-worker is enabled on VPS and no real site is contacted
+during this implementation. The live-site permissions/robots/TLS and VPS
+physical RAM/disk/backup gates in issues #65 and #83 still apply.
+
+## RE-02 immutable team archive on source job removal (2026-10-19)
+
+[Follow-up #88](https://github.com/Lalalalendia/ararra/issues/88)
+addresses the retention gap after team source reading [PR #87].
+This is an archive/dedup first slice, not automatic site crawling.
+
+### Verified text lifecycle
+
+The existing source_collect_items records remain readable by the whole team
+as long as a collection job exists. When its collector explicitly deletes a
+complete/partial/cancelled job, SourceJobStore.delete_finished() checks each
+successful chapter's manifest index, ordinal, source chapter ID, exact
+allowlisted HTTPS URL, UTF-8 bytes and SHA-256. Under the SAME SQLite
+BEGIN IMMEDIATE transaction, it inserts the immutable content-addressed
+body and source revision in the team archive, then removes the personal job
+and checkpoints. If integrity or the archive budget fails, the deletion
+rolls back, preserving the originals and the job.
+
+- source_original_bodies is keyed by SHA-256. Identical original bytes are
+  stored once **inside the archive** and may be referenced by different
+  source chapter identities.
+- source_original_revisions stores exact reviewed site/book/chapter/URL/body
+  provenance, the first collecting member and capture time. Revised text
+  creates a new revision and never overwrites a prior one.
+- The initial archive quota is 256 MiB of unique UTF-8 body bytes. This
+  EXCLUDES SQLite indexes, free pages, WAL, other source jobs and offsite
+  backup copies. Physical disk availability + an actual backup/restore
+  remain release blockers on the memory-limited VPS.
+- Existing source jobs are not auto-copied on startup. Additive SQLite tables
+  preserve all old checkpoints. Archived text is created on explicit job
+  deletion, one verified chapter at a time; never from an external network GET.
+
+### Separate team archive API
+
+All GETs require valid team authentication and return no-store responses:
+
+- GET /v1/source-books/archive lists books with retained originals.
+- GET /v1/source-books/archive/{archive_book_id} lists bounded, distinct
+  source chapter revisions by content hash.
+- GET /v1/source-books/archive/revisions/{revision_id} returns exactly one
+  checksum-verified original. Browser rendering uses textContent, not HTML.
+- DELETE /v1/source-books/archive/revisions/{revision_id} is ADMIN-ONLY:
+  removes exactly this archive revision and the unique physical body only
+  if no other revision references it. Personal source checkpoints and the
+  accepted BookLibrary are NOT touched. A complete content takedown across
+  all these stores is an additional audited operator procedure.
+
+The Import page has two collapsed readers: live shared source jobs and the
+durable archive. A moderator cannot purge archived revisions or manage
+another moderator's collection job. The personal delete confirmation warns
+that verified originals remain in the team archive; a full archive returns
+409 instead of silently losing text.
+
+### Still outstanding
+
+Automatic reuse of an archived chapter to prevent repeated third-party
+HTTP requests is NOT enabled. Such a feature requires site-specific
+permission/robots/terms acceptance, freshness/version semantics and
+race-safe attribution and cancellation. Bulk source-worker remains disabled.
+Physical archive/WAL disk monitoring, backups/restore and permission
+revocation are production release gates. Do not declare issue #88 fully
+closed from this first archive slice.

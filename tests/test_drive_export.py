@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 import sys
 from urllib.parse import parse_qs
 
@@ -12,16 +13,21 @@ import pytest
 from chaptera_server.drive_export import (
     DriveExportError, GoogleDriveClient, export_completed_job, read_completed_job,
 )
+from chaptera_server.drive_acceptance import run_drive_acceptance
 from chaptera_server.library import BookLibrary
 from chaptera_server.storage import QueueStore
 
 SOURCES = "1daqCzEVgPdX639YV5otTLxgVTPbfeBEp"
 TRANSLATIONS = "1X2ZP8Fzbnq5MEAWJyGSErVGGFkfGBrR9"
+SHARED = "syntheticReadEraLibraryRoot0001"
 
 
 class FakeDrive:
     def __init__(self):
         self.files = {
+            SHARED:{"id":SHARED,"name":"Эрида",
+                "mimeType":"application/vnd.google-apps.folder","parents":["root"],
+                "capabilities":{"canAddChildren":True},"appProperties":{}},
             SOURCES:{"id":SOURCES,"name":"Источники",
                 "mimeType":"application/vnd.google-apps.folder","parents":["root"],
                 "capabilities":{"canAddChildren":True},"appProperties":{}},
@@ -66,12 +72,25 @@ class FakeDrive:
         if path.startswith("/drive/v3/files/") and request.method == "GET":
             fid=path.rsplit("/",1)[-1]
             file=self.files.get(fid)
+            if file and request.url.params.get("alt")=="media":
+                return httpx.Response(200,content=self.bodies[fid],
+                                      headers={"Content-Type":"text/plain"})
             return httpx.Response(200,json=file) if file else httpx.Response(404)
         if path == "/drive/v3/files" and request.method == "POST":
             obj=json.loads(request.content)
             created=self.make(obj["name"],obj["parents"][0],
                 mime=obj["mimeType"],props=obj.get("appProperties",{}))
             return httpx.Response(200,json=created)
+        if path.startswith("/upload/drive/v3/files/") and request.method=="PATCH":
+            fid=path.rsplit("/",1)[-1]
+            if fid not in self.files:
+                return httpx.Response(404)
+            assert request.url.params.get("uploadType")=="media"
+            assert self.files[fid]["mimeType"]=="text/plain"
+            self.bodies[fid]=request.content
+            return httpx.Response(200,json={
+                "id":fid,"mimeType":self.files[fid]["mimeType"],
+            })
         if path == "/upload/drive/v3/files" and request.method == "POST":
             assert request.url.params["uploadType"] == "multipart"
             payload=request.content
@@ -122,32 +141,37 @@ def make_job(tmp_path, *, completed=True):
 def run_export(db,job,service):
     return export_completed_job(
         db,service.client(),job,
-        source_folder_id=SOURCES,translation_folder_id=TRANSLATIONS,
+        root_folder_id=SHARED,legacy_source_folder_id=SOURCES,
+        legacy_translation_folder_id=TRANSLATIONS,
     )
 
 
-def test_two_folder_upload_and_repeat_are_idempotent(tmp_path):
+def test_one_root_owner_book_source_translation(tmp_path):
     db,_,jid=make_job(tmp_path)
     service=FakeDrive()
     receipt=run_export(db,jid,service)
     assert receipt["status"]=="exported_or_already_present"
     assert receipt["source_file_id"] != receipt["translation_file_id"]
-    assert len(service.creates)==4  # two book folders + two plain TXT
+    assert len(service.creates)==6  # owner + book + source + translation + 2 TXT
+    assert service.files[receipt["moderator_folder_id"]]["parents"]==[SHARED]
+    assert service.files[receipt["moderator_folder_id"]]["name"]=="moderator"
+    book=service.files[receipt["book_folder_id"]]
+    assert book["parents"]==[receipt["moderator_folder_id"]]
+    assert "Проверка романа том 1" in book["name"]
+    for part, folder_name in (("source","Источники"),("translation","Переводы")):
+        side=service.files[receipt[f"{part}_folder_id"]]
+        chapter=service.files[receipt[f"{part}_file_id"]]
+        assert side["parents"]==[receipt["book_folder_id"]]
+        assert side["name"]==folder_name
+        assert side["appProperties"]["readeraPartFolder"]==part
+        assert chapter["parents"]==[receipt[f"{part}_folder_id"]]
+        assert chapter["name"]=="Глава 001.txt"
     source=service.bodies[receipt["source_file_id"]]
     ru=service.bodies[receipt["translation_file_id"]]
     assert source==b"<p>Source original text.</p>"
     assert "Машинный перевод" in ru.decode("utf-8")
-    assert all(service.files[fid]["name"]=="Глава 001.txt" for fid in (
-        receipt["source_file_id"],receipt["translation_file_id"]))
-    assert service.files[receipt["source_file_id"]]["parents"]!=(
-        service.files[receipt["translation_file_id"]]["parents"])
-    folders=[service.files[k] for k in service.creates
-             if service.files[k]["mimeType"]=="application/vnd.google-apps.folder"]
-    assert len(folders)==2
-    assert all("Проверка романа том 1" in x["name"] for x in folders)
     assert run_export(db,jid,service)==receipt
-    assert len(service.creates)==4
-
+    assert len(service.creates)==6
 
 def test_both_chatgpt_edits_remain_after_repeat(tmp_path):
     db,_,jid=make_job(tmp_path)
@@ -167,7 +191,7 @@ def test_both_chatgpt_edits_remain_after_repeat(tmp_path):
     assert again==receipt
     assert service.bodies[src_id]==b"<p>ChatGPT fixed original.</p>"
     assert "Исправленный перевод" in service.bodies[ru_id].decode()
-    assert len(service.creates)==4
+    assert len(service.creates)==6
 
 
 def test_partial_upload_is_resumable_without_third_file(tmp_path):
@@ -176,9 +200,9 @@ def test_partial_upload_is_resumable_without_third_file(tmp_path):
     service.fail_translation_once=True
     with pytest.raises(DriveExportError,match="503"):
         run_export(db,jid,service)
-    assert len(service.creates)==3  # both book dirs and original TXT
+    assert len(service.creates)==5  # moderator + book on both sides, original TXT
     result=run_export(db,jid,service)
-    assert len(service.creates)==4
+    assert len(service.creates)==6
     assert service.files[result["source_file_id"]]["appProperties"]["readeraPart"]=="source"
     assert service.files[result["translation_file_id"]]["appProperties"]["readeraPart"]=="translation"
 
@@ -225,7 +249,7 @@ def test_oauth_or_parent_failure_and_dry_run_have_no_writes(tmp_path,monkeypatch
         run_export(db,jid,bad)
     assert not bad.creates
     deny=FakeDrive()
-    deny.files[TRANSLATIONS]["capabilities"]["canAddChildren"]=False
+    deny.files[SHARED]["capabilities"]["canAddChildren"]=False
     with pytest.raises(DriveExportError,match="not writable"):
         run_export(db,jid,deny)
     assert not deny.creates
@@ -237,3 +261,426 @@ def test_oauth_or_parent_failure_and_dry_run_have_no_writes(tmp_path,monkeypatch
     meta=json.loads(capsys.readouterr().out)
     assert meta["dry_run"] and meta["network_used"] is False
     assert len(meta["source_sha256"])==len(meta["translation_sha256"])==64
+
+
+def test_drive_acceptance_preflight_is_read_only():
+    service=FakeDrive()
+    drive=service.client()
+    try:
+        status=run_drive_acceptance(
+            drive,source_folder_id=SOURCES,
+            translation_folder_id=TRANSLATIONS,live=False,
+        )
+    finally:
+        drive.http.close()
+    assert status["stage"]=="read_only_preflight"
+    assert status["drive_mutations"]==0
+    assert service.creates==[]
+    assert set(service.files)=={SOURCES,TRANSLATIONS,SHARED}
+
+
+def test_drive_acceptance_full_synthetic_edition_and_retry_isolated():
+    service=FakeDrive()
+    drive=service.client()
+    try:
+        status=run_drive_acceptance(
+            drive,source_folder_id=SOURCES,
+            translation_folder_id=TRANSLATIONS, root_folder_id=SHARED,live=True,
+        )
+    finally:
+        drive.http.close()
+    assert status["stage"]=="live_two_folder_export_verified"
+    assert status["layout"]=="moderator/book/source_translation"
+    assert status["both_edits_preserved"] and status["file_ids_unchanged"]
+    assert status["no_gemini_requests"] and status["production_db_unchanged"]
+    assert len(service.creates)==6
+    for part in ("source","translation"):
+        root = SOURCES if part=="source" else TRANSLATIONS
+        folder_id=status[f"{part}_folder_id"]
+        file_id=status[f"{part}_file_id"]
+        folder=service.files[folder_id]
+        file=service.files[file_id]
+        book_id=folder["parents"][0]
+        book=service.files[book_id]
+        moderator=service.files[book["parents"][0]]
+        assert moderator["parents"]==[SHARED]
+        assert moderator["name"]=="drive-smoke"
+        assert book["name"].startswith("__RE09A_SMOKE_")
+        assert book["appProperties"]["readeraModeratorKey"] == moderator["appProperties"]["readeraModeratorKey"]
+        assert folder["parents"]==[book_id]
+        assert folder["name"]==("Источники" if part=="source" else "Переводы")
+        assert folder["appProperties"]["readeraPartFolder"]==part
+        assert file["parents"]==[folder_id]
+        assert file["name"]=="Глава 001.txt"
+        assert "readeraJobId" in file["appProperties"]
+        assert b"RE09A smoke edit-in-place" in service.bodies[file_id]
+    assert status["source_file_id"]!=status["translation_file_id"]
+
+
+def test_drive_acceptance_refuses_invalid_destinations_before_mutation():
+    service=FakeDrive()
+    service.files[TRANSLATIONS]["capabilities"]["canAddChildren"]=False
+    drive=service.client()
+    try:
+        with pytest.raises(DriveExportError,match="not writable"):
+            run_drive_acceptance(
+                drive,source_folder_id=SOURCES,
+                translation_folder_id=TRANSLATIONS, root_folder_id=SHARED,live=True,
+            )
+    finally:
+        drive.http.close()
+    assert service.creates==[]
+
+
+@pytest.mark.parametrize("fail_translation", [False, True])
+def test_drive_acceptance_closes_sqlite_connections_before_temp_cleanup(
+    monkeypatch, fail_translation,
+):
+    """Retain SQLite handles to reproduce WinError 32 deterministically.
+
+    The normal SQLite transaction context manager does not close connections.
+    A retained handle would block TemporaryDirectory on Windows and fail the
+    explicit closed-handle assertion on Linux.
+    """
+    original_connect = QueueStore._connect
+    opened = []
+
+    def track_connections(self):
+        connection = original_connect(self)
+        opened.append(connection)
+        return connection
+
+    monkeypatch.setattr(QueueStore, "_connect", track_connections)
+    service = FakeDrive()
+    service.fail_translation_once = fail_translation
+    drive = service.client()
+    try:
+        if fail_translation:
+            # A remote failure must not be masked by temporary-DB cleanup.
+            with pytest.raises(DriveExportError, match="503"):
+                run_drive_acceptance(
+                    drive, source_folder_id=SOURCES,
+                    translation_folder_id=TRANSLATIONS, root_folder_id=SHARED, live=True,
+                )
+        else:
+            receipt = run_drive_acceptance(
+                drive, source_folder_id=SOURCES,
+                translation_folder_id=TRANSLATIONS, root_folder_id=SHARED, live=True,
+            )
+            assert receipt["stage"] == "live_two_folder_export_verified"
+    finally:
+        drive.http.close()
+
+    assert opened, "Expected real SQLite connections to be exercised"
+    for connection in opened:
+        with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+            connection.execute("SELECT 1")
+
+
+# RE-09A-04: export work is atomically persisted, but opt-in and isolated.
+from chaptera_server.drive_outbox import DriveOutbox
+
+
+def finish_pending_book_job(db, jid):
+    claimed = db.claim_next()
+    assert claimed is not None and claimed[0]["id"] == jid
+    with db._connect() as con:
+        source_hash = con.execute(
+            "SELECT source_hash FROM book_chapters WHERE book_id='book-1'"
+        ).fetchone()[0]
+    assert db.complete(jid, claimed[1], "<p>Машинный перевод.</p>", source_hash, 1)
+
+
+def test_drive_outbox_default_disabled_no_historical_backfill(tmp_path):
+    db,_,jid = make_job(tmp_path / "history")
+    outbox = DriveOutbox(db)
+    assert outbox.status() == {
+        "enabled":False,"pending":0,"running":0,"done":0,"hold":0,
+    }
+    assert outbox.set_enabled(True)["enabled"] is True
+    assert outbox.run_once(lambda _: pytest.fail("No historical Drive writes"))["stage"] == "no_eligible_export"
+    assert db.get_job(jid)["status"] == "completed"
+
+
+def test_drive_outbox_durable_completions_and_edits(tmp_path):
+    db,_,jid = make_job(tmp_path / "incoming", completed=False)
+    outbox = DriveOutbox(db)
+    outbox.set_enabled(True)
+    finish_pending_book_job(db,jid)
+    assert outbox.status()["pending"] == 1
+    # New process / QueueStore reuses the same durable SQLite event.
+    restored = DriveOutbox(QueueStore(db.db_path))
+    service = FakeDrive()
+    first = restored.run_once(lambda job: run_export(db,job,service))
+    assert first["stage"] == "exported"
+    assert restored.status()["done"] == 1
+    source_id = first["source_file_id"]
+    translation_id = first["translation_file_id"]
+    service.bodies[source_id] = b"edited original"
+    service.bodies[translation_id] = b"edited translation"
+    assert restored.run_once(lambda _: pytest.fail("No duplicate export"))["stage"] == "no_eligible_export"
+    assert service.bodies[source_id] == b"edited original"
+    assert service.bodies[translation_id] == b"edited translation"
+
+
+def test_drive_outbox_partial_failure_requires_review_then_reconcile(tmp_path):
+    db,_,jid = make_job(tmp_path / "partial", completed=False)
+    outbox = DriveOutbox(db)
+    outbox.set_enabled(True)
+    finish_pending_book_job(db,jid)
+    service = FakeDrive()
+    service.fail_translation_once = True
+    failed = outbox.run_once(lambda job: run_export(db,job,service))
+    assert failed["stage"] == "requires_review"
+    assert len(service.creates) == 5
+    assert outbox.status()["hold"] == 1
+    assert outbox.run_once(lambda _: pytest.fail("Must hold ambiguous outcome"))["stage"] == "no_eligible_export"
+    assert outbox.retry_held(jid)
+    again = outbox.run_once(lambda job: run_export(db,job,service))
+    assert again["stage"] == "exported"
+    assert len(service.creates) == 6
+
+
+def test_drive_outbox_expired_lease_requires_explicit_review(tmp_path):
+    db,_,jid = make_job(tmp_path / "crash", completed=False)
+    outbox = DriveOutbox(db)
+    outbox.set_enabled(True)
+    finish_pending_book_job(db,jid)
+    assert outbox.claim_next() is not None
+    with db._connect() as con:
+        con.execute("UPDATE drive_export_outbox SET lease_until=0 WHERE job_id=?", (jid,))
+    assert outbox.claim_next() is None
+    assert outbox.status()["hold"] == 1
+    assert outbox.retry_held(jid)
+    assert outbox.status()["pending"] == 1
+
+
+def test_drive_outbox_refuses_stale_input_without_remote_mutation(tmp_path):
+    db,lib,jid = make_job(tmp_path / "stale", completed=False)
+    outbox = DriveOutbox(db)
+    outbox.set_enabled(True)
+    finish_pending_book_job(db,jid)
+    lib.put_chapter(
+        "book-1","chapter-1",chapter_index=1,
+        chapter_path="chapters/1.xhtml",
+        source_html="<p>Changed after Gemini.</p>",expected_revision=1,
+    )
+    remote = FakeDrive()
+    receipt = outbox.run_once(lambda job: run_export(db,job,remote))
+    assert receipt["stage"] == "requires_review"
+    assert remote.creates == []
+
+
+def test_drive_outbox_refuses_non_book_completion(tmp_path):
+    from chaptera_server.storage import JobSpec
+    db = QueueStore(tmp_path / "ordinary.sqlite3")
+    outbox = DriveOutbox(db)
+    outbox.set_enabled(True)
+    job = db.create_job("moderator", JobSpec(
+        chapter_id="generic", source_html="<p>test</p>", max_attempts=1,
+    ))
+    claimed = db.claim_next()
+    assert claimed is not None
+    assert db.complete(job["id"],claimed[1],"<p>ru</p>","a"*64,1)
+    assert outbox.status()["pending"] == 0
+
+
+def test_drive_outbox_expired_lease_blocks_all_other_jobs(tmp_path):
+    """Never export a second chapter while an expired owner may still write."""
+    db,library,first_id = make_job(tmp_path / "serialized", completed=False)
+    outbox = DriveOutbox(db)
+    outbox.set_enabled(True)
+    second_spec = library.new_job(
+        "book-1","chapter-1",
+        source_language="en",target_language="Russian",
+        style_instructions="",max_attempts=1,
+    )
+    second_id = db.create_job("another-moderator",second_spec)["id"]
+    finish_pending_book_job(db,first_id)
+    finish_pending_book_job(db,second_id)
+    assert outbox.status()["pending"] == 2
+    claim = outbox.claim_next()
+    assert claim is not None and claim[0] == first_id
+    with db._connect() as con:
+        con.execute("UPDATE drive_export_outbox SET lease_until=0 WHERE job_id=?", (first_id,))
+    assert outbox.claim_next() is None
+    assert outbox.status()["hold"] == 1
+    assert outbox.status()["pending"] == 1
+    assert outbox.run_once(lambda _: pytest.fail("must not overlap stale Drive writer"))["stage"] == "no_eligible_export"
+    assert outbox.retry_held(first_id)
+    assert outbox.claim_next() is not None
+
+
+def test_drive_outbox_retry_held_refuses_active_export(tmp_path):
+    db,library,first_id = make_job(tmp_path / "mutex", completed=False)
+    outbox = DriveOutbox(db)
+    outbox.set_enabled(True)
+    second_spec = library.new_job(
+        "book-1","chapter-1",
+        source_language="en",target_language="Russian",
+        style_instructions="",max_attempts=1,
+    )
+    second_id = db.create_job("another-moderator",second_spec)["id"]
+    finish_pending_book_job(db,first_id)
+    finish_pending_book_job(db,second_id)
+    first = outbox.claim_next()
+    assert first and first[0] == first_id
+    assert outbox.hold(first_id,first[1],error_code="ambiguous_remote_write")
+    second = outbox.claim_next()
+    assert second and second[0] == second_id
+    assert not outbox.retry_held(first_id)
+    assert outbox.status()["hold"] == 1
+    assert outbox.finish(second_id,second[1],{"status":"ok"})
+    assert outbox.retry_held(first_id)
+
+
+def _another_completed_book(db, lib, *, book_id, title, owner, actor):
+    lib.create_book(book_id,title,owner_member_id=owner,actor_id="administrator")
+    chapter = lib.put_chapter(
+        book_id, "ch-1",chapter_index=1,chapter_path="chapters/1.xhtml",
+        source_html=f"<p>{book_id} source</p>",expected_revision=0,
+    )
+    spec = lib.new_job(
+        book_id,"ch-1",source_language="en",target_language="Russian",
+        style_instructions="",max_attempts=1,
+    )
+    job = db.create_job(actor,spec)
+    claim = db.claim_next()
+    assert claim and claim[0]["id"] == job["id"]
+    assert db.complete(
+        job["id"],claim[1],f"<p>{book_id} translation</p>",
+        chapter["source_hash"],1,
+    )
+    return job["id"]
+
+
+def test_two_books_same_moderator_share_moderator_folder(tmp_path):
+    db,lib,jid = make_job(tmp_path)
+    service = FakeDrive()
+    first = run_export(db,jid,service)
+    second_job = _another_completed_book(
+        db,lib,book_id="book-2",title="Ещё одна книга",
+        owner="moderator",actor="different-worker",
+    )
+    second = run_export(db,second_job,service)
+    assert first["moderator_folder_id"] == second["moderator_folder_id"]
+    assert first["book_folder_id"] != second["book_folder_id"]
+    assert service.files[second["book_folder_id"]]["parents"] == [
+        first["moderator_folder_id"]
+    ]
+    assert len(service.creates) == 11
+    assert run_export(db,second_job,service) == second
+    assert len(service.creates) == 11
+
+
+def test_different_book_owners_get_separate_moderator_folders(tmp_path):
+    db,lib,jid = make_job(tmp_path)
+    service = FakeDrive()
+    original = run_export(db,jid,service)
+    different_id = _another_completed_book(
+        db,lib,book_id="book-new",title="Книга второго",
+        owner="SecondModerator",actor="operator",
+    )
+    second = run_export(db,different_id,service)
+    assert original["moderator_folder_id"] != second["moderator_folder_id"]
+    assert service.files[second["moderator_folder_id"]]["name"] == "SecondModerator"
+    assert service.files[second["book_folder_id"]]["parents"] == [
+        second["moderator_folder_id"]
+    ]
+    assert len(service.creates) == 12
+
+
+def test_book_ownership_reassignment_preserves_old_remote_data(tmp_path):
+    db,lib,jid=make_job(tmp_path)
+    service=FakeDrive()
+    first=run_export(db,jid,service)
+    lib.reassign_book_owner(
+        "book-1",new_owner_member_id="other",
+        expected_owner_revision=0,actor_id="operator",
+    )
+    before = len(service.creates)
+    with pytest.raises(DriveExportError,match="reviewed transfer required"):
+        run_export(db,jid,service)
+    assert len(service.creates) == before
+    assert first["source_file_id"] in service.files
+    assert first["translation_file_id"] in service.files
+
+
+def test_book_reassignment_before_first_export_uses_new_owner(tmp_path):
+    db,lib,jid=make_job(tmp_path)
+    lib.reassign_book_owner(
+        "book-1",new_owner_member_id="other",
+        expected_owner_revision=0,actor_id="operator",
+    )
+    service=FakeDrive()
+    result=run_export(db,jid,service)
+    assert result["owner_member_id"] == "other"
+    assert service.files[result["moderator_folder_id"]]["name"] == "other"
+
+
+def test_legacy_flat_book_folder_blocks_shadow_copy(tmp_path):
+    import hashlib
+    db,_,jid=make_job(tmp_path)
+    service=FakeDrive()
+    book_key=hashlib.sha256(b"book-1").hexdigest()[:20]
+    service.make(
+        "Проверка романа том 1 ["+book_key[:10]+"]",SOURCES,
+        mime="application/vnd.google-apps.folder",
+        props={"readeraBookKey":book_key},
+    )
+    before=len(service.creates)
+    with pytest.raises(DriveExportError,match="reviewed migration required"):
+        run_export(db,jid,service)
+    assert len(service.creates)==before
+
+
+def test_foreign_moderator_folder_name_blocks_adoption_before_writes(tmp_path):
+    db,_,jid=make_job(tmp_path)
+    service=FakeDrive()
+    service.make("moderator",SHARED,
+                 mime="application/vnd.google-apps.folder")
+    before=len(service.creates)
+    with pytest.raises(DriveExportError,match="different identity"):
+        run_export(db,jid,service)
+    assert len(service.creates)==before
+
+
+def test_two_managed_moderator_folders_are_ambiguous(tmp_path):
+    import hashlib
+    db,_,jid=make_job(tmp_path)
+    service=FakeDrive()
+    key=hashlib.sha256(b"moderator").hexdigest()[:20]
+    for name in ("moderator","renamed moderator"):
+        service.make(name,SHARED,mime="application/vnd.google-apps.folder",
+                     props={"readeraModeratorKey":key})
+    before=len(service.creates)
+    with pytest.raises(DriveExportError,match="Duplicate managed"):
+        run_export(db,jid,service)
+    assert len(service.creates)==before
+
+
+def test_shared_root_blocks_legacy_old_two_root_book(tmp_path):
+    import hashlib
+    db,_,jid=make_job(tmp_path)
+    service=FakeDrive()
+    key=hashlib.sha256(b"book-1").hexdigest()[:20]
+    service.make("Old edited original",TRANSLATIONS,
+                 mime="application/vnd.google-apps.folder",
+                 props={"readeraBookKey":key})
+    previous=len(service.creates)
+    with pytest.raises(DriveExportError,match="reviewed migration required"):
+        run_export(db,jid,service)
+    assert len(service.creates)==previous
+
+
+def test_side_folder_collision_fails_before_upload(tmp_path):
+    db,_,jid=make_job(tmp_path)
+    service=FakeDrive()
+    receipt=run_export(db,jid,service)
+    book=receipt["book_folder_id"]
+    service.files[receipt["translation_folder_id"]]["name"]="Human renamed translations"
+    service.make("Переводы",book,mime="application/vnd.google-apps.folder")
+    count=len(service.creates)
+    with pytest.raises(DriveExportError,match="different identity"):
+        run_export(db,jid,service)
+    assert len(service.creates)==count

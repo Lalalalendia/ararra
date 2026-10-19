@@ -4,14 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <title>РидЭра — переводческая платформа</title>
+  <!-- This anonymous HTML is served before any session is verified. -->
+  <title>Вход</title>
   <link rel="stylesheet" href="/app-static/css/readera.css">
   <link rel="stylesheet" href="/app-static/css/books-platform-chapter-import.css">
   <link rel="stylesheet" href="/app-static/css/chapter-editor.css">
   <script defer src="/app-static/js/books-platform-chapter-status.js"></script>
   <script type="module" src="/app-static/js/readera.mjs"></script>
 </head>
-<body data-initial-page="{{ active_page }}">
+<body data-initial-page="{{ active_page }}" data-authenticated="false">
   <div class="shell">
     <aside class="sidebar">
       <a class="brand" href="/app/overview" data-page-link="overview">
@@ -28,58 +29,24 @@
         <a href="/app/team" data-page-link="team">Команда</a>
         <a href="/app/cabinet" data-page-link="cabinet">Личный кабинет</a>
       </nav>
-      <p class="sidebar-bottom">Закрытое рабочее пространство<br>Две роли: администратор и модераторы</p>
     </aside>
     <div class="workspace">
       <header class="topbar">
-        <span>Переводы / Рабочий кабинет</span>
-        <span id="identity-label" class="identity-chip" hidden></span>
+        <span class="topbar-context">Рабочий кабинет</span>
+        <div class="topbar-account">
+          <span id="identity-label" class="identity-chip" hidden></span>
+          <button class="topbar-logout" id="logout" type="button">Выйти</button>
+        </div>
       </header>
       <main class="content">
-        <form id="login-form" class="ui-card login-form" autocomplete="off">
-          <p class="kicker">Авторизация</p>
-          <h1>Доступ к РидЭре</h1>
-          <p>Вход по личному ключу или выданному администратором паролю. Секреты не сохраняются в браузере.</p>
-          <fieldset class="ui-fieldset"><legend>Способ входа</legend>
-            <div class="radio-row">
-              <label><input id="login-mode-key" type="radio" name="login_mode" value="key" checked> Ключ</label>
-              <label><input type="radio" name="login_mode" value="password"> Пароль</label>
-            </div>
-          </fieldset>
-          <label id="login-member-row" class="ui-field" hidden><span>Участник (ID модератора)</span>
-            <input id="login-member" class="ui-input" name="member_id" maxlength="64"
-                   autocomplete="username" spellcheck="false"></label>
-          <label class="ui-field"><span id="login-secret-label">Ключ участника</span>
+        <form id="login-form" class="ui-card login-form" autocomplete="off" aria-label="Вход по ключу">
+          <label class="ui-field"><span id="login-secret-label">Ключ</span>
             <input id="login-secret" class="ui-input" name="api_key" type="password" required autocomplete="off" spellcheck="false">
           </label>
           <button class="ui-button ui-button--primary" type="submit">Войти</button>
         </form>
-        <section id="password-change" class="ui-card login-form" hidden>
-          <p class="kicker">Безопасность учётной записи</p>
-          <h1>Изменить пароль</h1>
-          <p id="password-change-help">Для продолжения смените временный пароль.</p>
-          <p class="muted">Участник: <strong id="password-change-member"></strong></p>
-          <form id="password-change-form" autocomplete="off">
-            <label class="ui-field"><span>Текущий пароль</span>
-              <input id="change-password-current" class="ui-input" name="current_password"
-                     type="password" autocomplete="current-password" required></label>
-            <label class="ui-field"><span>Новый пароль (не менее 12 символов)</span>
-              <input class="ui-input" name="new_password" type="password"
-                     autocomplete="new-password" minlength="12" maxlength="128" required></label>
-            <label class="ui-field"><span>Повторите новый пароль</span>
-              <input class="ui-input" name="confirmation" type="password"
-                     autocomplete="new-password" minlength="12" maxlength="128" required></label>
-            <button class="ui-button ui-button--primary" type="submit">Сменить пароль</button>
-            <button class="ui-button ui-button--ghost" id="password-change-cancel" type="button">Отмена / выход</button>
-          </form>
-        </section>
         <div id="flash" role="status" class="ui-alert" hidden></div>
         <section id="authenticated" hidden>
-          <div class="workspace-actions">
-            <button class="ui-button ui-button--ghost" id="change-password-open" type="button" hidden>Сменить пароль</button>
-            <button class="ui-button ui-button--ghost" id="logout" type="button">Выйти</button>
-          </div>
-          
           <section data-page="overview" hidden>
             <div class="ui-page-header"><div>
               <p class="kicker">РидЭра / Обзор</p><h1>Рабочее пространство</h1>
@@ -233,14 +200,13 @@
           </section>
           <section data-page="import" hidden class="chapter-import-create-page">
             <div class="ui-page-header"><div>
-              <p class="kicker">РидЭра / Импорт</p><h1>Импорт исходных глав</h1>
-              <p>Три шага: файл → сопоставление → проверка и запись. Перевод Gemini здесь не запускается.</p>
+              <p class="kicker">РидЭра / Импорт</p><h1>Импорт глав</h1>
+              <p>Из файла или по ссылке на книгу · без запуска перевода.</p>
             </div></div>
             <section id="source-import" class="ui-card" aria-labelledby="source-import-title">
               <div class="ui-section-header">
-                <h2 id="source-import-title">Собрать книгу с сайта</h2>
-                <p>Укажите публичную страницу книги, проверьте оглавление и выберите главы.
-                  Перед записью в библиотеку остаётся обычный этап подтверждения.</p>
+                <h2 id="source-import-title">Книга по ссылке</h2>
+                <p>Получите оглавление, выберите главы и подтвердите импорт.</p>
               </div>
               <form id="source-book-form" class="compact-form">
                 <div class="field-grid">
@@ -281,32 +247,29 @@
                 <p class="muted">Первые 80 записей оглавления показаны для проверки.
                   Номера остальных глав можно указать в диапазоне выше.</p>
               </div>
-              <div id="source-job-panel" class="ui-card" aria-labelledby="source-job-title">
-                <h3 id="source-job-title">Длительный сбор книги</h3>
-                <div id="source-job-history" class="compact-form">
-                  <div class="ui-section-header">
-                    <p>Мои сохранённые сборки — выберите книгу и диапазон без копирования ID.</p>
-                  </div>
-                  <button id="source-job-history-refresh" type="button"
-                          class="ui-button ui-button--ghost">Показать мои сборки</button>
-                  <label class="ui-field"><span>Предыдущие задания</span>
+              <div id="source-job-panel" class="source-job-panel" aria-labelledby="source-job-title">
+                <h3 id="source-job-title">Фоновый сбор</h3>
+                <div id="source-job-history" class="source-job-history">
+                  <label class="ui-field"><span>Сохранённые сборки</span>
                     <select id="source-job-history-list" class="ui-input" disabled>
                       <option value="">Получите список заданий</option>
                     </select>
                   </label>
+                  <button id="source-job-history-refresh" type="button"
+                          class="ui-button ui-button--ghost">Мои сборки</button>
                   <button id="source-job-history-open" type="button"
-                          class="ui-button ui-button--ghost" disabled>Открыть выбранную сборку</button>
+                          class="ui-button ui-button--ghost" disabled>Открыть</button>
                   <button id="source-job-history-delete" type="button"
-                          class="ui-button ui-button--ghost" disabled>Удалить сохранённые исходники задания</button>
+                          class="ui-button ui-button--ghost" disabled>Удалить исходники</button>
                   <p id="source-job-history-status" role="status" aria-live="polite">
-                    Список доступен после входа в Эриду.</p>
+                    Список ещё не загружен.</p>
                 </div>
                 <form id="source-job-resume-form" class="compact-form">
-                  <label class="ui-field"><span>ID задания — сохраните его для восстановления</span>
+                  <label class="ui-field"><span>Открыть по ID задания</span>
                     <input id="source-job-id" class="ui-input" autocomplete="off"
                            placeholder="ID сохранённого задания" required></label>
                   <button id="source-job-refresh" type="submit"
-                          class="ui-button ui-button--ghost">Открыть / обновить прогресс</button>
+                          class="ui-button ui-button--ghost">Открыть задание</button>
                 </form>
                 <p id="source-job-status" role="status" aria-live="polite">
                   Фоновое задание ещё не выбрано.</p>
@@ -340,6 +303,69 @@
                           class="ui-button ui-button--ghost">Отменить сбор</button>
                 </div>
               </div>
+              <details id="source-shared" class="source-shared">
+                <summary>Общие исходники команды · чтение</summary>
+                <p class="muted">Участники видят только сохранённые и проверяемые исходные главы.
+                  Управление чужими заданиями и личные ключи здесь недоступны.</p>
+                <div class="compact-form source-shared-controls">
+                  <label class="ui-field"><span>Сборка команды</span>
+                    <select id="source-shared-list" class="ui-input" disabled>
+                      <option value="">Загрузите список</option>
+                    </select>
+                  </label>
+                  <button id="source-shared-refresh" type="button"
+                          class="ui-button ui-button--ghost">Обновить список</button>
+                  <button id="source-shared-open" type="button"
+                          class="ui-button ui-button--ghost" disabled>Открыть главы</button>
+                </div>
+                <p id="source-shared-status" role="status" aria-live="polite">
+                  Список ещё не загружен.</p>
+                <div id="source-shared-reader" hidden>
+                  <label class="ui-field"><span>Проверенная глава</span>
+                    <select id="source-shared-chapters" class="ui-input" disabled>
+                      <option value="">Выберите главу</option>
+                    </select>
+                  </label>
+                  <button id="source-shared-next" type="button"
+                          class="ui-button ui-button--ghost" hidden>Ещё главы</button>
+                  <button id="source-shared-read" type="button"
+                          class="ui-button ui-button--primary" disabled>Читать</button>
+                  <p id="source-shared-caption" class="muted" role="status" aria-live="polite"></p>
+                  <pre id="source-shared-body" class="source-shared-body" hidden></pre>
+                </div>
+              </details>
+              <details id="source-archive" class="source-shared">
+                <summary>Архив исходников · общая библиотека</summary>
+                <p class="muted">Проверенные исходники сохраняются после удаления
+                  личного задания. Доступ только на чтение; удаление архивной
+                  ревизии разрешено администратору.</p>
+                <div class="compact-form source-shared-controls">
+                  <label class="ui-field"><span>Книга в архиве</span>
+                    <select id="source-archive-books" class="ui-input" disabled>
+                      <option value="">Загрузите архив</option>
+                    </select>
+                  </label>
+                  <button id="source-archive-refresh" type="button"
+                          class="ui-button ui-button--ghost">Обновить архив</button>
+                  <button id="source-archive-open" type="button"
+                          class="ui-button ui-button--ghost" disabled>Список глав</button>
+                </div>
+                <p id="source-archive-status" role="status" aria-live="polite">
+                  Архив ещё не загружен.</p>
+                <div id="source-archive-reader" hidden>
+                  <label class="ui-field"><span>Сохранённая ревизия главы</span>
+                    <select id="source-archive-chapters" class="ui-input" disabled>
+                      <option value="">Выберите главу</option>
+                    </select>
+                  </label>
+                  <button id="source-archive-next" type="button"
+                          class="ui-button ui-button--ghost" hidden>Ещё главы</button>
+                  <button id="source-archive-read" type="button"
+                          class="ui-button ui-button--primary" disabled>Читать оригинал</button>
+                  <p id="source-archive-caption" class="muted" role="status" aria-live="polite"></p>
+                  <pre id="source-archive-body" class="source-shared-body" hidden></pre>
+                </div>
+              </details>
             </section>
 
             <ol class="steps" id="import-steps">

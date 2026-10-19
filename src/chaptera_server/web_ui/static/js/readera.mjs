@@ -125,9 +125,15 @@ async function activateSession(session) {
   $('identity-label').hidden=false;$('login-form').reset();
   $('metric-books').textContent=String(books.length);
   $('metric-role').textContent=identity.role==='admin'?'Администратор':'Модератор';
-  showPage(currentPage());flash('');
+  // The sidebar must be visible before showPage measures its mobile scroll.
+  document.body.dataset.authenticated='true';
+  showPage(currentPage());
+  // Only reveal branding in the browser chrome after the session passes API checks.
+  document.title='РидЭра — переводческая платформа';
+  flash('');
 }
 function clearWorkspace(){
+  document.title='Вход';
   editor?.reset();
   batchView.reset();
   auth.clear();identity=null;books=[];members=[];staged=null;rows=[];confirmed=null;
@@ -233,9 +239,6 @@ async function refreshMembers() {
       rotate.type='button';rotate.className='ui-button ui-button--ghost';
       rotate.addEventListener('click',()=>void modifyMember(member.member_id,'rotate'));
       if (member.status==='active') {
-        const password=text(actions,'Выдать пароль','button');
-        password.type='button';password.className='ui-button ui-button--ghost';
-        password.addEventListener('click',()=>void modifyMember(member.member_id,'password'));
         const disable=text(actions,'Отключить','button');
         disable.type='button';disable.className='ui-button ui-button--danger';
         disable.addEventListener('click',()=>void modifyMember(member.member_id,'disable'));
@@ -246,9 +249,8 @@ async function refreshMembers() {
   fillOwnerSelect();
 }
 function revealSecret(reply) {
-  $('member-secret-code').textContent=reply.temporary_password||reply.access_token||'';
-  $('member-secret-heading').textContent=reply.temporary_password
-    ? 'Временный пароль — только сейчас' : 'Новый ключ — только сейчас';
+  $('member-secret-code').textContent=reply.access_token||'';
+  $('member-secret-heading').textContent='Новый ключ — только сейчас';
   $('member-secret').hidden=false;
 }
 $('member-invite').addEventListener('submit',event=>{
@@ -272,18 +274,15 @@ async function modifyMember(memberId,action) {
   if (identity?.role!=='admin') return;
   const message=action==='rotate'
     ? 'Перевыпустить ключ «'+memberId+'»? Предыдущий перестанет работать.'
-    : action==='password'
-      ? 'Выдать временный пароль «'+memberId+'»? Старый пароль и все парольные сессии будут отозваны.'
-      : 'Отключить «'+memberId+'»? Ожидающие задания будут отменены. Все книги сначала должны быть переназначены.';
+    : 'Отключить «'+memberId+'»? Ожидающие задания будут отменены. Все книги сначала должны быть переназначены.';
   if (!window.confirm(message)) return;
   clearSecret();flash('');
   await busyDuring(async()=>{
     try {
       const result=await request('/v1/admin/members/'+encodeURIComponent(memberId)+'/'+action,{method:'POST'});
       await refreshMembers();
-      if (result.access_token||result.temporary_password) revealSecret(result);
-      flash(action==='password'?'Пароль выдан однократно. Модератор должен сменить его при входе.'
-        :action==='rotate'?'Новый ключ выдан однократно.':'Доступ модератора отключён.');
+      if (result.access_token) revealSecret(result);
+      flash(action==='rotate'?'Новый ключ выдан однократно.':'Доступ модератора отключён.');
     } catch(e){flash(e.message,true);}
   });
 }

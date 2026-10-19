@@ -59,11 +59,40 @@ try{
   const page=await context.newPage();spy(page,'desktop');
   const response=await page.goto(origin+'/app/overview');
   assert.equal(response.status(),200);
-  assert.match(await page.title(),/РидЭра/);
+  assert.equal(await page.title(),'Вход','anonymous HTML must never reveal brand in the tab');
+  await page.waitForFunction(()=>document.body?.dataset.authReady==='1');
+  assert.equal(await page.title(),'Вход','anonymous restore must not brand the tab');
+  // An anonymous visitor sees only the key field and submit button:
+  // no branded title, sidebar, navigation, topbar or team content.
   assert.equal(await page.locator('#login-form').isVisible(),true);
+  assert.equal(await page.locator('.sidebar').isVisible(),false);
+  assert.equal(await page.locator('.topbar').isVisible(),false);
+  assert.equal(await page.locator('#authenticated').isVisible(),false);
+  assert.equal(await page.locator('#login-form h1').count(),0);
+  assert.equal(await page.locator('#login-form .kicker').count(),0);
+  assert.equal(await page.locator('#login-form .ui-field').innerText(),'Ключ');
+  assert.equal(await page.locator('#login-form [name="api_key"]').count(),1);
+  await fit(page,'anonymous desktop');
   assert.equal((await api('/v1/books','invalid')).status,401);
   await login(page,adminKey);
+  assert.equal(await page.locator('.sidebar').isVisible(),true);
+  assert.equal(await page.locator('.topbar').isVisible(),true);
+  assert.equal(await page.locator('body').getAttribute('data-authenticated'),'true');
   assert.match(await page.locator('#identity-label').innerText(),/Администратор/);
+  assert.match(await page.title(),/РидЭра/,'verified admin can see branded tab');
+  // RE-04: logout belongs to the account row, not a detached content row.
+  assert.equal(await page.locator('.workspace-actions').count(),0);
+  assert.equal(await page.locator('.topbar-account #logout').count(),1);
+  const [topbarBox,identityBox,logoutBox]=await Promise.all([
+    page.locator('.topbar').boundingBox(),
+    page.locator('#identity-label').boundingBox(),
+    page.locator('#logout').boundingBox(),
+  ]);
+  assert.ok(topbarBox && topbarBox.height<=58,'compact topbar must be <=58px');
+  assert.ok(identityBox && logoutBox && logoutBox.x>identityBox.x,
+    'logout must align after the identity');
+  assert.ok(logoutBox.y>=topbarBox.y && logoutBox.y+logoutBox.height<=topbarBox.y+topbarBox.height+2,
+    'logout must stay inside the topbar');
   assert.equal(await page.locator('#metric-books').innerText(),'0');
   await screenshot(page,'01-overview-desktop.png');await fit(page,'overview desktop');
 
@@ -88,6 +117,7 @@ try{
   assert.equal((await page.locator('#gemini-keys-list').innerText()).includes(cabinetSecret),false);
   await page.reload();
   await page.locator('#authenticated').waitFor({state:'visible'});
+  assert.match(await page.title(),/РидЭра/,'restored secure session regains branded tab');
   await page.locator('[data-page="cabinet"]').waitFor({state:'visible'});
   await page.getByText('readera-browser-project · ключ сохранён').waitFor();
   await page.locator('#gemini-keys-list button[aria-label="Удалить Gemini-ключ проекта readera-browser-project"]').click();
@@ -108,13 +138,39 @@ try{
   await screenshot(page,'02-team-desktop.png');
   await page.locator('#logout').click();
   await page.locator('#authenticated').waitFor({state:'hidden'});
+  assert.equal(await page.title(),'Вход','logout must remove branding from tab');
+  assert.equal(await page.locator('body').getAttribute('data-authenticated'),'false');
+  assert.equal(await page.locator('.sidebar').isVisible(),false);
+  assert.equal(await page.locator('.topbar').isVisible(),false);
+  assert.equal(await page.locator('#login-form').isVisible(),true);
+  await page.reload();
+  await page.waitForFunction(()=>document.body?.dataset.authReady==='1');
+  assert.equal(await page.title(),'Вход','revoked session stays anonymous on reload');
   await login(page,issued);
+  assert.match(await page.title(),/РидЭра/,'valid moderator key should reveal title');
   assert.match(await page.locator('#identity-label').innerText(),/writer/);
   await choose(page,'team');
   assert.equal(await page.locator('#team-no-admin').isVisible(),true);
   assert.equal((await api('/v1/admin/members',issued)).status,403);
 
   await choose(page,'import');
+  // The source import form is a single row; no nested oversized card or
+  // separated logout row may consume the first viewport on desktop.
+  const [importHeading,sourceCard,sourceUrl,discover,historyPanel]=await Promise.all([
+    page.locator('[data-page="import"] > .ui-page-header').boundingBox(),
+    page.locator('#source-import').boundingBox(),
+    page.locator('#source-book-url').boundingBox(),
+    page.locator('#source-discover').boundingBox(),
+    page.locator('#source-job-panel').boundingBox(),
+  ]);
+  assert.ok(importHeading && sourceCard && sourceCard.y-importHeading.y<110,
+    'import form must follow the compact page heading');
+  assert.ok(sourceUrl && discover && discover.x>sourceUrl.x,
+    'source import action must align to the right of URL field on desktop');
+  assert.ok(historyPanel && historyPanel.y<700,
+    'background import controls should appear within first desktop viewport');
+  assert.equal(await page.locator('#source-job-panel.ui-card').count(),0,
+    'background import must not be a second nested card');
   // Site selection uses the authenticated controller and does not claim a
   // complete import if even one public chapter cannot be fetched.
   const sourceCatalogReply={
@@ -164,6 +220,7 @@ try{
     total:2,completed:0,failed:0,pending:2,
     selected_start:1,selected_end:2,
     manual_retries:0,failures:[],
+    next_attempt_at:Date.now()/1000+600,waiting_reason:'daily_site_budget',
   };
   const createJobPattern='**/v1/source-books/jobs';
   const getJobPattern='**/v1/source-books/jobs/job-browser-123';
@@ -205,6 +262,7 @@ try{
   await page.locator('#source-job-id').waitFor({state:'visible'});
   await page.waitForFunction(()=>document.querySelector('#source-job-id')?.value==='job-browser-123');
   assert.match(await page.locator('#source-job-status').innerText(),/готово 0\/2/);
+  assert.match(await page.locator('#source-job-status').innerText(),/пауза сайта до/);
   await page.locator('#source-job-refresh').click();
   await page.getByText('готово 1/2',{exact:false}).waitFor();
   assert.equal(await page.locator('#import-map').isVisible(),false);
@@ -250,6 +308,97 @@ try{
   const sourceTxtDownload=await fileEvent;
   assert.equal(sourceTxtDownload.suggestedFilename(),'readera-original-royalroad-1-2.txt');
   assert.deepEqual(readFileSync(await sourceTxtDownload.path()),txtBytes);
+  // Another moderator's stored originals are readable, not manageable.
+  // Even hostile-looking chapter prose must render as plain text.
+  const foreignJob='shared-browser-foreign';
+  const foreignBody='<img src=x onerror=alert(1)> Synthetic chapter content.';
+  const sharedPattern='**/v1/source-books/shared?limit=30';
+  const sharedChapterIndex='**/v1/source-books/shared/'+foreignJob+'?offset=0&limit=50';
+  const sharedBodyPath='**/v1/source-books/shared/'+foreignJob+'/chapters/1';
+  await page.route(sharedPattern,async route=>{
+    await route.fulfill({status:200,contentType:'application/json',
+      body:JSON.stringify({scope:'team_verified_originals',read_only:true,sources:[{
+        job_id:foreignJob,collector_member_id:'another-moderator',can_manage:false,
+        source:'royalroad',book_url:sourceCatalogReply.book_url,
+        verified_count:1,selected_count:3,updated_at:1760757000,
+      }]})});
+  });
+  await page.route(sharedChapterIndex,async route=>{
+    await route.fulfill({status:200,contentType:'application/json',
+      body:JSON.stringify({job_id:foreignJob,collector_member_id:'another-moderator',
+        source:'royalroad',book_url:sourceCatalogReply.book_url,
+        selected_count:3,verified_count:1,offset:0,has_more:false,
+        chapters:[{ordinal:1,title:'Shared synthetic',source_id:'60001',
+          url:sourceCatalogReply.chapters[0].url,bytes:foreignBody.length,
+          sha256:'b'.repeat(64)}],scope:'verified_original_checkpoints'})});
+  });
+  await page.route(sharedBodyPath,async route=>{
+    await route.fulfill({status:200,contentType:'application/json',
+      body:JSON.stringify({job_id:foreignJob,collector_member_id:'another-moderator',
+        source:'royalroad',ordinal:1,title:'Shared synthetic',body:foreignBody,
+        sha256:'b'.repeat(64),scope:'single_verified_original'})});
+  });
+  await page.locator('#source-shared').evaluate(el=>{el.open=true;});
+  await page.locator('#source-shared-refresh').click();
+  await page.getByText('Сохранённых сборок с проверенными исходниками: 1',
+    {exact:false}).waitFor();
+  await page.locator('#source-shared-list').selectOption(foreignJob);
+  await page.locator('#source-shared-open').click();
+  await page.locator('#source-shared-reader').waitFor({state:'visible'});
+  await page.locator('#source-shared-chapters').selectOption('1');
+  await page.locator('#source-shared-read').click();
+  await page.locator('#source-shared-body').waitFor({state:'visible'});
+  assert.equal(await page.locator('#source-shared-body').textContent(),foreignBody);
+  assert.equal(await page.locator('#source-shared-body img').count(),0,
+    'Stored source text must never be inserted into the DOM as HTML');
+  assert.equal(await page.locator('#source-shared').locator('#source-job-history-delete').count(),0);
+  await page.unroute(sharedPattern);
+  await page.unroute(sharedChapterIndex);
+  await page.unroute(sharedBodyPath);
+  // Immutable archived originals survive personal job deletion and remain
+  // readable by another logged-in team member. Prose is never interpreted
+  // as HTML, even if it contains an SVG event-handler-looking string.
+  const archivedBookId='a'.repeat(64),archivedRevision='b'.repeat(64);
+  const archivedBody='<svg/onload=alert(1)> Verified archived example chapter.';
+  const archiveBooksPath='**/v1/source-books/archive?limit=30&offset=0';
+  const archiveChaptersPath='**/v1/source-books/archive/'+archivedBookId+'?limit=50&offset=0';
+  const archiveReadPath='**/v1/source-books/archive/revisions/'+archivedRevision;
+  await page.route(archiveBooksPath,route=>route.fulfill({
+    status:200,contentType:'application/json',
+    body:JSON.stringify({scope:'team_shared_original_archive',read_only:true,
+      books:[{archive_book_id:archivedBookId,source:'royalroad',
+        book_url:sourceCatalogReply.book_url,chapter_count:1,revisions:1}]}),
+  }));
+  await page.route(archiveChaptersPath,route=>route.fulfill({
+    status:200,contentType:'application/json',
+    body:JSON.stringify({scope:'team_shared_original_archive',
+      archive_book_id:archivedBookId,has_more:false,
+      chapters:[{revision_id:archivedRevision,ordinal:1,title:'Archived synthetic',
+        body_sha256:'e'.repeat(64),collector_member_id:'other-member'}]}),
+  }));
+  await page.route(archiveReadPath,route=>route.fulfill({
+    status:200,contentType:'application/json',
+    body:JSON.stringify({scope:'single_verified_archived_original',
+      revision_id:archivedRevision,ordinal:1,title:'Archived synthetic',
+      sha256:'e'.repeat(64),body:archivedBody}),
+  }));
+  await page.locator('#source-archive').evaluate(el=>{el.open=true;});
+  await page.locator('#source-archive-refresh').click();
+  await page.getByText('Книг с сохранёнными оригиналами: 1',{exact:false}).waitFor();
+  await page.locator('#source-archive-books').selectOption(archivedBookId);
+  await page.locator('#source-archive-open').click();
+  await page.locator('#source-archive-reader').waitFor({state:'visible'});
+  await page.locator('#source-archive-chapters').selectOption(archivedRevision);
+  await page.locator('#source-archive-read').click();
+  await page.locator('#source-archive-body').waitFor({state:'visible'});
+  assert.equal(await page.locator('#source-archive-body').textContent(),archivedBody);
+  assert.equal(await page.locator('#source-archive-body svg').count(),0,
+    'Archive original must be escaped from executable HTML');
+  assert.equal(await page.locator('#source-archive [id*=delete]').count(),0,
+    'Team archive does not expose a destructive control');
+  await page.unroute(archiveBooksPath);
+  await page.unroute(archiveChaptersPath);
+  await page.unroute(archiveReadPath);
   // The server history allows restoring without retaining a UUID in localStorage.
   await page.locator('#source-job-history-refresh').click();
   await page.getByText('Доступно своих сборок: 1',{exact:false}).waitFor();
@@ -537,7 +686,14 @@ try{
   const mobile=await browser.newContext({viewport:{width:390,height:844},locale:'ru-RU'});
   const mpage=await mobile.newPage();spy(mpage,'mobile');
   await mpage.goto(origin+'/app/books');
+  assert.equal(await mpage.title(),'Вход','mobile anonymous title is generic');
+  await mpage.waitForFunction(()=>document.body?.dataset.authReady==='1');
+  assert.equal(await mpage.locator('.sidebar').isVisible(),false);
+  assert.equal(await mpage.locator('.topbar').isVisible(),false);
+  assert.equal(await mpage.locator('#login-form').isVisible(),true);
+  await fit(mpage,'anonymous mobile');
   await login(mpage,modKey);
+  assert.equal(await mpage.locator('.sidebar').isVisible(),true);
   await mpage.locator('#book-list').getByText('Браузерная проверка').waitFor();
   await fit(mpage,'books mobile');await screenshot(mpage,'09-library-mobile.png');
   // Batch multiselect also fits a narrow phone without opening a public API.
@@ -556,6 +712,15 @@ try{
   await mobileBatch.getByRole('button',{name:'Закрыть'}).click();
   await mobileBatch.waitFor({state:'hidden'});
   await choose(mpage,'import');await fit(mpage,'import mobile');
+  assert.equal(await mpage.locator('.topbar-account #logout').isVisible(),true);
+  const [mbar,mexit]=await Promise.all([
+    mpage.locator('.topbar').boundingBox(),mpage.locator('#logout').boundingBox(),
+  ]);
+  assert.ok(mbar && mexit && mexit.y+mexit.height<=mbar.y+mbar.height+2,
+    'mobile logout must stay within topbar');
+  assert.equal(await mpage.locator('#source-book-form').evaluate(
+    node=>getComputedStyle(node).gridTemplateColumns.split(' ').length),1,
+    'mobile source form should stack without horizontal overflow');
   await screenshot(mpage,'10-import-mobile.png');
   await choose(mpage,'editor');
   await mpage.locator('#editor-workspace').waitFor({state:'visible'});
@@ -791,37 +956,19 @@ try{
   await batchDialog.getByRole('button',{name:'Закрыть'}).click();
   await batchDialog.waitFor({state:'hidden'});
 
-  // RE-03: admin issues a one-time password to an EXISTING moderator.
+  // RE-03 key-only: a moderator uses the issued key, without a password
+  // choice, temporary password, reset dialog or browser credential storage.
   await choose(page,'team');
-  const writerRow=page.locator('#members-list tr').filter({hasText:'writer'});
-  page.once('dialog',dialog=>void dialog.accept());
-  await writerRow.getByRole('button',{name:'Выдать пароль'}).click();
-  await page.locator('#member-secret').waitFor({state:'visible'});
-  const initialPassword=await page.locator('#member-secret-code').innerText();
-  assert.ok(initialPassword.startsWith('rp_'));
-  assert.match(await page.locator('#member-secret-heading').innerText(),/Временный пароль/);
-  await page.locator('#member-secret-hide').click();
+  assert.equal(await page.getByRole('button',{name:'Выдать пароль'}).count(),0);
   await page.locator('#logout').click();
   await page.locator('#login-form').waitFor({state:'visible'});
-  await page.locator('#login-form [name="login_mode"][value="password"]').check();
-  await page.locator('#login-member').fill('writer');
-  await page.locator('#login-secret').fill(initialPassword);
-  await page.locator('#login-form button[type="submit"]').click();
-  await page.locator('#password-change').waitFor({state:'visible'});
-  assert.equal(await page.locator('#authenticated').isVisible(),false);
-  assert.equal((await page.request.get(origin+'/v1/books')).status(),403);
-  await page.locator('#change-password-current').fill(initialPassword);
-  await page.locator('#password-change-form [name="new_password"]').fill('My new moderator password 2026!');
-  await page.locator('#password-change-form [name="confirmation"]').fill('My new moderator password 2026!');
-  await page.locator('#password-change-form button[type="submit"]').click();
-  await page.locator('#login-form').waitFor({state:'visible'});
-  await page.locator('#login-form [name="login_mode"][value="password"]').check();
-  await page.locator('#login-member').fill('writer');
-  await page.locator('#login-secret').fill('My new moderator password 2026!');
-  await page.locator('#login-form button[type="submit"]').click();
-  await page.locator('#authenticated').waitFor({state:'visible'});
+  assert.equal(await page.locator('#source-shared-body').textContent(),'');
+  assert.equal(await page.locator('#source-archive-body').textContent(),'');
+  assert.equal(await page.locator('[name="login_mode"]').count(),0);
+  assert.equal(await page.locator('#login-member').count(),0);
+  assert.equal(await page.locator('#password-change-form').count(),0);
+  await login(page,issued);
   assert.match(await page.locator('#identity-label').innerText(),/writer/);
-  assert.equal(await page.locator('#change-password-open').isVisible(),true);
   await page.reload();
   await page.waitForFunction(()=>document.body?.dataset.authReady==='1');
   await page.locator('#authenticated').waitFor({state:'visible'});
@@ -832,19 +979,9 @@ try{
     local:Object.keys(localStorage),session:Object.keys(sessionStorage),
   }));
   assert.deepEqual(noKeys,{local:[],session:[]});
-  // The same authenticated moderator can voluntarily rotate their password.
-  await page.locator('#change-password-open').click();
-  await page.locator('#password-change').waitFor({state:'visible'});
-  await page.locator('#change-password-current').fill('My new moderator password 2026!');
-  await page.locator('#password-change-form [name="new_password"]').fill('Another secure moderator passphrase!');
-  await page.locator('#password-change-form [name="confirmation"]').fill('Another secure moderator passphrase!');
-  await page.locator('#password-change-form button[type="submit"]').click();
-  await page.locator('#login-form').waitFor({state:'visible'});
-  await page.locator('#login-form [name="login_mode"][value="password"]').check();
-  await page.locator('#login-member').fill('writer');
-  await page.locator('#login-secret').fill('Another secure moderator passphrase!');
-  await page.locator('#login-form button[type="submit"]').click();
-  await page.locator('#authenticated').waitFor({state:'visible'});
+  assert.equal((await api('/v1/session/password',adminKey,'POST',{
+    member_id:'writer',password:'retired',
+  })).status,404);
   assert.deepEqual(pageErrors,[],'No uncaught browser errors');
   console.log('PASS: real Chromium desktop/mobile, roles, source import and replacement CAS,');
   console.log('      stage abort, memory-only keys, ownership, responsive widths, screenshots.');

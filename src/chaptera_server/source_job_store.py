@@ -18,10 +18,13 @@ from .source_collect import (
     CollectedBook, CollectedChapter, SourceCatalog, MAX_BODY_CHARS,
 )
 from .source_site_storage import _fingerprint
+from .source_original_archive import SourceOriginalArchive, SourceArchiveConflict
 from .storage import QueueStore
 
 MAX_JOB_CHAPTERS = 2000
 MAX_ACTIVE_JOBS_PER_ACTOR = 3
+MAX_ACTIVE_JOBS_GLOBAL = 32
+MAX_ACTIVE_JOBS_PER_SITE = 12
 MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 MAX_ITEM_BYTES = 1 * 1024 * 1024
 MAX_JOB_BYTES = 256 * 1024 * 1024
@@ -102,7 +105,28 @@ class SourceJobStore:
                     PRIMARY KEY(job_id,item_index),
                     UNIQUE(job_id,ordinal)
                 );
+                CREATE TABLE IF NOT EXISTS source_collect_actor_turns (
+                    actor_id TEXT PRIMARY KEY,
+                    last_turn INTEGER NOT NULL DEFAULT 0
+                );
             """)
+            # Both the API and independent worker may initialize the same
+            # legacy database: serialize the additive, reversible migration.
+            con.execute("BEGIN IMMEDIATE")
+            columns = {row["name"] for row in con.execute(
+                "PRAGMA table_info(source_collect_jobs)")}
+            if "ready_at" not in columns:
+                con.execute("ALTER TABLE source_collect_jobs "
+                            "ADD COLUMN ready_at REAL NOT NULL DEFAULT 0")
+            if "dispatch_turn" not in columns:
+                con.execute("ALTER TABLE source_collect_jobs "
+                            "ADD COLUMN dispatch_turn INTEGER NOT NULL DEFAULT 0")
+            if "defer_reason" not in columns:
+                con.execute("ALTER TABLE source_collect_jobs "
+                            "ADD COLUMN defer_reason TEXT")
+        # Separate, immutable, bounded team archive. No legacy data is
+        # copied merely by starting the API or opening the old database.
+        self.archive = SourceOriginalArchive(store)
 
     @staticmethod
     def _used_bytes(con: sqlite3.Connection, actor: str) -> tuple[int, int]:
@@ -199,6 +223,10 @@ class SourceJobStore:
             "selected_end": chapters[-1]["ordinal"],
             "next_ordinal": next((ch["ordinal"] for ch in chapters if ch["ordinal"] not in done), None),
             "manual_retries": row["manual_retries"],
+            "next_attempt_at": (row["ready_at"] if row["status"] == "queued"
+                                and row["ready_at"] > time.time() else None),
+            "waiting_reason": (row["defer_reason"] if row["status"] == "queued"
+                               and row["ready_at"] > time.time() else None),
             "failures": [
                 {"ordinal":item["ordinal"],"error":item["error"]}
                 for item in outcomes if item["status"]=="failed"
@@ -255,6 +283,18 @@ class SourceJobStore:
             ).fetchone()[0]
             if active >= MAX_ACTIVE_JOBS_PER_ACTOR:
                 raise SourceJobConflict("Too many active source collection jobs")
+            global_active = con.execute(
+                "SELECT COUNT(*) FROM source_collect_jobs WHERE status IN ('queued','running')"
+            ).fetchone()[0]
+            if global_active >= MAX_ACTIVE_JOBS_GLOBAL:
+                raise SourceJobConflict("Shared source job queue is full")
+            site_active = con.execute(
+                "SELECT COUNT(*) FROM source_collect_jobs "
+                "WHERE source=? AND status IN ('queued','running')",
+                (catalog.source,),
+            ).fetchone()[0]
+            if site_active >= MAX_ACTIVE_JOBS_PER_SITE:
+                raise SourceJobConflict("This source site already has too many queued jobs")
             job_id = str(uuid.uuid4())
             con.execute(
                 "INSERT INTO source_collect_jobs("
@@ -296,6 +336,15 @@ class SourceJobStore:
                 raise SourceJobConflict("Cancel the running collection before deleting it")
             if row["status"] not in ("complete","partial","cancelled"):
                 raise SourceJobConflict("Collection is not deletable")
+            # Preserve every verified source original BEFORE the personal
+            # capture is removed. Archive capture and the FK cascade share
+            # this transaction: no half-archive, no silent text loss.
+            try:
+                retained = self.archive.capture_before_delete(
+                    con,row,self._manifest(row),
+                )
+            except SourceArchiveConflict as exc:
+                raise SourceJobConflict(str(exc)) from exc
             count = con.execute(
                 "SELECT COUNT(*) FROM source_collect_items WHERE job_id=?",
                 (job_id,),
@@ -321,6 +370,7 @@ class SourceJobStore:
                 "deleted":True,"job_id":job_id,
                 "deleted_checkpoints":count,"freed_source_bytes":bytes_freed,
                 "library_unchanged":True,
+                **retained,
             }
 
     def claim(self, *, lease_seconds: float = 180.0) -> dict | None:
@@ -330,10 +380,13 @@ class SourceJobStore:
         with self.store._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             candidates = con.execute(
-                "SELECT * FROM source_collect_jobs "
-                "WHERE status='queued' OR (status='running' AND lease_expires_at<?) "
-                "ORDER BY created_at LIMIT 10",
-                (now,),
+                "SELECT j.* FROM source_collect_jobs AS j "
+                "LEFT JOIN source_collect_actor_turns AS a ON a.actor_id=j.actor_id "
+                "WHERE (j.status='queued' AND j.ready_at<=?) "
+                "   OR (j.status='running' AND j.lease_expires_at<?) "
+                "ORDER BY COALESCE(a.last_turn,0),j.dispatch_turn,j.created_at "
+                "LIMIT 24",
+                (now,now),
             ).fetchall()
             for row in candidates:
                 chapters = self._manifest(row)
@@ -356,10 +409,23 @@ class SourceJobStore:
                     )
                     continue
                 token = str(uuid.uuid4())
+                # A transactionally durable round-robin turn is shared by
+                # every worker process. One moderator with three queued jobs
+                # does not get triple priority over another with one job.
+                turn = con.execute(
+                    "SELECT COALESCE(MAX(last_turn),0)+1 FROM source_collect_actor_turns"
+                ).fetchone()[0]
+                con.execute(
+                    "INSERT INTO source_collect_actor_turns(actor_id,last_turn) "
+                    "VALUES(?,?) ON CONFLICT(actor_id) "
+                    "DO UPDATE SET last_turn=excluded.last_turn",
+                    (row["actor_id"],turn),
+                )
                 con.execute(
                     "UPDATE source_collect_jobs SET status='running',lease_token=?,"
-                    "lease_expires_at=?,current_index=?,updated_at=? WHERE id=?",
-                    (token,now+lease_seconds,next_index,now,row["id"]),
+                    "lease_expires_at=?,current_index=?,updated_at=?,"
+                    "dispatch_turn=?,ready_at=0,defer_reason=NULL WHERE id=?",
+                    (token,now+lease_seconds,next_index,now,turn,row["id"]),
                 )
                 return {
                     "job_id":row["id"], "lease_token":token,
@@ -369,6 +435,36 @@ class SourceJobStore:
                     "item_index":next_index,"chapter":chapters[next_index],
                 }
         return None
+
+    def defer(self, job_id: str, token: str, *,
+              retry_after: int, reason: str) -> dict:
+        """Requeue a busy-site chapter without an erroneous failure receipt.
+
+        The exact missing item stays unmodified. Stale/cancelled leases cannot
+        put the job back in the queue or erase a completed chapter.
+        """
+        if type(retry_after) is not int or not 1 <= retry_after <= 86400:
+            raise ValueError("Site retry delay must be 1..86400 seconds")
+        if reason not in {"upstream_cooldown","upstream_429","request_interval",
+                          "inflight_request","daily_site_budget","clock_regression"}:
+            raise ValueError("Unrecognized source admission delay")
+        now = time.time()
+        with self.store._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            row = con.execute(
+                "SELECT * FROM source_collect_jobs WHERE id=?", (job_id,),
+            ).fetchone()
+            if (row is None or row["status"] != "running" or
+                row["lease_token"] != token or row["lease_expires_at"] is None or
+                row["lease_expires_at"] <= now):
+                raise SourceJobConflict("Stale source job lease")
+            con.execute(
+                "UPDATE source_collect_jobs SET status='queued',lease_token=NULL,"
+                "lease_expires_at=NULL,current_index=NULL,ready_at=?,"
+                "defer_reason=?,updated_at=? WHERE id=?",
+                (now+retry_after,reason,now,job_id),
+            )
+            return self._public(con,self._owned(con,row["actor_id"],job_id))
 
     def finish(
         self, job_id: str, token: str, *,
