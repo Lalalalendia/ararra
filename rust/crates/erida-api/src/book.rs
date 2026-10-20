@@ -55,6 +55,30 @@ pub async fn book(
     }).await
 }
 
+pub async fn chapters(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(book_id): Path<String>,
+) -> Result<Response, ApiError> {
+    secured_read(state, headers, move |db, _, _| {
+        erida_library::list_chapters(db, &book_id)
+            .map_err(map_library)?
+            .ok_or(ApiError::BookNotFound)
+    }).await
+}
+
+pub async fn chapter(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((book_id, chapter_id)): Path<(String, String)>,
+) -> Result<Response, ApiError> {
+    secured_read(state, headers, move |db, _, _| {
+        erida_library::get_chapter(db, &book_id, &chapter_id)
+            .map_err(map_library)?
+            .ok_or(ApiError::ChapterNotFound)
+    }).await
+}
+
 pub async fn create(
     State(state): State<AppState>,
     headers: HeaderMap,

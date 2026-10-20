@@ -84,6 +84,68 @@ async def exercise(app, settings: Settings, db_path: Path, endpoint: str) -> Non
         missing_book = await rust.get("/v1/books/not-exists", headers=other)
         assert missing_book.status_code == 404 and missing_book.json()["detail"] == "Book not found"
 
+        # RUST-02c: chapter directory/detail must agree with Python and must
+        # never leak full prose in the list response. Text stays in a read-only
+        # disposable SQLite populated exclusively by the reference library.
+        chapter_root = "/v1/books/book-py/chapters"
+        chapter_detail = chapter_root + "/chapter-a"
+
+        async def assert_chapter_parity(path):
+            reference = await py.get(path, headers=other)
+            candidate = await rust.get(path, headers=other)
+            assert reference.status_code == candidate.status_code, path
+            assert reference.json() == candidate.json(), path
+            return candidate.json()
+
+        current = await assert_chapter_parity(chapter_detail)
+        assert current["source_revision"] == 1
+        assert current["accepted_revision"] == 0
+        initial_directory = await assert_chapter_parity(chapter_root)
+        assert initial_directory["chapters"][0]["accepted_current"] is False
+        assert "source_html" not in initial_directory["chapters"][0]
+        assert "accepted_html" not in initial_directory["chapters"][0]
+
+        app.state.library.accept_translation(
+            "book-py", "chapter-a", "<p>Перевод первой главы.</p>",
+            expected_revision=0, expected_source_revision=1, actor_id="other",
+        )
+        accepted_detail = await assert_chapter_parity(chapter_detail)
+        accepted_directory = await assert_chapter_parity(chapter_root)
+        assert accepted_detail["accepted_current"] is True
+        assert accepted_detail["accepted_revision"] == 1
+        assert accepted_directory["chapters"][0]["accepted_current"] is True
+        accepted_books = await assert_chapter_parity("/v1/books")
+        assert next(item for item in accepted_books["books"] if item["book_id"] == "book-py")[
+            "accepted_current_count"
+        ] == 1
+
+        app.state.library.put_chapter(
+            "book-py", "chapter-a", chapter_index=1,
+            chapter_path="Chapter 1",
+            source_html="<p>source changed, accepted translation is now stale</p>",
+            expected_revision=1,
+        )
+        stale_detail = await assert_chapter_parity(chapter_detail)
+        stale_directory = await assert_chapter_parity(chapter_root)
+        assert stale_detail["source_revision"] == 2
+        assert stale_detail["accepted_revision"] == 1
+        assert stale_detail["accepted_current"] is False
+        assert stale_directory["chapters"][0]["accepted_current"] is False
+        assert "accepted_html" not in stale_directory["chapters"][0]
+        stale_books = await assert_chapter_parity("/v1/books")
+        assert next(item for item in stale_books["books"] if item["book_id"] == "book-py")[
+            "accepted_current_count"
+        ] == 0
+
+        for path in (
+            "/v1/books/book-py/chapters/not-present",
+            "/v1/books/not-exists/chapters",
+        ):
+            missing_py = await py.get(path, headers=other)
+            missing_rust = await rust.get(path, headers=other)
+            assert missing_py.status_code == missing_rust.status_code == 404
+            assert missing_py.json() == missing_rust.json(), path
+
         # Concurrent CAS: exactly one revision 0 -> 1, exactly one owner event.
         # Genuine two-writer contention: different new moderators, same CAS
         # generation. Exactly one update and one immutable audit event.

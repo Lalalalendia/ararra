@@ -2,6 +2,9 @@
 //! No schema initializer, text mutation, glossary or accepted-translation writer.
 use rusqlite::{params, Connection, TransactionBehavior};
 use serde_json::{json, Value};
+
+pub mod chapters;
+pub use chapters::{get_chapter, list_chapters};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug)]

@@ -127,3 +127,28 @@ ownership policy, CSRF and token header precedence.
 This still is NOT a full replacement for Python BookLibrary. In particular,
 chapter source revisions, accepted translations, editing and glossary flows
 must be independently ported and golden-checked before any release.
+
+## RUST-02c: chapter reading with stale-acceptance parity
+
+The `erida-library::chapters` module implements two authenticated **GET-only**
+routes using the existing Python-owned SQLite schema:
+
+- `GET /v1/books/{book_id}/chapters` — stable chapter-index/id ordered
+  directory, without original or accepted text bodies.
+- `GET /v1/books/{book_id}/chapters/{chapter_id}` — complete single-chapter
+  metadata, original HTML, hashes and accepted translation status.
+
+The current accepted text is usable only if it is nonempty and tied to the
+current source revision, exactly as in Python BookLibrary. Old accepted HTML
+remains visible in the chapter detail but is explicitly `accepted_current=false`
+after any source revision change; the book directory count must decrease.
+
+`scripts/compare_rust_books.py` checks Python vs Rust response JSON/status
+before acceptance, after acceptance and after subsequent source editing. It also
+verifies that lists never return source or accepted HTML, even when a chapter
+is already translated. No Rust mutations of chapter text or glossary are enabled.
+
+**Not yet migrated:** chapter source hash normalization, saving chapter text,
+accepted-translation revision writes, translation-context calculation, editor
+drafts, import/exports and actual Gemini translation. A production switch still
+requires their respective contracts to be implemented and accepted.
