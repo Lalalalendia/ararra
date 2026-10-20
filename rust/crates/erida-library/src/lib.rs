@@ -4,7 +4,9 @@ use rusqlite::{params, Connection, TransactionBehavior};
 use serde_json::{json, Value};
 
 pub mod chapters;
+mod chapter_writes;
 pub use chapters::{get_chapter, list_chapters};
+pub use chapter_writes::put_chapter_conservative;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug)]
@@ -14,6 +16,7 @@ pub enum LibraryError {
     Conflict(&'static str),
     Missing(&'static str),
     Malformed,
+    UnsupportedSource,
 }
 impl From<rusqlite::Error> for LibraryError {
     fn from(error: rusqlite::Error) -> Self {
