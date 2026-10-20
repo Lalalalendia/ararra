@@ -7,6 +7,7 @@ import logging
 import signal
 import json
 import os
+import uuid
 
 from .config import Settings, _read_systemd_credential
 from .provider import GeminiProvider
@@ -57,7 +58,9 @@ async def _run_worker(settings: Settings) -> None:
 
 
 
-async def _run_source_worker(settings: Settings) -> None:
+async def _run_source_worker(
+    settings: Settings, *, once_job_id: str | None = None,
+) -> None:
     """Dedicated crawler process: no Gemini key, no book-library writes."""
     from .source_job_store import SourceJobStore
     from .source_job_worker import SourceCollectionWorker
@@ -80,12 +83,18 @@ async def _run_source_worker(settings: Settings) -> None:
     crawler = SourceCollectionWorker(
         jobs, PublicHtmlFetcher(request_limiter=SourceRequestLimiter(repository)),
     )
+    if once_job_id is not None:
+        attempted = await crawler.run_once(only_job_id=once_job_id)
+        if not attempted:
+            raise RuntimeError("Targeted source job is not ready; no other job was touched")
+        logging.info("one-shot source job attempted: %s", once_job_id)
+        return
     await crawler.run_forever(poll_seconds=settings.worker_poll_seconds, stop=stop)
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Chaptera team translation backend")
     parser.add_argument("command", choices=["serve", "worker", "source-worker", "export-drive", "drive-authorize", "drive-smoke", "drive-outbox"])
-    parser.add_argument("--job-id", default="", help="Completed book translation job UUID")
+    parser.add_argument("--job-id", default="", help="Exact job UUID for source-worker --run-once or export-drive")
     parser.add_argument("--dry-run", action="store_true", help="Inspect a job; no OAuth or Drive writes")
     parser.add_argument("--token-file", default="", help="Absolute path for a NEW private OAuth token file")
     parser.add_argument("--client-json", default="", help="Local Desktop OAuth client JSON downloaded from Google Cloud")
@@ -94,12 +103,23 @@ def main() -> None:
     parser.add_argument("--live-smoke", action="store_true", help="Explicitly create and re-edit a synthetic Drive chapter pair")
     parser.add_argument("--enable", action="store_true", help="Opt in to QUEUE ONLY future completed book jobs")
     parser.add_argument("--disable", action="store_true", help="Pause the automatic Drive queue")
-    parser.add_argument("--run-once", action="store_true", help="Export at most one queued completed job")
+    parser.add_argument("--run-once", action="store_true", help="One targeted source step, or one queued Drive export")
     parser.add_argument("--allow-drive-write", action="store_true", help="Explicit permission for outbox remote mutations")
     parser.add_argument("--retry-held", action="store_true", help="Explicitly requeue one held job after review")
     args = parser.parse_args()
     if args.backup_folder_id and args.command not in ("drive-authorize", "drive-smoke"):
         parser.error("--backup-folder-id is only supported for drive-authorize or drive-smoke")
+    if args.command == "source-worker":
+        if args.run_once:
+            try:
+                if str(uuid.UUID(args.job_id)) != args.job_id:
+                    raise ValueError("Noncanonical job UUID")
+            except (ValueError, AttributeError):
+                parser.error("source-worker --run-once requires --job-id <canonical UUID>")
+        elif args.job_id:
+            parser.error("source-worker --job-id requires --run-once")
+        if args.dry_run:
+            parser.error("source-worker does not support --dry-run")
     settings = Settings.from_env()
     logging.basicConfig(level=logging.INFO)
     if args.command == "serve":
@@ -115,7 +135,9 @@ def main() -> None:
         )
     elif args.command == "source-worker":
         try:
-            asyncio.run(_run_source_worker(settings))
+            asyncio.run(_run_source_worker(
+                settings, once_job_id=args.job_id if args.run_once else None,
+            ))
         except KeyboardInterrupt:
             pass
     elif args.command == "drive-authorize":
