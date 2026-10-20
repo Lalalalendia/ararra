@@ -23,6 +23,9 @@ fn map_error(error: LibraryError) -> ApiError {
         LibraryError::UnsupportedSource => ApiError::InvalidInput(
             "Unsupported source HTML: Python source-policy normalization required",
         ),
+        LibraryError::UnsupportedTranslation => ApiError::InvalidInput(
+            "Unsupported accepted translation HTML: visible text proof required",
+        ),
         LibraryError::Invalid(reason) => ApiError::BadRequest(reason),
         LibraryError::Sqlite(_) | LibraryError::Malformed => ApiError::Unavailable,
     }

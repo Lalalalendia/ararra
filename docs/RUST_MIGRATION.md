@@ -203,6 +203,32 @@ source revision change, and explicit fail-closed unsupported HTML.
 - Preserve glossary/context/recovery/editor contracts and translation worker
   before replacing the actual Python API process.
 
+## RUST-02e: accepted translation revision writer (deliberate subset)
+
+The experimental Rust `PUT /v1/books/{book_id}/chapters/{chapter_id}/accepted-translation`
+now implements Python's `BEGIN IMMEDIATE` acceptance transaction:
+- exact `accepted_revision` and `source_revision` fencing;
+- identical `accepted_html` replay without duplicating audit events;
+- atomic increment of accepted revision and immutable
+  `book_accepted_revisions` history with the authenticated actor;
+- rejection of acceptance against changed source revision, even when the
+  previous translated text is still retained as stale;
+- authenticated, mandatory browser-CSRF and disabled-by-default
+  disposable-only write route.
+
+Python validates accepted translation by parsing HTML with BeautifulSoup,
+then computing a bounded visible text tail. Until that parser is ported, Rust
+only accepts one or more adjacent attribute-free `<p>text</p>` fragments
+with visible alphanumeric text. It rejects unsupported markup/entities via
+HTTP 422 **before writing** rather than silently approving an empty
+translation or losing semantic text.
+
+`scripts/compare_rust_acceptance.py` exercises Python/Rust bidirectional
+accept/replay, concurrent contradictory accept operations (one 200, one 409),
+source revision changes, independent accepted-revision history checks and
+cookie CSRF. This does NOT yet implement full HTML acceptance or any
+paid translation worker. The existing Python server remains authoritative.
+
 ## RUST-03a: standalone source-text classification, independently verified
 
 The `erida-source-policy` crate ports the source-unit **standalone text**

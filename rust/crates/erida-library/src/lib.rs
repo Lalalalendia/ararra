@@ -5,8 +5,10 @@ use serde_json::{json, Value};
 
 pub mod chapters;
 mod chapter_writes;
+mod acceptance;
 pub use chapters::{get_chapter, list_chapters};
 pub use chapter_writes::put_chapter_conservative;
+pub use acceptance::accept_translation_conservative;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug)]
@@ -17,6 +19,7 @@ pub enum LibraryError {
     Missing(&'static str),
     Malformed,
     UnsupportedSource,
+    UnsupportedTranslation,
 }
 impl From<rusqlite::Error> for LibraryError {
     fn from(error: rusqlite::Error) -> Self {
