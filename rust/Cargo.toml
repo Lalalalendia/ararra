@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/erida-auth",
+    "crates/erida-store",
+    "crates/erida-api",
+]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.82"
+license = "MIT"
