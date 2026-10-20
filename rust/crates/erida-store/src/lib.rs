@@ -1,6 +1,9 @@
 //! Read-only SQLite access with existing ReadEra job JSON contracts.
 //! The Python owner remains the only schema initializer and job writer.
 use rusqlite::{params, Connection, OpenFlags, Row};
+
+mod writes;
+pub use writes::{enqueue, open_disposable_writer, request_cancel, WriteError};
 use serde_json::{json, Value};
 use std::path::Path;
 use std::time::Duration;
@@ -37,7 +40,7 @@ pub fn check_schema(db: &Connection) -> Result<(), StoreError> {
     Ok(())
 }
 
-fn public_job(row: &Row<'_>, include_result: bool) -> Result<Value, StoreError> {
+pub(crate) fn public_job(row: &Row<'_>, include_result: bool) -> Result<Value, StoreError> {
     let mut result = json!({
         "id": row.get::<_, String>("id")?,
         "actor_id": row.get::<_, String>("actor_id")?,
