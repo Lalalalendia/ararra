@@ -25,7 +25,7 @@ fn chapter_number_like(text: &str) -> bool {
     // Until that branch is ported, reject any possible numeric heading.
     let lowered = text.to_lowercase();
     if ["chapter", "глава"].iter().any(|name| {
-        lowered.match_indices(name).any(|(pos, _)| {
+        lowered.match_indices(*name).any(|(pos, _)| {
             lowered[pos + name.len()..]
                 .trim_start_matches(|c: char| c.is_whitespace()
                     || matches!(c, '#' | '№' | ':' | '：' | '-' | '_'))
