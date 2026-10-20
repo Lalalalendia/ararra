@@ -280,3 +280,29 @@ entities and deterministic well-formed combinations. This is a strict
 differential test; any mismatch fails CI. **Do not loosen chapter-write
 `UnsupportedSource` until full cleaning and canonical source hash parity
 is demonstrated on both parser implementations.**
+
+## RUST-03e: source text-node DOM path ordinals
+
+Python `source_units._source_node_dom_path()` assigns deterministic text
+identities based on each tag's **ordinal among all sibling tags** and the
+text node's ordinal among all direct text siblings, including whitespace.
+These paths are needed to preserve text-unit attribution as Erida migrates
+away from the Python HTML processing pipeline.
+
+`erida-source-dom::source_text_paths` now computes this key for the
+read-only, independently verified subset of well-formed fragments and
+documents with an explicit `<body>`. The html5ever-inserted wrapper for
+fragments is excluded from the logical Python `[document]` root. Comment
+nodes do not count as text siblings; whitespace-only nodes count toward
+the ordinal but are excluded from visible results.
+
+The CI-only JSONL DOM probe includes `text_paths` alongside its original
+`nodes` output. `scripts/compare_rust_dom_paths.py` compares both text
+and full ordinal path **byte for byte** with the original Python
+`_source_node_dom_path`, across nested inline tags, sibling containers,
+explicit-body HTML, encoded entities and deterministic well-formed samples.
+
+Parser-dependent malformed HTML and implicit full-document repair remain
+explicitly unsupported. This work does NOT serialize cleaned HTML, change
+source hashing or change any Rust SQLite write allowance. No production
+processes are affected.
