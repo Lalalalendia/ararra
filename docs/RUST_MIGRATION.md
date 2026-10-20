@@ -256,3 +256,29 @@ the Rust chapter writer**, so an insufficiently validated new text predicate
 cannot silently widen the writable HTML scope or corrupt revision hashes.
 Casefold-exceptional Unicode needs a separate corpus before source policy
 can be declared complete.
+
+## RUST-03c: small proven-identity HTML source-cleaning subset
+
+The `erida-source-clean` crate uses the independently accepted Rust
+standalone source-text classifier to clean **immediately adjacent**
+plain, attribute-free HTML paragraphs. This is the first Rust cleaning
+module to *actually delete* known standalone promotional paragraphs,
+last-visible-node tail hint labels and all nodes after an explicit
+next-chapter tail marker. It then calculates SHA-256 of the cleaned HTML,
+matching Python `strip_source_boilerplate` for the eligible grammar.
+
+The intentionally narrow source contract rejects nested tags, entities,
+empty nodes, control characters, Unicode outside tested ranges, numeric
+chapter headings and numbered chapter-path context. Such documents still
+must use the Python cleaner. This is **not** a full BeautifulSoup/html5ever
+serialized DOM replacement and is **not integrated into the Rust writer**.
+
+The `source-clean-probe` JSONL executable plus
+`scripts/compare_rust_source_clean.py` compare Rust output to a live
+Python `strip_source_boilerplate` oracle on synthetic multilingual
+short/narrative/promotional/tail examples and a reproducible randomized
+corpus. Each accepted sample verifies cleaned HTML byte equality and its
+SHA-256 hash; unsupported complex markup must return an explicit
+unsupported status. This prevents source-hash drift while establishing
+the next concrete step toward lifting the Rust writer's >260-character
+minimum without bypassing Python policy.
