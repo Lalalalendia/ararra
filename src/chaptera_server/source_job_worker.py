@@ -19,8 +19,10 @@ class SourceCollectionWorker:
         self.fetcher = fetcher
         self.lease_seconds = lease_seconds
 
-    async def run_once(self) -> bool:
-        claim = self.jobs.claim(lease_seconds=self.lease_seconds)
+    async def run_once(self, *, only_job_id: str | None = None) -> bool:
+        claim = self.jobs.claim(
+            lease_seconds=self.lease_seconds, only_job_id=only_job_id,
+        )
         if claim is None:
             return False
         job_id = claim["job_id"]

@@ -427,20 +427,34 @@ class SourceJobStore:
                 **retained,
             }
 
-    def claim(self, *, lease_seconds: float = 180.0) -> dict | None:
+    def claim(
+        self, *, lease_seconds: float = 180.0,
+        only_job_id: str | None = None,
+    ) -> dict | None:
+        """Claim any ready job, or exactly one explicitly targeted pilot job.
+
+        The optional SQL filter is inside the same transactional claim, so a
+        targeted one-shot cannot accidentally touch another moderator's job.
+        """
         if lease_seconds < 30:
             raise ValueError("Source job lease must be at least 30 seconds")
+        if only_job_id is not None:
+            if (type(only_job_id) is not str or len(only_job_id) != 36 or
+                not re.fullmatch(r"[a-f0-9-]{36}", only_job_id) or
+                str(uuid.UUID(only_job_id)) != only_job_id):
+                raise ValueError("One-shot source job ID must be a canonical UUID")
         now = time.time()
         with self.store._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             candidates = con.execute(
                 "SELECT j.* FROM source_collect_jobs AS j "
                 "LEFT JOIN source_collect_actor_turns AS a ON a.actor_id=j.actor_id "
-                "WHERE (j.status='queued' AND j.ready_at<=?) "
-                "   OR (j.status='running' AND j.lease_expires_at<?) "
+                "WHERE ((j.status='queued' AND j.ready_at<=?) "
+                "   OR (j.status='running' AND j.lease_expires_at<?)) "
+                "AND (? IS NULL OR j.id=?) "
                 "ORDER BY COALESCE(a.last_turn,0),j.dispatch_turn,j.created_at "
                 "LIMIT 24",
-                (now,now),
+                (now,now,only_job_id,only_job_id),
             ).fetchall()
             for row in candidates:
                 chapters = self._manifest(row)

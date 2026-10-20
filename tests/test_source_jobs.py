@@ -240,3 +240,59 @@ def test_total_source_budget_blocks_overflow_without_losing_previous_checkpoint(
     assert "budget" in state["failures"][0]["error"]
     fragment=jobs.materialize("alice",job["job_id"],[1])
     assert fragment.complete
+
+
+
+def test_one_shot_pilot_claims_exact_job_without_touching_other_actor(tmp_path):
+    """A pilot one-shot must never silently fetch the first global queue item."""
+    _, jobs = make_store(tmp_path, "pilot.sqlite3")
+    other = jobs.create("alice", "cat1", catalog(), [1, 2])
+    target = jobs.create("bob", "cat2", catalog(), [3])
+    site = FakeSite()
+    worker = SourceCollectionWorker(jobs, site)
+    assert asyncio.run(worker.run_once(only_job_id=target["job_id"]))
+    assert jobs.get("bob", target["job_id"])["status"] == "complete"
+    assert jobs.get("alice", other["job_id"])["status"] == "queued"
+    assert jobs.get("alice", other["job_id"])["completed"] == 0
+    assert len(site.fetches) == 1 and "/60003/" in site.fetches[0]
+    assert not asyncio.run(worker.run_once(only_job_id=target["job_id"]))
+    assert len(site.fetches) == 1
+    # Existing normal scheduler remains operational after a targeted pilot.
+    assert asyncio.run(worker.run_once())
+    assert jobs.get("alice", other["job_id"])["completed"] == 1
+
+
+def test_one_shot_refuses_invalid_id_and_busy_target_without_queue_fallback(tmp_path):
+    _, jobs = make_store(tmp_path, "scoped.sqlite3")
+    target = jobs.create("alice", "cat1", catalog(), [1])
+    other = jobs.create("bob", "cat2", catalog(), [2])
+    for invalid in ("", "wrong", "0" * 36, None):
+        if invalid is None:
+            continue
+        with pytest.raises(ValueError, match="canonical UUID"):
+            jobs.claim(only_job_id=invalid)
+    with pytest.raises(ValueError, match="canonical UUID"):
+        jobs.claim(only_job_id=42)
+    claimed = jobs.claim(only_job_id=target["job_id"])
+    assert claimed and claimed["job_id"] == target["job_id"]
+    site = FakeSite()
+    assert not asyncio.run(
+        SourceCollectionWorker(jobs, site).run_once(only_job_id=target["job_id"])
+    )
+    assert site.fetches == []
+    assert jobs.get("bob", other["job_id"])["status"] == "queued"
+
+
+def test_source_worker_one_shot_cli_rejects_unscoped_or_invalid_uuid(monkeypatch):
+    """Bad pilot commands fail before reading settings or starting a fetcher."""
+    import sys
+    from chaptera_server import cli
+    for args in (
+        ["source-worker", "--run-once"],
+        ["source-worker", "--run-once", "--job-id", "not-a-uuid"],
+        ["source-worker", "--job-id", "e55f2055-d61f-4c33-9a75-3dd4b2ed553c"],
+    ):
+        monkeypatch.setattr(sys, "argv", ["chaptera-server", *args])
+        with pytest.raises(SystemExit) as failure:
+            cli.main()
+        assert failure.value.code == 2
