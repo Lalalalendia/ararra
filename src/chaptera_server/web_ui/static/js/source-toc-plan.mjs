@@ -4,7 +4,7 @@
  */
 export const PAGE_SIZE = 80;
 const positiveOrdinal = n => Number.isSafeInteger(n) && n >= 1 && n <= 10000000;
-const auxiliary = chapter => ['extra','service'].includes(chapter.entry_type);
+const auxiliary = chapter => ['extra','service','unknown'].includes(chapter.entry_type || 'unknown');
 function clone(plan) {
   return {...plan, order:[...plan.order], selected:new Set(plan.selected),
     unresolved:new Set(plan.unresolved)};

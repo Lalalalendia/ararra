@@ -113,7 +113,8 @@ class ImportSessions:
 
     def stage(self, actor: str, filename: str, data: bytes,
               *, idempotency_key: str | None = None,
-              suggested_positions: list[int] | None = None) -> dict:
+              suggested_positions: list[int] | None = None,
+              source_entry_metadata: list[dict] | None = None) -> dict:
         key = (idempotency_key or "").strip() or None
         if key is not None and len(key) > 128:
             raise ValueError("Idempotency-Key exceeds 128 characters")
@@ -133,19 +134,69 @@ class ImportSessions:
             for chapter, position in zip(preview["chapters"], suggested_positions):
                 chapter["destination_position"] = position
                 chapter["suggested_index"] = position
+        if source_entry_metadata is not None:
+            if (len(source_entry_metadata) != len(candidates) or
+                any(not isinstance(m, dict) or
+                    type(m.get("ordinal")) is not int or
+                    type(m.get("title")) is not str or
+                    type(m.get("source_id")) is not str or
+                    type(m.get("url")) is not str or
+                    m.get("entry_type") not in {"chapter", "extra", "service", "unknown"} or
+                    (m.get("author_number") is not None and
+                     (type(m["author_number"]) is not int or
+                      not 1 <= m["author_number"] <= 10_000_000))
+                    for m in source_entry_metadata)):
+                raise ImportFormatError("Invalid verified source entry metadata")
+            for chapter, metadata in zip(preview["chapters"], source_entry_metadata):
+                chapter.update({
+                    "title": metadata["title"],
+                    "detected_number": metadata["author_number"],
+                    "author_number": metadata["author_number"],
+                    "entry_type": metadata["entry_type"],
+                    "catalog_ordinal": metadata["ordinal"],
+                    "source_id": metadata["source_id"],
+                    "source_url": metadata["url"],
+                    "classification_source": metadata["classification_source"],
+                    "classification_confidence": metadata["classification_confidence"],
+                })
+            preview["story_chapter_count"] = sum(
+                ch["entry_type"] == "chapter" for ch in preview["chapters"]
+            )
+            preview["extra_entry_count"] = sum(
+                ch["entry_type"] == "extra" for ch in preview["chapters"]
+            )
+            preview["service_entry_count"] = sum(
+                ch["entry_type"] == "service" for ch in preview["chapters"]
+            )
+            preview["unknown_entry_count"] = sum(
+                ch["entry_type"] == "unknown" for ch in preview["chapters"]
+            )
         payload = {
             "chapters": [{
                 "sequence": n,
-                "title": item.title,
-                "detected_number": item.number,
-                "entry_type": item.entry_type,
-                "catalog_ordinal": n,
+                "title": (source_entry_metadata[n-1]["title"]
+                          if source_entry_metadata is not None else item.title),
+                "detected_number": (source_entry_metadata[n-1]["author_number"]
+                                    if source_entry_metadata is not None else item.number),
+                "entry_type": (source_entry_metadata[n-1]["entry_type"]
+                               if source_entry_metadata is not None else item.entry_type),
+                "author_number": (source_entry_metadata[n-1]["author_number"]
+                                  if source_entry_metadata is not None else item.number),
+                "catalog_ordinal": (source_entry_metadata[n-1]["ordinal"]
+                                    if source_entry_metadata is not None else n),
+                "source_id": (source_entry_metadata[n-1]["source_id"]
+                              if source_entry_metadata is not None else None),
                 "source_path": item.path,
                 # The preview extractor separates detected headings from
                 # bodies; restore the original heading in canonical source HTML.
                 "source_html": (
-                    "<h1>" + escape_html(item.title) + "</h1>\n" + item.html
-                    if item.number is not None or item.entry_type != 'chapter' else item.html
+                    "<h1>" + escape_html(
+                        source_entry_metadata[n-1]["title"]
+                        if source_entry_metadata is not None else item.title
+                    ) + "</h1>\n" + item.html
+                    if (source_entry_metadata is not None or
+                        item.number is not None or item.entry_type != 'chapter')
+                    else item.html
                 ),
             } for n, item in enumerate(candidates, start=1)]
         }

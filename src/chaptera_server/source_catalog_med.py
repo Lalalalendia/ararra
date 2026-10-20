@@ -15,6 +15,7 @@ from urllib.parse import urljoin, urlsplit
 from bs4 import BeautifulSoup
 
 from .source_site_profiles import SITE_PROFILES
+from .source_catalog_semantics import classify_toc_title
 
 # One authoritative, explicitly reviewed host allowlist per site profile.
 HOSTS = {name: profile.hosts for name, profile in SITE_PROFILES.items()}
@@ -95,6 +96,10 @@ class Chapter:
     title: str
     url: str
     source_id: str
+    entry_type: str = "unknown"
+    author_number: int | None = None
+    classification_source: str = "none"
+    classification_confidence: str = "unverified"
 
 
 class PublicHtmlAdapter:
@@ -145,7 +150,10 @@ class PublicHtmlAdapter:
                 slug_number = re.match(r"^(\d{1,5})(?:[-_]|$)", slug)
                 if slug_number and int(slug_number.group(1)) != number:
                     continue
-            candidate = Chapter(number, title, url, chapter_id)
+            candidate = Chapter(
+                number, title, url, chapter_id, "chapter", number,
+                "title_pattern", "medium",
+            )
             prior = found.get(number)
             if prior and prior.source_id != chapter_id:
                 raise IngestError(
@@ -216,7 +224,11 @@ class RoyalRoadAdapter(PublicHtmlAdapter):
                 if old.url != url:
                     raise IngestError("catalog_conflict", "Same chapter ID has different URLs in TOC")
                 continue
-            collected[chapter_id] = Chapter(len(collected) + 1, title, url, chapter_id)
+            kind, author, method, confidence = classify_toc_title(title)
+            collected[chapter_id] = Chapter(
+                len(collected) + 1, title, url, chapter_id,
+                kind, author, method, confidence,
+            )
         if not collected:
             raise IngestError("catalog_missing", "No recognized Royal Road chapter links")
         return list(collected.values())
@@ -278,7 +290,10 @@ class UUKanshuAdapter(PublicHtmlAdapter):
             if ordinal is None or ordinal < 1:
                 continue
             title = match.group(2).strip() or f"第{ordinal}章"
-            item = Chapter(ordinal, title, url, source_id)
+            item = Chapter(
+                ordinal, title, url, source_id, "chapter", ordinal,
+                "structured", "high",
+            )
             prior = found.get(ordinal)
             if prior and prior.source_id != source_id:
                 raise IngestError(

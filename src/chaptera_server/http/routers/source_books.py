@@ -175,7 +175,16 @@ async def collect_book_chapters(
             }
         payload = collected.as_import_html()
         # ImportSessions.stage alone owns raw chapter persistence.
-        stage = sessions.stage(actor, f"source-{catalog.source}-{catalog_id[:8]}.html", payload)
+        stage = sessions.stage(
+            actor, f"source-{catalog.source}-{catalog_id[:8]}.html", payload,
+            source_entry_metadata=[{
+                "ordinal": ch.ordinal, "title": ch.title,
+                "source_id": ch.source_id, "url": ch.url,
+                "entry_type": ch.entry_type, "author_number": ch.author_number,
+                "classification_source": ch.classification_source,
+                "classification_confidence": ch.classification_confidence,
+            } for ch in collected.chapters],
+        )
         store.save_stage_receipt(
             actor, catalog_id, stage["stage_id"],catalog.catalog_sha256,
             [asdict(ch) | {"body": None} for ch in collected.chapters],

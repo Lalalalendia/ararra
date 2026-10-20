@@ -13,7 +13,7 @@ export function createDraft(preview) {
       ? c.destination_position : (unique ? c.detected_number : null);
     const number = recommended===null ? '' : String(recommended);
     const entryType = c.entry_type || 'chapter';
-    const needsReview = entryType === 'extra' || entryType === 'service';
+    const needsReview = entryType === 'extra' || entryType === 'service' || entryType === 'unknown';
     return {
       sequence: c.sequence, title: c.title, sample: c.sample,
       detected_number: c.detected_number, characters: c.characters,
@@ -71,7 +71,7 @@ export function validateDraft(rows, target, stage, now=Date.now()/1000) {
   let selected=0;
   for (const r of rows) {
     if (r.action === 'review') {
-      errors.push('Запись '+r.sequence+': выберите действие для дополнительной или служебной записи.');
+      errors.push('Запись '+r.sequence+': выберите действие для нераспознанной, дополнительной или служебной записи.');
       continue;
     }
     if (r.action === 'skip') continue;

@@ -46,6 +46,14 @@ def stage_verified_source_job(
     stage = sessions.stage(
         actor, f"verified-{job_id[:8]}-{lo}-{hi}.html",
         payload,idempotency_key=key[:128],suggested_positions=hints,
+        source_entry_metadata=[{
+            "ordinal": ch.ordinal, "title": ch.title,
+            "source_id": ch.source_id, "url": ch.url,
+            "entry_type": ch.entry_type,
+            "author_number": ch.author_number,
+            "classification_source": ch.classification_source,
+            "classification_confidence": ch.classification_confidence,
+        } for ch in collected.chapters],
     )
     details = [asdict(ch)|{"body":None, "destination_position":hints[i] if hints else None}
                for i,ch in enumerate(collected.chapters)]

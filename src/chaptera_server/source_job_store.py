@@ -273,7 +273,7 @@ class SourceJobStore:
             raise SourceJobConflict("Select 1..2000 unique chapters")
         if any(type(n) is not int for n in ordinals):
             raise SourceJobConflict("Chapter numbers must be integers")
-        if not catalog.chapters or catalog.catalog_sha256 != _fingerprint(catalog.chapters):
+        if not catalog.chapters or catalog.catalog_sha256 != _fingerprint(catalog.chapters, catalog.source, catalog.book_url):
             raise SourceJobConflict("Catalog identity is stale")
         by_number = {ch.ordinal: ch for ch in catalog.chapters}
         if any(n not in by_number for n in ordinals):
@@ -651,5 +651,10 @@ class SourceJobStore:
                 ch=selected[n]
                 if item["source_id"] != ch["source_id"] or item["url"] != ch["url"]:
                     raise SourceJobConflict("Stored source identity mismatch")
-                assembled.append(CollectedChapter(n,ch["title"],ch["url"],ch["source_id"],body,sha))
+                assembled.append(CollectedChapter(
+                    n, ch["title"], ch["url"], ch["source_id"], body, sha,
+                    ch.get("entry_type", "unknown"), ch.get("author_number"),
+                    ch.get("classification_source", "none"),
+                    ch.get("classification_confidence", "unverified"),
+                ))
             return CollectedBook(row["catalog_sha256"],tuple(ordinals),tuple(assembled),())

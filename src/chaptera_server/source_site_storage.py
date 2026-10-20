@@ -12,7 +12,7 @@ import time
 import uuid
 from dataclasses import asdict
 
-from .source_collect import SourceCatalog, SourceChapter
+from .source_collect import SourceCatalog, SourceChapter, catalog_fingerprint
 from .source_catalog_med import source_book_id, validate_url
 from .storage import QueueStore
 
@@ -33,11 +33,10 @@ class SourceCatalogConflict(ValueError):
     pass
 
 
-def _fingerprint(chapters: tuple[SourceChapter, ...]) -> str:
-    canonical = "\n".join(
-        f"{c.ordinal}\t{c.source_id}\t{c.url}" for c in chapters
-    )
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+def _fingerprint(
+    chapters: tuple[SourceChapter, ...], source: str, book_url: str,
+) -> str:
+    return catalog_fingerprint(source, book_url, chapters)
 
 
 class SourceCatalogStore:
@@ -92,6 +91,7 @@ class SourceCatalogStore:
             "source": row["source"],
             "book_url": row["book_url"],
             "catalog_sha256": row["catalog_sha256"],
+            "catalog_semantics_version": 2,
             "expires_at": row["expires_at"],
             "chapter_count": len(chapters),
             "first_ordinal": min(ordinals),
@@ -110,7 +110,7 @@ class SourceCatalogStore:
             raise SourceCatalogConflict("Catalog must contain 1..2000 chapters")
         if any(type(ch.ordinal) is not int or not 1 <= ch.ordinal <= 10_000_000 for ch in catalog.chapters):
             raise SourceCatalogConflict("Chapter number outside supported range")
-        if catalog.catalog_sha256 != _fingerprint(catalog.chapters):
+        if catalog.catalog_sha256 != _fingerprint(catalog.chapters, catalog.source, catalog.book_url):
             raise SourceCatalogConflict("Source catalog fingerprint mismatch")
         pages = catalog.page_urls or (catalog.book_url,)
         if (catalog.coverage_state not in ("declared_count_matched","observed_html_only") or
@@ -169,7 +169,7 @@ class SourceCatalogStore:
                 raise ValueError("Invalid catalog cardinality")
             if any(type(ch.ordinal) is not int or not 1 <= ch.ordinal <= 10_000_000 for ch in chapters):
                 raise ValueError("Invalid catalog chapter number")
-            if _fingerprint(chapters) != row["catalog_sha256"]:
+            if _fingerprint(chapters, row['source'], row['book_url']) != row["catalog_sha256"]:
                 raise ValueError("Catalog data changed")
             if len({c.ordinal for c in chapters}) != len(chapters):
                 raise ValueError("Duplicate ordinals")

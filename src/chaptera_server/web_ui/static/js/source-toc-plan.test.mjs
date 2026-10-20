@@ -6,7 +6,7 @@ import {
 } from './source-toc-plan.mjs';
 
 const sample=Array.from({length:2000},(_,i)=>({
-  ordinal:i+1,title:'Глава '+(i+1),source_id:'id-'+(i+1),
+  ordinal:i+1,title:'Глава '+(i+1),source_id:'id-'+(i+1),entry_type:'chapter',
 }));
 
 test('2000-item pagination and search never lose checked state or identity',()=>{
