@@ -181,8 +181,10 @@ try{
     toc_page_count:2,declared_chapter_count:2,
     coverage_state:'declared_count_matched',scope:'observed_public_html_only',
     chapters:[
-      {ordinal:1,title:'First',source_id:'60001',url:'https://www.royalroad.com/fiction/142007/aura/chapter/60001/1-first'},
-      {ordinal:2,title:'Second',source_id:'60002',url:'https://www.royalroad.com/fiction/142007/aura/chapter/60002/2-second'},
+      {ordinal:1,title:'First',source_id:'60001',entry_type:'chapter',
+        url:'https://www.royalroad.com/fiction/142007/aura/chapter/60001/1-first'},
+      {ordinal:2,title:'Second',source_id:'60002',entry_type:'chapter',
+        url:'https://www.royalroad.com/fiction/142007/aura/chapter/60002/2-second'},
     ],
   };
   const catalogPattern='**/v1/source-books/catalogs';
