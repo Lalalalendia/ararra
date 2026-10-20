@@ -257,6 +257,30 @@ cannot silently widen the writable HTML scope or corrupt revision hashes.
 Casefold-exceptional Unicode needs a separate corpus before source policy
 can be declared complete.
 
+## RUST-03b: read-only visible DOM text nodes
+
+`erida-source-dom` is a separate Rust module wrapping `scraper`/html5ever.
+It reads bounded, well-formed HTML and returns visible text nodes in source
+order. Whitespace-only nodes, comments and script/style descendants are
+excluded, matching Python `source_units._source_text_nodes` behavior for the
+explicitly validated fixture scope. If a literal `<body>` exists, only that
+subtree is considered, mirroring Python's `soup.body or soup` root choice.
+
+The source-dom probe is **not wired into any production source hash, DOM
+mutation, accepted-translation validation or source worker**. BeautifulSoup's
+`html.parser` and html5ever use different recovery rules for malformed HTML.
+A correct result for simple fragments or valid whole documents does NOT prove
+their DOMs serialize identically after deletion of source noise. It also does
+not yet prove exact text-ordinal DOM paths or current/next chapter boundaries.
+
+`scripts/compare_rust_source_dom.py` compares actual `BeautifulSoup`
+ordered text nodes with the Rust read-only probe for multilingual nested
+inline tags, headings, paragraphs, explicit body roots, script/style/comments,
+entities and deterministic well-formed combinations. This is a strict
+differential test; any mismatch fails CI. **Do not loosen chapter-write
+`UnsupportedSource` until full cleaning and canonical source hash parity
+is demonstrated on both parser implementations.**
+
 ## RUST-03c: small proven-identity HTML source-cleaning subset
 
 The `erida-source-clean` crate uses the independently accepted Rust
