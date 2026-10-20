@@ -76,6 +76,7 @@ pub enum ApiError {
     InvalidInput(&'static str),
     BadRequest(&'static str),
     BookNotFound,
+    ChapterNotFound,
     BookConflict(&'static str),
     InvalidOwner,
     ForbiddenAssignment,
@@ -114,6 +115,7 @@ impl IntoResponse for ApiError {
             ApiError::InvalidInput(reason) => (StatusCode::UNPROCESSABLE_ENTITY, reason),
             ApiError::BadRequest(reason) => (StatusCode::BAD_REQUEST, reason),
             ApiError::BookNotFound => (StatusCode::NOT_FOUND, "Book not found"),
+            ApiError::ChapterNotFound => (StatusCode::NOT_FOUND, "Chapter not found"),
             ApiError::BookConflict(reason) => (StatusCode::CONFLICT, reason),
             ApiError::InvalidOwner => (StatusCode::UNPROCESSABLE_ENTITY, "Book owner must be an active moderator"),
             ApiError::ForbiddenAssignment => (StatusCode::FORBIDDEN, "Only administrator can assign another owner"),
@@ -238,7 +240,9 @@ pub fn app(state: AppState) -> Router {
         .route("/v1/jobs/{job_id}", get(job))
         .route("/v1/jobs/{job_id}/events", get(job_events))
         .route("/v1/books", get(book::books))
-        .route("/v1/books/{book_id}", get(book::book));
+        .route("/v1/books/{book_id}", get(book::book))
+        .route("/v1/books/{book_id}/chapters", get(book::chapters))
+        .route("/v1/books/{book_id}/chapters/{chapter_id}", get(book::chapter));
     if state.test_writes_enabled {
         app = app
             .route("/v1/jobs", post(write::submit))
