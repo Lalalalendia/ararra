@@ -43,3 +43,5 @@ jobs:
         run: python scripts/compare_rust_books.py rust/target/release/erida-api
       - name: Verify conservative chapter writes against Python source policy and CAS
         run: python scripts/compare_rust_chapter_writes.py rust/target/release/erida-api
+      - name: Verify accepted translation CAS, immutable revisions and Python parity
+        run: python scripts/compare_rust_acceptance.py rust/target/release/erida-api
