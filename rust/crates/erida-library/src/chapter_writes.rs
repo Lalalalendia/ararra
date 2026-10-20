@@ -15,7 +15,7 @@ fn source_hash_with_verified_policy(html: &str, chapter_path: &str) -> Result<St
     let lowered_path = chapter_path.to_lowercase();
     let neutral_context = !chapter_path.chars().any(char::is_numeric)
         && !["chapter", "глава", "第", "章", "節", "节", "回"]
-            .iter().any(|token| lowered_path.contains(token));
+            .iter().any(|token| lowered_path.contains(*token));
     let compact_digits = html.chars()
         .filter(|ch| ch.is_ascii_digit())
         .collect::<String>();
