@@ -85,20 +85,20 @@ async def exercise(app, settings: Settings, db_path: Path, endpoint: str) -> Non
         assert missing_book.status_code == 404 and missing_book.json()["detail"] == "Book not found"
 
         # Concurrent CAS: exactly one revision 0 -> 1, exactly one owner event.
-        # Rust's concurrent reassertion of the current owner is a no-op,
-        # while Python changes the owner to mod. Exactly one revision is added.
+        # Genuine two-writer contention: different new moderators, same CAS
+        # generation. Exactly one update and one immutable audit event.
         results = await asyncio.gather(
             py.put("/v1/books/book-py/owner", headers=admin, json={
                 "owner_member_id": "mod", "expected_owner_revision": 0,
             }),
             rust.put("/v1/books/book-py/owner", headers=admin, json={
-                "owner_member_id": "other", "expected_owner_revision": 0,
+                "owner_member_id": "third", "expected_owner_revision": 0,
             }),
         )
-        assert results[0].status_code == 200
-        assert results[1].status_code in {200, 409}
+        assert sorted([x.status_code for x in results]) == [200, 409]
         changed = (await py.get("/v1/books/book-py", headers=other)).json()
         assert changed["owner_revision"] == 1
+        assert changed["owner_member_id"] in {"mod", "third"}
         stale = await rust.put("/v1/books/book-py/owner", headers=admin, json={
             "owner_member_id": "other", "expected_owner_revision": 0,
         })
@@ -168,6 +168,7 @@ def main() -> None:
                 "chief": "rust-books-chief-test",
                 "mod": "rust-books-mod-test",
                 "other": "rust-books-other-test",
+                "third": "rust-books-third-test",
             },
             admin_member_id="chief",
             browser_session_secure=False,
