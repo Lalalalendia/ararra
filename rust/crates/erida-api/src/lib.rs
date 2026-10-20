@@ -3,6 +3,7 @@
 use axum::extract::{DefaultBodyLimit, Path, Query, State};
 
 mod write;
+mod book;
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -74,6 +75,11 @@ pub enum ApiError {
     GlossaryConflict,
     InvalidInput(&'static str),
     BadRequest(&'static str),
+    BookNotFound,
+    BookConflict(&'static str),
+    InvalidOwner,
+    ForbiddenAssignment,
+    ForbiddenAdmin,
 }
 
 impl From<AuthFailure> for ApiError {
@@ -107,6 +113,11 @@ impl IntoResponse for ApiError {
             ApiError::GlossaryConflict => (StatusCode::UNPROCESSABLE_ENTITY, "Conflicting glossary versions"),
             ApiError::InvalidInput(reason) => (StatusCode::UNPROCESSABLE_ENTITY, reason),
             ApiError::BadRequest(reason) => (StatusCode::BAD_REQUEST, reason),
+            ApiError::BookNotFound => (StatusCode::NOT_FOUND, "Book not found"),
+            ApiError::BookConflict(reason) => (StatusCode::CONFLICT, reason),
+            ApiError::InvalidOwner => (StatusCode::UNPROCESSABLE_ENTITY, "Book owner must be an active moderator"),
+            ApiError::ForbiddenAssignment => (StatusCode::FORBIDDEN, "Only administrator can assign another owner"),
+            ApiError::ForbiddenAdmin => (StatusCode::FORBIDDEN, "Administrator role required"),
         };
         (
             status,
@@ -225,11 +236,15 @@ pub fn app(state: AppState) -> Router {
         .route("/v1/me", get(me))
         .route("/v1/jobs", get(jobs))
         .route("/v1/jobs/{job_id}", get(job))
-        .route("/v1/jobs/{job_id}/events", get(job_events));
+        .route("/v1/jobs/{job_id}/events", get(job_events))
+        .route("/v1/books", get(book::books))
+        .route("/v1/books/{book_id}", get(book::book));
     if state.test_writes_enabled {
         app = app
             .route("/v1/jobs", post(write::submit))
             .route("/v1/jobs/{job_id}/cancel", post(write::cancel))
+            .route("/v1/books", post(book::create))
+            .route("/v1/books/{book_id}/owner", axum::routing::put(book::reassign))
             .layer(DefaultBodyLimit::max(8 * 1024 * 1024));
     }
     app.with_state(state)

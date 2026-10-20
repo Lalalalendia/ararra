@@ -171,13 +171,13 @@ fn map_write_failure(error: WriteError) -> ApiError {
     }
 }
 
-async fn secured_write<F>(
+pub(super) async fn secured_write<F>(
     state: AppState,
     headers: HeaderMap,
     operation: F,
 ) -> Result<Response, ApiError>
 where
-    F: FnOnce(&mut rusqlite::Connection, &str) -> Result<Value, ApiError> + Send + 'static,
+    F: FnOnce(&mut rusqlite::Connection, &str, &erida_auth::AuthConfig) -> Result<Value, ApiError> + Send + 'static,
 {
     if !state.test_writes_enabled {
         return Err(ApiError::Unavailable);
@@ -201,7 +201,7 @@ where
                 return Err(ApiError::Forbidden);
             }
         }
-        operation(&mut db, &actor)
+        operation(&mut db, &actor, &state.auth)
     })
     .await
     .map_err(|_| ApiError::Unavailable)??;
@@ -217,7 +217,7 @@ pub async fn submit(
     let key = headers
         .get("idempotency-key")
         .map(|value| value.to_str().unwrap_or("").to_owned());
-    let mut response = secured_write(state, headers, move |db, actor| {
+    let mut response = secured_write(state, headers, move |db, actor, _auth| {
         erida_store::enqueue(db, actor, &normalized, key.as_deref()).map_err(map_write_failure)
     })
     .await?;
@@ -230,7 +230,7 @@ pub async fn cancel(
     headers: HeaderMap,
     Path(job_id): Path<String>,
 ) -> Result<Response, ApiError> {
-    secured_write(state, headers, move |db, _actor| {
+    secured_write(state, headers, move |db, _actor, _auth| {
         erida_store::request_cancel(db, &job_id)
             .map_err(map_write_failure)?
             .ok_or(ApiError::NotFound)
