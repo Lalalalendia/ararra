@@ -9,7 +9,9 @@ export function createDraft(preview) {
   }
   return preview.chapters.map(c => {
     const unique = c.detected_number !== null && counts.get(c.detected_number) === 1;
-    const number = unique ? String(c.detected_number) : '';
+    const recommended = Number.isSafeInteger(c.destination_position) && c.destination_position>0
+      ? c.destination_position : (unique ? c.detected_number : null);
+    const number = recommended===null ? '' : String(recommended);
     const entryType = c.entry_type || 'chapter';
     const needsReview = entryType === 'extra' || entryType === 'service';
     return {

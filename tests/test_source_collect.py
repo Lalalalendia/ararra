@@ -96,3 +96,14 @@ def test_stale_toc_and_ambiguous_selection_rejected_before_fetch():
             with pytest.raises(ValueError):
                 await collect_selected(cat, selected, nofetch, expected_catalog_sha256=digest)
     asyncio.run(exercise())
+
+
+def test_sparse_legacy_collect_remains_sorted_for_old_api_clients():
+    async def fake(url):
+        return BODY1 if "/60001/" in url else BODY2
+    async def exercise():
+        cat = catalog_from_html("royalroad", URL, CATALOG)
+        out = await collect_selected(cat, [2, 1], fake, expected_catalog_sha256=cat.catalog_sha256)
+        assert out.complete
+        assert [c.ordinal for c in out.chapters] == [1, 2]
+    asyncio.run(exercise())

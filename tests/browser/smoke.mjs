@@ -207,6 +207,26 @@ try{
   assert.equal(await page.locator('#source-rows tr').count(),2);
   assert.match(await page.locator('#source-summary').innerText(),/Просмотрено страниц оглавления: 2/);
   assert.match(await page.locator('#source-summary').innerText(),/Счётчик сайта: 2/);
+  const selectionPattern='**/v1/source-books/catalogs/catalog-browser-1/selection';
+  await page.route(selectionPattern,async route=>{
+    assert.equal(route.request().method(),'PUT');
+    const values=route.request().postDataJSON();
+    assert.deepEqual(values.ordered_ordinals,[2]);
+    assert.equal(values.expected_catalog_sha256,sourceCatalogReply.catalog_sha256);
+    await route.fulfill({status:200,contentType:'application/json',
+      body:JSON.stringify({selection_id:'plan-browser-1',
+        catalog_id:sourceCatalogReply.catalog_id,
+        catalog_sha256:sourceCatalogReply.catalog_sha256,
+        selection_sha256:'f'.repeat(64),ordered_ordinals:[2],
+        selected_count:1,expires_at:sourceCatalogReply.expires_at})});
+  });
+  await page.locator('#source-rows tr').first().locator('input[type="checkbox"]').uncheck();
+  await page.locator('#source-rows tr').last().getByRole('button',{name:'Поднять запись 2'}).click();
+  assert.match(await page.locator('#source-selected-summary').innerText(),/выбрано 1/);
+  assert.match(await page.locator('#source-rows tr').first().innerText(),/Second/);
+  await page.locator('#source-selection-save').click();
+  await page.getByText('Выбранные главы и порядок сохранены на сервере.',{exact:false}).waitFor();
+  await page.unroute(selectionPattern);
   await page.locator('#source-end').fill('2');
   await page.locator('#source-collect').click();
   await page.getByText('Импорт не создан.',{exact:false}).waitFor();

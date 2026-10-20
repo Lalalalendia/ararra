@@ -16,6 +16,8 @@ from ...source_catalog_med import IngestError
 from ...source_site_profiles import public_site_profiles
 from ...source_request_limiter import SourceSiteBusy
 from ...source_collect import fetch_catalog, collect_selected
+from ...source_selection_store import (SourceSelectionMissing, SourceSelectionExpired,
+                                         SourceSelectionConflict)
 from ...source_site_storage import (
     SourceCatalogStore, SourceCatalogMissing, SourceCatalogExpired,
     SourceCatalogConflict,
@@ -32,6 +34,13 @@ class InspectSourceBook(BaseModel):
     book_url: str = Field(min_length=16, max_length=2048)
 
 
+class SaveSelectionPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_catalog_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    expected_selection_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    ordered_ordinals: list[int] = Field(min_length=1, max_length=2000)
+
+
 class SelectSourceChapters(BaseModel):
     model_config = ConfigDict(extra="forbid")
     ordinals: list[int] = Field(min_length=1, max_length=20)
@@ -43,11 +52,11 @@ def _catalog_store(request: Request) -> SourceCatalogStore:
 
 
 def _catalog_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, SourceCatalogMissing):
+    if isinstance(exc, (SourceCatalogMissing, SourceSelectionMissing)):
         return HTTPException(status_code=404, detail="Catalog not found")
-    if isinstance(exc, SourceCatalogExpired):
+    if isinstance(exc, (SourceCatalogExpired, SourceSelectionExpired)):
         return HTTPException(status_code=410, detail=str(exc))
-    if isinstance(exc, SourceCatalogConflict):
+    if isinstance(exc, (SourceCatalogConflict, SourceSelectionConflict)):
         return HTTPException(status_code=409, detail=str(exc))
     if isinstance(exc, StageTooLarge):
         return HTTPException(status_code=413, detail="Collected file exceeds import staging budget")
@@ -96,6 +105,43 @@ def get_discovered_book(
             ).fetchone()
             return storage._public(row)
     except (SourceCatalogMissing, SourceCatalogExpired, SourceCatalogConflict) as exc:
+        raise _catalog_error(exc) from exc
+
+
+@router.put("/catalogs/{catalog_id}/selection")
+def save_selection(
+    catalog_id: str, body: SaveSelectionPlan, request: Request,
+    actor: str = Depends(require_member),
+) -> dict:
+    """Durably save an ordered subset; source URLs stay server-owned."""
+    try:
+        catalog = _catalog_store(request).load(actor, catalog_id)
+        return request.app.state.source_selection_store.save(
+            actor, catalog_id, catalog, body.ordered_ordinals,
+            expected_catalog_sha256=body.expected_catalog_sha256,
+            expected_selection_sha256=body.expected_selection_sha256,
+        )
+    except (SourceCatalogMissing, SourceCatalogExpired, SourceCatalogConflict,
+            SourceSelectionMissing, SourceSelectionExpired, SourceSelectionConflict) as exc:
+        raise _catalog_error(exc) from exc
+
+
+@router.get("/catalogs/{catalog_id}/selection")
+def read_selection(
+    catalog_id: str, request: Request,
+    actor: str = Depends(require_member),
+) -> dict:
+    try:
+        return request.app.state.source_selection_store.get(actor, catalog_id)
+    except (SourceSelectionMissing, SourceSelectionExpired, SourceSelectionConflict) as exc:
+        raise _catalog_error(exc) from exc
+
+
+@router.get("/selections/recent")
+def recent_selection(request: Request, actor: str = Depends(require_member)) -> dict:
+    try:
+        return request.app.state.source_selection_store.recent(actor)
+    except SourceSelectionConflict as exc:
         raise _catalog_error(exc) from exc
 
 

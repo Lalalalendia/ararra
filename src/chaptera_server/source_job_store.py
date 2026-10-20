@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 import time
 import uuid
@@ -18,6 +19,7 @@ from .source_collect import (
     CollectedBook, CollectedChapter, SourceCatalog, MAX_BODY_CHARS,
 )
 from .source_site_storage import _fingerprint
+from .source_selection_store import _digest as _selection_digest
 from .source_original_archive import SourceOriginalArchive, SourceArchiveConflict
 from .storage import QueueStore
 
@@ -124,6 +126,12 @@ class SourceJobStore:
             if "defer_reason" not in columns:
                 con.execute("ALTER TABLE source_collect_jobs "
                             "ADD COLUMN defer_reason TEXT")
+            if "selection_mode" not in columns:
+                con.execute("ALTER TABLE source_collect_jobs "
+                            "ADD COLUMN selection_mode TEXT NOT NULL DEFAULT 'range'")
+            if "selection_sha256" not in columns:
+                con.execute("ALTER TABLE source_collect_jobs "
+                            "ADD COLUMN selection_sha256 TEXT")
         # Separate, immutable, bounded team archive. No legacy data is
         # copied merely by starting the API or opening the old database.
         self.archive = SourceOriginalArchive(store)
@@ -184,6 +192,13 @@ class SourceJobStore:
             validate_url(ch["url"],row["source"])
             if source_book_id(ch["url"],row["source"]) != source_book_id(row["book_url"],row["source"]):
                 raise SourceJobConflict("Foreign source book chapter in manifest")
+        if row["selection_mode"] == "ordered":
+            if row["selection_sha256"] != _selection_digest(
+                row["catalog_sha256"], [ch["ordinal"] for ch in chapters]
+            ):
+                raise SourceJobConflict("Ordered selection digest mismatch")
+        elif row["selection_mode"] != "range" or row["selection_sha256"] is not None:
+            raise SourceJobConflict("Invalid stored source selection mode")
         return chapters
 
     @staticmethod
@@ -219,8 +234,12 @@ class SourceJobStore:
                 (row["id"],),
             ).fetchall()),
             "pending": len(chapters)-passed-failed,
-            "selected_start": chapters[0]["ordinal"],
-            "selected_end": chapters[-1]["ordinal"],
+            "selected_start": min(ch["ordinal"] for ch in chapters),
+            "selected_end": max(ch["ordinal"] for ch in chapters),
+            "selection_mode": row["selection_mode"],
+            "selection_sha256": row["selection_sha256"],
+            "selected_ordinals": ([ch["ordinal"] for ch in chapters]
+                                  if row["selection_mode"] == "ordered" else None),
             "next_ordinal": next((ch["ordinal"] for ch in chapters if ch["ordinal"] not in done), None),
             "manual_retries": row["manual_retries"],
             "next_attempt_at": (row["ready_at"] if row["status"] == "queued"
@@ -237,7 +256,17 @@ class SourceJobStore:
     def create(
         self, actor: str, catalog_id: str, catalog: SourceCatalog, ordinals: list[int],
         *, idempotency_key: str | None = None,
+        preserve_order: bool = False,
+        selection_sha256: str | None = None,
+        selection_id: str | None = None,
     ) -> dict:
+        if (type(preserve_order) is not bool or
+            (preserve_order and (not isinstance(selection_sha256, str) or
+                                 re.fullmatch(r"[a-f0-9]{64}", selection_sha256) is None or
+                                 not isinstance(selection_id, str) or not selection_id)) or
+            (not preserve_order and (selection_sha256 is not None or
+                                     selection_id is not None))):
+            raise SourceJobConflict("Invalid selection mode or digest")
         if not catalog_id or len(catalog_id) > 128:
             raise SourceJobConflict("Valid source catalog reference required")
         if not 1 <= len(ordinals) <= MAX_JOB_CHAPTERS or len(set(ordinals)) != len(ordinals):
@@ -252,7 +281,8 @@ class SourceJobStore:
         key = (idempotency_key or "").strip() or None
         if key is not None and len(key) > 128:
             raise SourceJobConflict("Idempotency key too long")
-        chapters = [asdict(by_number[n]) for n in sorted(ordinals)]
+        chapters = [asdict(by_number[n]) for n in (ordinals if preserve_order else sorted(ordinals))]
+        selection_mode = "ordered" if preserve_order else "range"
         payload = _serialized(chapters)
         if len(payload.encode("utf-8")) > MAX_MANIFEST_BYTES:
             raise SourceJobConflict("Chapter manifest exceeds 2 MiB")
@@ -260,6 +290,27 @@ class SourceJobStore:
         now = time.time()
         with self.store._connect() as con:
             con.execute("BEGIN IMMEDIATE")
+            if preserve_order:
+                plan = con.execute(
+                    "SELECT catalog_id,catalog_sha256,selection_sha256,"
+                    "ordered_ordinals_json,expires_at FROM source_book_selections "
+                    "WHERE id=? AND actor_id=?",
+                    (selection_id,actor),
+                ).fetchone()
+                origin = con.execute(
+                    "SELECT catalog_sha256,expires_at FROM source_book_catalogs "
+                    "WHERE id=? AND actor_id=?",
+                    (catalog_id,actor),
+                ).fetchone()
+                if (plan is None or origin is None or
+                    plan["expires_at"]<=now or origin["expires_at"]<=now or
+                    plan["catalog_id"]!=catalog_id or
+                    plan["catalog_sha256"]!=catalog.catalog_sha256 or
+                    origin["catalog_sha256"]!=catalog.catalog_sha256 or
+                    plan["selection_sha256"]!=selection_sha256 or
+                    plan["selection_sha256"]!=_selection_digest(catalog.catalog_sha256,ordinals) or
+                    plan["ordered_ordinals_json"]!=json.dumps(ordinals,separators=(",",":"))):
+                    raise SourceJobConflict("Saved selection changed before job creation")
             if key:
                 prior = con.execute(
                     "SELECT * FROM source_collect_jobs WHERE actor_id=? AND idempotency_key=?",
@@ -268,7 +319,9 @@ class SourceJobStore:
                 if prior:
                     if (prior["manifest_sha256"] != digest or
                         prior["catalog_sha256"] != catalog.catalog_sha256 or
-                        prior["catalog_id"] != catalog_id):
+                        prior["catalog_id"] != catalog_id or
+                        prior["selection_mode"] != selection_mode or
+                        prior["selection_sha256"] != selection_sha256):
                         raise SourceJobConflict("Idempotency key reused for another selection")
                     return self._public(con,prior)
             actor_used, global_used = self._used_bytes(con, actor)
@@ -299,10 +352,11 @@ class SourceJobStore:
             con.execute(
                 "INSERT INTO source_collect_jobs("
                 "id,actor_id,catalog_id,idempotency_key,source,book_url,catalog_sha256,"
-                "manifest_sha256,manifest_json,status,created_at,updated_at)"
-                " VALUES(?,?,?,?,?,?,?,?,?, 'queued',?,?)",
+                "manifest_sha256,manifest_json,selection_mode,selection_sha256,"
+                "status,created_at,updated_at)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?, 'queued',?,?)",
                 (job_id,actor,catalog_id,key,catalog.source,catalog.book_url,catalog.catalog_sha256,
-                 digest,payload,now,now),
+                 digest,payload,selection_mode,selection_sha256,now,now),
             )
             row = con.execute("SELECT * FROM source_collect_jobs WHERE id=?",(job_id,)).fetchone()
             return self._public(con,row)
@@ -586,7 +640,7 @@ class SourceJobStore:
                 ).fetchall()
             }
             assembled=[]
-            for n in sorted(ordinals):
+            for n in ordinals:
                 item=by_ordinal.get(n)
                 if item is None or item["status"] != "ok" or item["body"] is None:
                     raise SourceJobConflict("Selected chapter not yet verified")
@@ -598,4 +652,4 @@ class SourceJobStore:
                 if item["source_id"] != ch["source_id"] or item["url"] != ch["url"]:
                     raise SourceJobConflict("Stored source identity mismatch")
                 assembled.append(CollectedChapter(n,ch["title"],ch["url"],ch["source_id"],body,sha))
-            return CollectedBook(row["catalog_sha256"],tuple(sorted(ordinals)),tuple(assembled),())
+            return CollectedBook(row["catalog_sha256"],tuple(ordinals),tuple(assembled),())

@@ -90,3 +90,26 @@ test('MED auxiliary and service entries cannot be silently imported or skipped',
   assert.deepEqual(confirmation(rows,newBook,stage).chapters[1],{sequence:2,action:'skip'});
   assert.equal(confirmation(rows,newBook,stage).chapters[2].chapter_index,99);
 });
+
+test('ordered source positions are suggested without renumbering original chapter identity',()=>{
+  const original=preview([7,1,3]);
+  original.chapters.forEach((c,i)=>{c.destination_position=i+1;});
+  const rows=createDraft(original);
+  assert.deepEqual(rows.map(x=>x.detected_number),[7,1,3]);
+  assert.deepEqual(rows.map(x=>x.chapter_index),['1','2','3']);
+  assert.deepEqual(rows.map(x=>x.chapter_id),['1','2','3']);
+  assert.deepEqual(validateDraft(rows,newBook,stage),[]);
+});
+
+test('ordered position never auto-confirms a service record',()=>{
+  const snapshot=preview([7,null,3]);
+  snapshot.chapters.forEach((c,i)=>{c.destination_position=i+1;});
+  snapshot.chapters[1].entry_type='service';
+  const rows=createDraft(snapshot);
+  assert.deepEqual(rows.map(r=>r.detected_number),[7,null,3]);
+  assert.deepEqual(rows.map(r=>r.chapter_index),['1','','3']);
+  assert.equal(rows[1].action,'review');
+  assert.deepEqual(rows.map(r=>r.chapter_id),['1','','3']);
+  assert.ok(validateDraft(rows,newBook,stage).some(s=>s.includes('выберите действие')));
+  assert.throws(()=>confirmation(rows,newBook,stage),/Unreviewed/);
+});
