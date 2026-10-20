@@ -7,7 +7,34 @@ use sha2::{Digest, Sha256};
 use unicode_normalization::UnicodeNormalization;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-fn source_hash_if_policy_identity(html: &str) -> Result<String, LibraryError> {
+fn source_hash_with_verified_policy(html: &str, chapter_path: &str) -> Result<String, LibraryError> {
+    // RUST-03d: allow short plain paragraphs ONLY when the separately
+    // Python-oracle-tested RUST-03c cleaner can prove the cleaned hash.
+    // Contextual chapter number/title logic has not been ported, so this
+    // narrow branch explicitly forbids contexts likely to require it.
+    let lowered_path = chapter_path.to_lowercase();
+    let neutral_context = !chapter_path.chars().any(char::is_numeric)
+        && !["chapter", "глава", "第", "章", "節", "节", "回"]
+            .iter().any(|token| lowered_path.contains(token));
+    let compact_digits = html.chars()
+        .filter(|ch| ch.is_ascii_digit())
+        .collect::<String>();
+    let no_unverified_heading = !html.contains("第");
+    let no_unverified_domain = !compact_digits.contains("101");
+    if neutral_context && no_unverified_heading && no_unverified_domain {
+        if let Ok(cleaned) =
+            erida_source_clean::clean_plain_paragraphs(html, Some(chapter_path))
+        {
+            // A chapter containing only a removed watermark/tail is not
+            // meaningfully usable; it remains Python-owned until complete
+            // per-chapter context and Partial/Needs Review are implemented.
+            if !cleaned.html.trim().is_empty() {
+                return Ok(cleaned.source_hash);
+            }
+        }
+    }
+    // Previous RUST-02d rule remains as conservative compatibility fallback.
+    // Unsupported input stays rejected BEFORE opening any SQLite transaction.
     // Python BookLibrary source_hash = SHA256(strip_source_boilerplate(html)).
     // Its source_units analyzer uses BeautifulSoup and removes proven scraper
     // boilerplate and next-chapter tails. We cannot hash arbitrary HTML until
@@ -111,7 +138,7 @@ pub fn put_chapter_conservative(
         ));
     }
     // Validate and hash BEFORE obtaining SQLite's write lock.
-    let hash = source_hash_if_policy_identity(source_html)?;
+    let hash = source_hash_with_verified_policy(source_html, &path)?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let exists: Option<i64> = tx
         .query_row("SELECT 1 FROM books WHERE id=?1", [book_id], |row| row.get(0))
@@ -241,7 +268,7 @@ mod tests {
     fn ambiguous_source_is_rejected_without_writing() {
         let mut con=db();
         for html in [
-            "<p>Short chapter.</p>".to_owned(),
+            "<p>Short <strong>chapter</strong>.</p>".to_owned(),
             safe("甲").replace("甲", "101kanshu甲"),
             format!("<div>{}</div>", "林".repeat(300)),
             format!("<p>{}&amp;</p>", "木".repeat(300)),
@@ -253,6 +280,52 @@ mod tests {
         }
         let count: i64=con.query_row("SELECT COUNT(*) FROM book_chapters",[],|row|row.get(0)).unwrap();
         assert_eq!(count,0);
+    }
+
+    #[test]
+    fn short_plain_chapter_watermark_hash_matches_cleaned_bytes() {
+        let mut db = db();
+        let input = "<p>故事开始。</p><p>记住本站</p><p>故事后来继续。</p>";
+        let expected_clean = "<p>故事开始。</p><p>故事后来继续。</p>";
+        let result = put_chapter_conservative(
+            &mut db, "b", "short", 3, "parts/story.xhtml", input, 0,
+        ).unwrap();
+        assert_eq!(result["source_revision"], 1);
+        assert_eq!(result["source_html"], input);
+        assert_eq!(
+            result["source_hash"],
+            hex::encode(Sha256::digest(expected_clean.as_bytes()))
+        );
+        assert_eq!(
+            put_chapter_conservative(
+                &mut db, "b", "short", 3, "parts/story.xhtml", input, 1
+            ).unwrap(),
+            result
+        );
+    }
+
+    #[test]
+    fn unsupported_context_and_all_removed_source_never_create_chapter() {
+        let mut db = db();
+        let short = "<p>Небольшой исходный текст.</p>";
+        for (id, index, path, html) in [
+            ("numeric", 3, "chapters/7.xhtml", short),
+            ("heading", 4, "parts/story.xhtml", "<p>第七章</p>"),
+            ("domain", 5, "parts/story.xhtml", "<p>101kanshu.com</p>"),
+            ("empty", 6, "parts/story.xhtml", "<p>本章完</p>"),
+            ("nested", 7, "parts/story.xhtml", "<p>Привет <b>мир</b>.</p>"),
+        ] {
+            assert!(matches!(
+                put_chapter_conservative(
+                    &mut db, "b", id, index, path, html, 0
+                ),
+                Err(LibraryError::UnsupportedSource)
+            ), "Unexpectedly accepted {id}");
+        }
+        let rows: i64 = db.query_row(
+            "SELECT COUNT(*) FROM book_chapters", [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(rows, 0);
     }
 
     #[test]
