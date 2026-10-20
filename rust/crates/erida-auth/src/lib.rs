@@ -2,6 +2,7 @@
 //! Do not issue tokens, change sessions or relax revocation on the Rust side.
 use rusqlite::{Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
+use hmac::{Hmac, Mac};
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
@@ -79,6 +80,19 @@ impl From<rusqlite::Error> for AuthFailure {
     fn from(_: rusqlite::Error) -> Self {
         Self::Storage
     }
+}
+
+/// Purpose-separated CSRF proof must match the Python TeamSessions digest.
+pub fn csrf_matches(cookie: &str, provided: &str) -> bool {
+    if cookie.is_empty() || provided.is_empty() {
+        return false;
+    }
+    let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(cookie.as_bytes()) else {
+        return false;
+    };
+    mac.update(b"readera:browser-csrf:v1");
+    let expected = hex::encode(mac.finalize().into_bytes());
+    bool::from(expected.as_bytes().ct_eq(provided.as_bytes()))
 }
 
 fn sha256_hex(value: &str) -> String {

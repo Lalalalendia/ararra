@@ -1,9 +1,11 @@
 //! Experimental Rust read-only API slice. This cannot replace ReadEra yet:
 //! all mutations, book routes and Gemini translation remain Python-owned.
-use axum::extract::{Path, Query, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, State};
+
+mod write;
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use erida_auth::{AuthConfig, AuthFailure};
 use erida_store::{self, StoreError};
@@ -17,6 +19,7 @@ use std::sync::Arc;
 pub struct AppState {
     db_path: Arc<PathBuf>,
     auth: Arc<AuthConfig>,
+    test_writes_enabled: bool,
 }
 
 impl AppState {
@@ -28,6 +31,26 @@ impl AppState {
             return Err("Existing SQLite database is required for Rust read-only mode".into());
         }
         let config = AuthConfig::from_env()?;
+        let test_writes_enabled = std::env::var("ERIDA_RUST_TEST_WRITES")
+            .is_ok_and(|value| value == "1");
+        if test_writes_enabled {
+            // Two independent explicit gates; do not permit a symlinked or
+            // production SQLite DB to be used by an experimental writer.
+            let declared_root = std::env::var("ERIDA_RUST_DISPOSABLE_ROOT")
+                .map_err(|_| "Disposable root must be explicitly configured")?;
+            let root = PathBuf::from(declared_root).canonicalize()
+                .map_err(|_| "Disposable root cannot be resolved")?;
+            let temp_root = std::env::temp_dir().canonicalize()
+                .map_err(|_| "System temporary root unavailable")?;
+            let actual = path.canonicalize()
+                .map_err(|_| "Disposable SQLite path cannot be resolved")?;
+            if !root.starts_with(&temp_root)
+                || actual.parent() != Some(root.as_path())
+                || !actual.is_file()
+            {
+                return Err("Rust job writer requires a disposable SQLite DB".into());
+            }
+        }
         let con = erida_store::open_read_only(&path)
             .map_err(|_| "Read-only SQLite connection unavailable")?;
         erida_store::check_schema(&con)
@@ -35,6 +58,7 @@ impl AppState {
         Ok(Self {
             db_path: Arc::new(path),
             auth: Arc::new(config),
+            test_writes_enabled,
         })
     }
 }
@@ -45,6 +69,11 @@ pub enum ApiError {
     InvalidSession,
     NotFound,
     Unavailable,
+    Forbidden,
+    Conflict,
+    GlossaryConflict,
+    InvalidInput(&'static str),
+    BadRequest(&'static str),
 }
 
 impl From<AuthFailure> for ApiError {
@@ -71,8 +100,13 @@ impl IntoResponse for ApiError {
             }
             ApiError::NotFound => (StatusCode::NOT_FOUND, "Job not found"),
             ApiError::Unavailable => {
-                (StatusCode::SERVICE_UNAVAILABLE, "Read-only datastore unavailable")
+                (StatusCode::SERVICE_UNAVAILABLE, "Datastore unavailable")
             }
+            ApiError::Forbidden => (StatusCode::FORBIDDEN, "CSRF proof required"),
+            ApiError::Conflict => (StatusCode::CONFLICT, "Idempotency key refers to different input"),
+            ApiError::GlossaryConflict => (StatusCode::UNPROCESSABLE_ENTITY, "Conflicting glossary versions"),
+            ApiError::InvalidInput(reason) => (StatusCode::UNPROCESSABLE_ENTITY, reason),
+            ApiError::BadRequest(reason) => (StatusCode::BAD_REQUEST, reason),
         };
         (
             status,
@@ -186,11 +220,17 @@ async fn job_events(
 }
 
 pub fn app(state: AppState) -> Router {
-    Router::new()
+    let mut app = Router::new()
         .route("/healthz", get(health))
         .route("/v1/me", get(me))
         .route("/v1/jobs", get(jobs))
         .route("/v1/jobs/{job_id}", get(job))
-        .route("/v1/jobs/{job_id}/events", get(job_events))
-        .with_state(state)
+        .route("/v1/jobs/{job_id}/events", get(job_events));
+    if state.test_writes_enabled {
+        app = app
+            .route("/v1/jobs", post(write::submit))
+            .route("/v1/jobs/{job_id}/cancel", post(write::cancel))
+            .layer(DefaultBodyLimit::max(8 * 1024 * 1024));
+    }
+    app.with_state(state)
 }

@@ -73,3 +73,30 @@ Targets for discussion, **not achieved measurements**: API idle < 40 MiB RSS,
 translation worker idle < 60 MiB RSS. Compare same machine, same warmed
 workload, process tree, PSS, RSS, cgroup memory, and peaks under long chapter
 processing. The goal is lower always-on RAM without degrading chapter quality.
+
+## RUST-02a: one-step job write transaction integration
+
+Prototype Rust API now implements `POST /v1/jobs` and
+`POST /v1/jobs/{job_id}/cancel` on a **disposable SQLite database only**,
+with `BEGIN IMMEDIATE`, actor-scoped `Idempotency-Key`, the same canonical
+`JobSpec` SHA-256 digest, atomic queue events, cancellation by current state,
+session revocation and HMAC CSRF verification for cookie-authenticated writes.
+
+The write routes are **not registered by default**. Both
+`ERIDA_RUST_TEST_WRITES=1` and `ERIDA_RUST_DISPOSABLE_ROOT` are mandatory;
+the canonical SQLite path must be a regular file directly within that
+declared directory, which must itself be below the system temporary root.
+The existing live DB under `/var/lib` is therefore not eligible.
+
+`scripts/compare_rust_writes.py` exercises mixed Python/Rust execution on
+one temporary SQLite: Python-created jobs replay in Rust and vice versa;
+cross-process simultaneous submissions with the same idempotency key
+produce a single job and a single queue event. Cancellation of queued,
+running and terminal jobs is checked, as are actor scoping, disabled/rotated
+tokens, HMAC CSRF and explicit-header precedence. No source fetch or
+Gemini/Drive requests are permitted.
+
+**RUST-02a does not replace the full API.** Book/accepted-text writes,
+outbox, source crawl, Gemini transport, paid quotas, advanced glossary
+contract and all editor/import endpoints still use Python. Additional
+conformance evidence is required before any production migration.
