@@ -440,8 +440,13 @@ class SourceJobStore:
             raise ValueError("Source job lease must be at least 30 seconds")
         if only_job_id is not None:
             if (type(only_job_id) is not str or len(only_job_id) != 36 or
-                not re.fullmatch(r"[a-f0-9-]{36}", only_job_id) or
-                str(uuid.UUID(only_job_id)) != only_job_id):
+                not re.fullmatch(r"[a-f0-9-]{36}", only_job_id)):
+                raise ValueError("One-shot source job ID must be a canonical UUID")
+            try:
+                parsed = str(uuid.UUID(only_job_id))
+            except ValueError as exc:
+                raise ValueError("One-shot source job ID must be a canonical UUID") from exc
+            if parsed != only_job_id:
                 raise ValueError("One-shot source job ID must be a canonical UUID")
         now = time.time()
         with self.store._connect() as con:
