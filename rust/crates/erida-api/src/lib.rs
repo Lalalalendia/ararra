@@ -5,6 +5,7 @@ use axum::extract::{DefaultBodyLimit, Path, Query, State};
 mod write;
 mod book;
 mod chapter_write;
+mod accepted;
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -252,6 +253,8 @@ pub fn app(state: AppState) -> Router {
             .route("/v1/books/{book_id}/owner", axum::routing::put(book::reassign))
             .route("/v1/books/{book_id}/chapters/{chapter_id}",
                    axum::routing::put(chapter_write::save_chapter))
+            .route("/v1/books/{book_id}/chapters/{chapter_id}/accepted-translation",
+                   axum::routing::put(accepted::accept))
             .layer(DefaultBodyLimit::max(8 * 1024 * 1024));
     }
     app.with_state(state)
