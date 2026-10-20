@@ -85,30 +85,18 @@ async def exercise(app, settings: Settings, db_path: Path, endpoint: str) -> Non
         assert missing_book.status_code == 404 and missing_book.json()["detail"] == "Book not found"
 
         # Concurrent CAS: exactly one revision 0 -> 1, exactly one owner event.
-        targets = [
+        # Rust's concurrent reassertion of the current owner is a no-op,
+        # while Python changes the owner to mod. Exactly one revision is added.
+        results = await asyncio.gather(
             py.put("/v1/books/book-py/owner", headers=admin, json={
                 "owner_member_id": "mod", "expected_owner_revision": 0,
             }),
             rust.put("/v1/books/book-py/owner", headers=admin, json={
-                "owner_member_id": "chief", "expected_owner_revision": 0,
+                "owner_member_id": "other", "expected_owner_revision": 0,
             }),
-        ]
-        # The admin is NOT an eligible moderator owner; force a genuine
-        # race between two active moderator identities instead.
-        targets[1] = rust.put("/v1/books/book-py/owner", headers=admin, json={
-            "owner_member_id": "other", "expected_owner_revision": 0,
-        })
-        results = await asyncio.gather(*targets)
-        # Python request to transfer mod -> mod is a no-op but still consumes
-        # no revision, so the Rust transfer should become the sole changed row.
+        )
         assert results[0].status_code == 200
         assert results[1].status_code in {200, 409}
-        row = (await rust.get("/v1/books/book-py", headers=other)).json()
-        if row["owner_revision"] == 0:
-            transfer = await rust.put("/v1/books/book-py/owner", headers=admin, json={
-                "owner_member_id": "mod", "expected_owner_revision": 0,
-            })
-            assert transfer.status_code == 200
         changed = (await py.get("/v1/books/book-py", headers=other)).json()
         assert changed["owner_revision"] == 1
         stale = await rust.put("/v1/books/book-py/owner", headers=admin, json={
