@@ -1,0 +1,10 @@
+[package]
+name = "erida-source-dom"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+scraper = "=0.24.0"
+serde_json = "1.0"
