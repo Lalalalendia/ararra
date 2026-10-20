@@ -100,3 +100,30 @@ Gemini/Drive requests are permitted.
 outbox, source crawl, Gemini transport, paid quotas, advanced glossary
 contract and all editor/import endpoints still use Python. Additional
 conformance evidence is required before any production migration.
+
+## RUST-02b: book directory and ownership CAS
+
+A new `rust/crates/erida-library` crate owns the book-directory JSON
+projection, deterministic chapter/accepted counts, book creation with
+immutable owner audit, and compare-and-swap ownership transfer against the
+existing Python SQLite schema. No schema changes, automatic migrations,
+source-text writing, accepted translations or glossary mutations.
+
+On the experimental Rust Axum process:
+
+- GET `/v1/books` and GET `/v1/books/{book_id}` require member auth.
+- POST `/v1/books` and PUT `/v1/books/{book_id}/owner` require the
+  same **explicitly enabled disposable SQLite** write mode as RUST-02a.
+- New book ownership is restricted to active moderators; only the admin
+  can assign another moderator or transfer existing ownership. Auth is
+  rechecked against the current credential row for each request.
+- `BEGIN IMMEDIATE` and expected owner_revision ensure exactly one
+  outcome under races. A no-op owner reassertion writes no audit event.
+
+`scripts/compare_rust_books.py` exercises shared-DB Python/Rust creation
+replay, owner CAS races, immutable audit history, directory parity,
+ownership policy, CSRF and token header precedence.
+
+This still is NOT a full replacement for Python BookLibrary. In particular,
+chapter source revisions, accepted translations, editing and glossary flows
+must be independently ported and golden-checked before any release.

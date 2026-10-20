@@ -1,0 +1,10 @@
+[package]
+name = "erida-library"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+rusqlite = { version = "0.33", features = ["bundled"] }
+serde_json = "1.0"

@@ -83,6 +83,24 @@ impl From<rusqlite::Error> for AuthFailure {
 }
 
 /// Purpose-separated CSRF proof must match the Python TeamSessions digest.
+/// Mirrors TeamCredentials.is_active without revealing managed token hashes.
+/// Moderator ownership is distinct from ordinary authentication.
+pub fn is_active_moderator(
+    member: &str, db: &Connection, cfg: &AuthConfig,
+) -> Result<bool, AuthFailure> {
+    if member.is_empty() || member == cfg.admin_member_id {
+        return Ok(false);
+    }
+    let managed: Option<i64> = db
+        .query_row(
+            "SELECT active FROM team_access_credentials WHERE member_id=?1",
+            [member],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(managed.map_or_else(|| cfg.team_tokens.contains_key(member), |active| active == 1))
+}
+
 pub fn csrf_matches(cookie: &str, provided: &str) -> bool {
     if cookie.is_empty() || provided.is_empty() {
         return false;

@@ -171,7 +171,7 @@ fn map_write_failure(error: WriteError) -> ApiError {
     }
 }
 
-async fn secured_write<F>(
+pub(super) async fn secured_write<F>(
     state: AppState,
     headers: HeaderMap,
     operation: F,

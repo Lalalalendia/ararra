@@ -39,3 +39,5 @@ jobs:
         run: python scripts/compare_rust_api.py rust/target/release/erida-api
       - name: Verify disposable cross-runtime SQLite job writes and CSRF
         run: python scripts/compare_rust_writes.py rust/target/release/erida-api
+      - name: Verify book directory and owner CAS against live Python contract
+        run: python scripts/compare_rust_books.py rust/target/release/erida-api
