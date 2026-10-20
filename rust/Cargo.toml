@@ -4,6 +4,7 @@ members = [
     "crates/erida-auth",
     "crates/erida-store",
     "crates/erida-library",
+    "crates/erida-source-dom",
     "crates/erida-api",
 ]
 
