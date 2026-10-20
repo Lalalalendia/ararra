@@ -239,13 +239,12 @@ def test_old_source_schema_migrates_additively(tmp_path):
 
 
 def test_global_queue_limit_counts_all_sites_without_overriding_site_limit(tmp_path):
-    from chaptera_server.source_collect import SourceCatalog, SourceChapter
-    from chaptera_server.source_site_storage import _fingerprint
+    from chaptera_server.source_collect import SourceCatalog, SourceChapter, catalog_fingerprint
     from chaptera_server.source_job_store import MAX_ACTIVE_JOBS_GLOBAL
 
     def tiny(source, book, chapter, chapter_id):
         chapters = (SourceChapter(1,"One",chapter_id,chapter),)
-        return SourceCatalog(source,book,chapters,_fingerprint(chapters))
+        return SourceCatalog(source,book,chapters,catalog_fingerprint(source,book,chapters))
 
     catalogs = [
         tiny("royalroad",BOOK,
