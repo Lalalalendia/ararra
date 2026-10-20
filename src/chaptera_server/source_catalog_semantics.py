@@ -133,6 +133,13 @@ def classify_toc_title(title: str) -> tuple[str, int | None, str, str]:
         r"(?:\s*(?:[:：—#-]\s*.*|\d+.*))?)", label,
     ):
         return "extra", None, "title_pattern", "medium"
+    # A fractional author label such as Chapter 10.5 is not Chapter 10.
+    # Keep its original title and require explicit review instead.
+    if re.match(
+        r"(?i:(?:chapter|ch\.?|глава))\s*#?\s*\d{1,7}\.\d+\b"
+        r"|\d{1,7}\.\d+\b", label,
+    ):
+        return "unknown", None, "none", "unverified"
     patterns = (
         r"(?i:(?:chapter|ch\.?|глава))\s*#?\s*(\d{1,7})(?:\b.*)?",
         r"(\d{1,7})\s*[-:：—.]\s*\S.*",

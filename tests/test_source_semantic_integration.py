@@ -94,3 +94,18 @@ def test_ordered_stage_preserves_author_labels_and_review_types(tmp_path):
     assert "<h1>Announcement</h1>" in payload[0]["source_html"]
     assert "<h1>Unclassified note</h1>" in payload[3]["source_html"]
     assert "Глава 4. Unclassified note" not in payload[3]["source_html"]
+
+def test_fractional_royalroad_titles_never_become_wrong_integer_author_numbers():
+    page = '<div id="chapters">' + ''.join(
+        f'<a href="/fiction/142007/aura/chapter/{60001+i}/{i}-part">{label}</a>'
+        for i, label in enumerate((
+            'Chapter 10.5 Interlude', 'Chapter 30.1 - Bonus Log',
+            'Chapter 10 - Main', 'No Chapter Today - Next Chapter Friday',
+        ))
+    ) + '</div>'
+    cat = catalog_from_html("royalroad", BOOK, page)
+    assert [c.ordinal for c in cat.chapters] == [1, 2, 3, 4]
+    assert [c.author_number for c in cat.chapters] == [None, None, 10, None]
+    assert [c.entry_type for c in cat.chapters] == [
+        "unknown", "unknown", "chapter", "unknown",
+    ]
