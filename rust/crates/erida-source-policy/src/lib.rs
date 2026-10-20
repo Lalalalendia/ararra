@@ -74,10 +74,10 @@ const DOMAIN_PROMOTION_FRAGMENTS: &[&str] = &[
     "超讚網站",
 ];
 
-//! Partial Rust port of ReadEra's *standalone text* source-unit policy.
-//! This is NOT DOM classification, BeautifulSoup serialization or an
-//! authority for calculating source hashes. Integration into writers is
-//! explicitly forbidden until full end-to-end source-unit parity exists.
+// Partial Rust port of ReadEra's standalone source-text policy.
+// This is NOT DOM classification, BeautifulSoup serialization or an
+// authority for calculating source hashes. Integration into writers is
+// explicitly forbidden until full end-to-end source-unit parity exists.
 use regex::Regex;
 use std::sync::OnceLock;
 use unicode_normalization::UnicodeNormalization;
