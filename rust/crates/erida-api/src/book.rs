@@ -30,6 +30,9 @@ fn map_library(error: LibraryError) -> ApiError {
         LibraryError::Conflict(reason) => ApiError::BookConflict(reason),
         LibraryError::Missing(_) => ApiError::BookNotFound,
         LibraryError::Invalid(reason) => ApiError::BadRequest(reason),
+        LibraryError::UnsupportedSource => ApiError::InvalidInput(
+            "Unsupported source HTML: Python source-policy normalization required",
+        ),
         LibraryError::Sqlite(_) | LibraryError::Malformed => ApiError::Unavailable,
     }
 }

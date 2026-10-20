@@ -4,6 +4,7 @@ use axum::extract::{DefaultBodyLimit, Path, Query, State};
 
 mod write;
 mod book;
+mod chapter_write;
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -249,6 +250,8 @@ pub fn app(state: AppState) -> Router {
             .route("/v1/jobs/{job_id}/cancel", post(write::cancel))
             .route("/v1/books", post(book::create))
             .route("/v1/books/{book_id}/owner", axum::routing::put(book::reassign))
+            .route("/v1/books/{book_id}/chapters/{chapter_id}",
+                   axum::routing::put(chapter_write::save_chapter))
             .layer(DefaultBodyLimit::max(8 * 1024 * 1024));
     }
     app.with_state(state)

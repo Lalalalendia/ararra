@@ -152,3 +152,53 @@ is already translated. No Rust mutations of chapter text or glossary are enabled
 accepted-translation revision writes, translation-context calculation, editor
 drafts, import/exports and actual Gemini translation. A production switch still
 requires their respective contracts to be implemented and accepted.
+
+## RUST-02d: strict source-chapter writes (limited, no policy drift)
+
+`erida-library::put_chapter_conservative` adds the exact Python
+`BEGIN IMMEDIATE` and expected-source-revision CAS shape for creation and
+updates of source chapters. The new PUT route is *disabled by default*, just
+like prior Rust writes: `ERIDA_RUST_TEST_WRITES=1` and a canonical, previously
+created SQLite file directly inside `ERIDA_RUST_DISPOSABLE_ROOT` under
+the system temporary directory are mandatory. No production writer exists.
+
+### Why source-hash behavior is restricted
+
+Python computes
+`SHA256(strip_source_boilerplate(source_html, current_chapter_path))`,
+**not** SHA-256 of arbitrary raw HTML. Python's classifier strips site footer,
+watermarks and appended next-chapter navigation using BeautifulSoup, NFKC and
+text-node context. Until all that has an independent Rust implementation, it
+would be incorrect to silently hash the raw source.
+
+The first proven identity subset is deliberately narrow:
+
+- one or more *immediately adjacent*, attribute-free `<p>text</p>` elements;
+- no nested tags, entities, control codes or markup inside text;
+- each node has **more than 260 NFKC alphanumeric codepoints**, excluding the
+  decorative `丨` character, and no digit sequence potentially containing
+  a deobfuscated `101` promotional domain token;
+- all other HTML fails with a clear HTTP 422 and never reaches the database.
+
+These conditions exclude the known shorter-than-220-character next-chapter
+markers, shorter-than-260-character standalone promotional text, standalone
+chapter-ending markers and domain-based policy removals. For accepted inputs
+the Python strip operation is identity, so Rust must write the raw UTF-8 hash.
+This is an intentionally small **tested compatibility subset**—not yet a
+complete parser. Typical short dialogue paragraphs, nested or malformed HTML,
+and promotional material remain Python-only.
+
+`scripts/compare_rust_chapter_writes.py` checks accepted fixtures against
+the actual Python stripper; then uses shared disposable SQLite to compare
+Python/Rust INSERT/replay, two-writer revision conflicts, hash identity,
+uniqueness constraints, preserving old accepted translations as stale after a
+source revision change, and explicit fail-closed unsupported HTML.
+
+### Remaining after RUST-02d
+
+- Port **full** source classification/normalization and compare against the
+  Python golden fixtures for every historical chapter type.
+- Port accepted-translation writes with text validation, immutable revision
+  archive and source-revision fencing.
+- Preserve glossary/context/recovery/editor contracts and translation worker
+  before replacing the actual Python API process.
