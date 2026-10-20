@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 from .source_catalog_med import IngestError, make_adapter, validate_url, source_book_id
 from .source_toc_discovery import merge_observed_pages, discover_pages
+from .source_catalog_semantics import CatalogSemanticEntry, semantic_catalog_sha256
 
 MAX_CHAPTERS = 100
 MAX_HTML_CHARS = 2_000_000
@@ -26,6 +27,10 @@ class SourceChapter:
     title: str
     source_id: str
     url: str
+    entry_type: str = "unknown"
+    author_number: int | None = None
+    classification_source: str = "none"
+    classification_confidence: str = "unverified"
 
 
 @dataclass(frozen=True)
@@ -47,6 +52,10 @@ class CollectedChapter:
     source_id: str
     body: str
     sha256: str
+    entry_type: str = "unknown"
+    author_number: int | None = None
+    classification_source: str = "none"
+    classification_confidence: str = "unverified"
 
 
 @dataclass(frozen=True)
@@ -89,18 +98,33 @@ class CollectedBook:
         return ("\n\n".join(blocks) + "\n").encode("utf-8")
 
 
+def catalog_fingerprint(
+    source: str, book_url: str, chapters: tuple[SourceChapter, ...],
+) -> str:
+    """Bind source, original links, headings, author labels and classifications."""
+    return semantic_catalog_sha256(
+        source, source_book_id(book_url, source), [
+            CatalogSemanticEntry(
+                source_ordinal=c.ordinal, source_id=c.source_id, url=c.url,
+                title=c.title, entry_type=c.entry_type,
+                author_number=c.author_number,
+                classification_source=c.classification_source,
+                classification_confidence=c.classification_confidence,
+            ) for c in chapters
+        ],
+    )
+
+
 def _build_catalog(source, book_url, discovery) -> SourceCatalog:
     entries, pages, declared, coverage = discovery
-    chapters = tuple(
-        SourceChapter(ch.ordinal, ch.title, ch.source_id, ch.url)
-        for ch in entries
-    )
-    canonical = "\n".join(
-        f"{ch.ordinal}\t{ch.source_id}\t{ch.url}" for ch in chapters
-    )
+    chapters = tuple(SourceChapter(
+        ch.ordinal, ch.title, ch.source_id, ch.url,
+        ch.entry_type, ch.author_number,
+        ch.classification_source, ch.classification_confidence,
+    ) for ch in entries)
     return SourceCatalog(
         source, book_url, chapters,
-        hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        catalog_fingerprint(source, book_url, chapters),
         pages, declared, coverage,
     )
 
@@ -161,7 +185,11 @@ async def collect_selected(
             if not min_body_chars <= len(body) <= MAX_BODY_CHARS:
                 raise ValueError("Missing, truncated or oversized chapter text")
             digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
-            completed.append(CollectedChapter(n, ch.title, ch.url, ch.source_id, body, digest))
+            completed.append(CollectedChapter(
+                n, ch.title, ch.url, ch.source_id, body, digest,
+                ch.entry_type, ch.author_number,
+                ch.classification_source, ch.classification_confidence,
+            ))
         except IngestError as exc:
             if exc.status == "site_busy":
                 # Admission is transient. Do not mislabel this selected

@@ -42,7 +42,11 @@ def merge_observed_pages(
             ordinal = len(collected) + 1 if source == "royalroad" else ch.ordinal
             if ordinal in found_numbers:
                 raise IngestError("catalog_conflict", "Two chapters share one ordinal")
-            item = Chapter(ordinal, ch.title, ch.url, ch.source_id)
+            item = Chapter(
+                ordinal, ch.title, ch.url, ch.source_id, ch.entry_type,
+                ch.author_number, ch.classification_source,
+                ch.classification_confidence,
+            )
             found_ids[ch.source_id] = item
             found_numbers[ordinal] = item
             collected.append(item)

@@ -1,8 +1,4 @@
-"""Proposed v2 semantic TOC fingerprint; deliberately not enabled in live jobs.
-
-The existing v1 catalog SHA/selection and job manifests remain authoritative
-until an explicit versioned SQLite/CAS migration has been accepted.
-"""
+"""Active versioned TOC metadata for new catalogs; no legacy migration needed."""
 from __future__ import annotations
 
 import hashlib
@@ -118,6 +114,37 @@ def canonical_semantic_bytes(
                             SOURCE_CODES[entry.classification_source],
                             CONFIDENCE_CODES[entry.classification_confidence])))
     return bytes(buf)
+
+
+def classify_toc_title(title: str) -> tuple[str, int | None, str, str]:
+    """Only anchored, conservative matches. Site position is not author number."""
+    label = re.sub(r"\s+", " ", title).strip()
+    if not label:
+        return "unknown", None, "none", "unverified"
+    if re.fullmatch(
+        r"(?:上架感言|完本感言|请假条|停更通知|更新通知|"
+        r"(?i:announcement|hiatus|author(?:'s)? note|schedule update)"
+        r"(?:\s*[:：—-].*)?)", label,
+    ):
+        return "service", None, "title_pattern", "medium"
+    if re.fullmatch(
+        r"(?:番外(?:篇|章)?(?:\s*[:：—-].*)?|"
+        r"(?i:prologue|epilogue|interlude|side story|bonus chapter)"
+        r"(?:\s*(?:[:：—#-]\s*.*|\d+.*))?)", label,
+    ):
+        return "extra", None, "title_pattern", "medium"
+    patterns = (
+        r"(?i:(?:chapter|ch\.?|глава))\s*#?\s*(\d{1,7})(?:\b.*)?",
+        r"(\d{1,7})\s*[-:：—.]\s*\S.*",
+        r"第\s*(\d{1,7})\s*[章节節回话話](?:.*)",
+    )
+    for expression in patterns:
+        match = re.fullmatch(expression, label)
+        if match:
+            number = int(match.group(1))
+            if 1 <= number <= MAX_ORDINAL:
+                return "chapter", number, "title_pattern", "medium"
+    return "unknown", None, "none", "unverified"
 
 
 def semantic_catalog_sha256(
