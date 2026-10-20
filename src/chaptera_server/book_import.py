@@ -36,6 +36,25 @@ HEADING = re.compile(
     re.IGNORECASE,
 )
 MD_TITLE = re.compile(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$")
+# Conservative standalone TXT/HTML headings derived from MED's
+# tools/novel-ingest/extract_chapter.py. Do not infer structure from prose.
+# Unlike numbered story chapters, these records require an explicit decision.
+EXTRA_HEADING = re.compile(
+    r"^番外(?:篇|章)?(?:\s*[:：—–-]\s*|\s+).+$|^番外(?:篇|章)?$"
+)
+SERVICE_HEADINGS = frozenset({
+    "上架感言", "群炸了，请前往评论区", "电脑炸了……请假",
+    "请假条", "没办法再请天假，顺便说下近况", "罪己诏",
+    "新书已发，《司教大人深不可测》",
+    "群炸了，转至备用群，加群方式见评论区",
+})
+SERVICE_PATTERNS = (
+    re.compile(r"^(?:上架|完本)感言(?:\s*[：:].+)?$"),
+    re.compile(r"^请假(?:条|一天|一天假)?(?:\s*[：:].+)?$"),
+    re.compile(r"^新书已发(?:[\s，,:：。！!…《].*)?$"),
+    re.compile(r"^(?:停更|更新)(?:通知|说明)(?:\s*[：:].+)?$"),
+)
+
 ZIP_TYPES = {'.epub', '.docx'}
 
 
@@ -49,6 +68,7 @@ class Candidate:
     number: int | None
     html: str
     path: str
+    entry_type: str = 'chapter'
 
 
 def _filename(name: str) -> str:
@@ -107,6 +127,24 @@ def _heading(text: str) -> tuple[str, int] | None:
     return text, number
 
 
+def _entry_heading(raw: str) -> tuple[str, int | None, str] | None:
+    """Detect story, extra and known service headings; never guess from prose."""
+    numbered = _heading(raw)
+    if numbered is not None:
+        return numbered[0], numbered[1], 'chapter'
+    text = re.sub(r'\s+', ' ', raw).strip()
+    markdown = MD_TITLE.fullmatch(text)
+    if markdown:
+        text = markdown.group(1)
+    if not text or len(text) > 120:
+        return None
+    if EXTRA_HEADING.fullmatch(text):
+        return text, None, 'extra'
+    if text in SERVICE_HEADINGS or any(p.fullmatch(text) for p in SERVICE_PATTERNS):
+        return text, None, 'service'
+    return None
+
+
 def _paragraphs_to_html(lines: list[str]) -> str:
     groups, pending = [], []
     for line in lines:
@@ -130,21 +168,23 @@ def _from_lines(text: str, title: str, source_path: str) -> tuple[list[Candidate
     candidates: list[Candidate] = []
     prefix: list[str] = []
     body: list[str] = []
-    current: tuple[str, int] | None = None
+    current: tuple[str, int | None, str] | None = None
     found_heading = False
     for line in text.splitlines():
-        match = _heading(line)
+        match = _entry_heading(line)
         if match:
             found_heading = True
             if current is not None:
-                candidates.append(Candidate(current[0], current[1], _paragraphs_to_html(body), source_path))
+                candidates.append(Candidate(current[0], current[1], _paragraphs_to_html(body),
+                                            source_path, current[2]))
             elif body:
                 prefix = body
             current, body = match, []
         else:
             body.append(line)
     if current is not None:
-        candidates.append(Candidate(current[0], current[1], _paragraphs_to_html(body), source_path))
+        candidates.append(Candidate(current[0], current[1], _paragraphs_to_html(body),
+                                    source_path, current[2]))
     if not found_heading:
         candidates = [Candidate(title, None, _paragraphs_to_html(body), source_path)]
     return candidates, _paragraphs_to_html(prefix)
@@ -175,11 +215,11 @@ def _block_children(root: Tag):
         if child.name in {'script', 'style', 'nav', 'noscript', 'header', 'footer', 'iframe', 'form'}:
             continue
         if child.name in {'div', 'section', 'article', 'main'} and child.find(
-            lambda t: isinstance(t, Tag) and t.name in {'h1', 'h2', 'h3', 'h4'} and _heading(t.get_text(' ', strip=True)) is not None
+            lambda t: isinstance(t, Tag) and t.name in {'h1', 'h2', 'h3', 'h4'} and _entry_heading(t.get_text(' ', strip=True)) is not None
         ):
             yield from _block_children(child)
         else:
-            mark = _heading(child.get_text(' ', strip=True)) if child.name in {'h1', 'h2', 'h3', 'h4'} else None
+            mark = _entry_heading(child.get_text(' ', strip=True)) if child.name in {'h1', 'h2', 'h3', 'h4'} else None
             yield _sanitize_markup(child), mark
 
 
@@ -189,18 +229,20 @@ def _from_html(source: str, title: str, source_path: str) -> tuple[list[Candidat
     candidates: list[Candidate] = []
     prefix: list[str] = []
     body: list[str] = []
-    current: tuple[str, int] | None = None
+    current: tuple[str, int | None, str] | None = None
     for fragment, heading in _block_children(container):
         if heading is not None:
             if current is not None:
-                candidates.append(Candidate(current[0], current[1], '\n'.join(body), source_path))
+                candidates.append(Candidate(current[0], current[1], '\n'.join(body),
+                                            source_path, current[2]))
             elif body:
                 prefix = body
             current, body = heading, []
         else:
             body.append(fragment)
     if current is not None:
-        candidates.append(Candidate(current[0], current[1], '\n'.join(body), source_path))
+        candidates.append(Candidate(current[0], current[1], '\n'.join(body),
+                                    source_path, current[2]))
     if not candidates:
         return [Candidate(title, None, '\n'.join(body), source_path)], ''
     return candidates, '\n'.join(prefix)
@@ -380,28 +422,69 @@ def parse_book_import(filename: str, data: bytes) -> tuple[dict, list[Candidate]
         raise ImportFormatError('Supported formats: TXT, HTML, EPUB, DOCX, and Rulate metadata JSON')
     if not candidates or len(candidates) > MAX_CHAPTERS:
         raise ImportFormatError('Book has no chapters or exceeds the chapter limit')
-    numbered, output, warnings = set(), [], []
+    numbered: set[int] = set()
+    body_digests: dict[str, int] = {}
+    duplicate_body_pairs: list[dict[str, int]] = []
+    output: list[dict] = []
+    warnings: list[str] = []
+    entry_counts = {'chapter': 0, 'extra': 0, 'service': 0}
     for order, chapter in enumerate(candidates, start=1):
         source_text = _text(chapter.html)
         if len(source_text) > MAX_CHAPTER_CHARACTERS:
             raise ImportFormatError(f'Chapter {order} exceeds the per-chapter limit')
         if not source_text:
-            warnings.append(f'Chapter {order} has no readable text')
+            warnings.append(f'Entry {order} has no readable body text')
+        if chapter.entry_type not in entry_counts:
+            raise ImportFormatError('Unrecognized entry classification')
+        entry_counts[chapter.entry_type] += 1
         if chapter.number is not None and chapter.number in numbered:
             warnings.append(f'Duplicate chapter number {chapter.number}; manual mapping required')
         if chapter.number is not None:
             numbered.add(chapter.number)
-        output.append({'sequence': order, 'detected_number': chapter.number,
-                       'suggested_index': chapter.number or order, 'title': chapter.title[:500],
-                       'source_path': chapter.path[:1024], 'characters': len(source_text),
-                       'sha256': hashlib.sha256(source_text.encode('utf-8')).hexdigest(),
+        digest = hashlib.sha256(source_text.encode('utf-8')).hexdigest()
+        if chapter.entry_type == 'chapter' and source_text:
+            if digest in body_digests and len(duplicate_body_pairs) < 32:
+                duplicate_body_pairs.append({
+                    'first_sequence': body_digests[digest],
+                    'duplicate_sequence': order,
+                })
+            else:
+                body_digests.setdefault(digest, order)
+        output.append({'sequence': order, 'catalog_ordinal': order,
+                       'detected_number': chapter.number, 'author_number': chapter.number,
+                       'entry_type': chapter.entry_type,
+                       'suggested_index': chapter.number if chapter.number is not None else order,
+                       'title': chapter.title[:500], 'source_path': chapter.path[:1024],
+                       'characters': len(source_text), 'sha256': digest,
                        'sample': source_text[:180], 'has_text': bool(source_text)})
+    ordered_numbers = sorted(numbered)
+    # Report only internal gaps. Never allocate range(max(author_number)):
+    # legitimate books can start at chapter 517 or label chapter 9_999_999.
+    numbering_gaps = [
+        [before + 1, after - 1]
+        for before, after in zip(ordered_numbers, ordered_numbers[1:])
+        if after > before + 1
+    ]
     if not all(chapter.number is not None for chapter in candidates):
-        warnings.append('Some chapters have no explicit number: sequence numbers are suggestions only')
+        warnings.append('Some entries have no explicit author number: sequence numbers are suggestions only')
+    if entry_counts['extra'] or entry_counts['service']:
+        warnings.append(
+            f"Found {entry_counts['extra']} extra and {entry_counts['service']} service entries; "
+            "each requires an explicit import or skip decision"
+        )
+    if numbering_gaps:
+        warnings.append('Internal gaps in observed author chapter numbers; verify source coverage')
+    if duplicate_body_pairs:
+        warnings.append('Duplicate story bodies detected by SHA-256; review before import')
     if _text(prefix):
         warnings.append('Text before the first chapter heading is unassigned and needs review')
     return ({'kind': 'book', 'format': suffix.lstrip('.'), 'filename': filename,
              'title': title[:500], 'chapter_count': len(output), 'chapters': output,
+             'story_chapter_count': entry_counts['chapter'],
+             'extra_entry_count': entry_counts['extra'],
+             'service_entry_count': entry_counts['service'],
+             'numbering_gaps': numbering_gaps,
+             'duplicate_body_pairs': duplicate_body_pairs,
              'unassigned_prefix_characters': len(_text(prefix)),
              'unassigned_prefix_sample': _text(prefix)[:180], 'warnings': warnings,
              'stored': False}, candidates, prefix)

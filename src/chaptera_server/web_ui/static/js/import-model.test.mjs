@@ -63,3 +63,30 @@ test('preface is never silently lost',()=>{
   assert.equal(validateDraft(rows,{...newBook,prefix_policy:'preserve'},prefaced).length,0);
   assert.equal(confirmation(rows,{...newBook,prefix_policy:'discard'},prefaced).prefix_policy,'discard');
 });
+
+
+test('MED auxiliary and service entries cannot be silently imported or skipped',()=>{
+  const snapshot=preview([1,null,null,3]);
+  snapshot.chapters[1].entry_type='extra';
+  snapshot.chapters[2].entry_type='service';
+  snapshot.chapters[1].catalog_ordinal=2;
+  const rows=createDraft(snapshot);
+  assert.equal(rows[0].action,'create');
+  assert.equal(rows[1].action,'review');
+  assert.equal(rows[2].action,'review');
+  assert.equal(rows[1].entry_type,'extra');
+  assert.equal(rows[1].catalog_ordinal,2);
+  assert.equal(rows[1].chapter_id,'');
+  assert.ok(validateDraft(rows,newBook,stage).some(x=>x.includes('выберите действие')));
+  assert.throws(()=>confirmation(rows,newBook,stage),/Unreviewed/);
+  rows[1]=changeAction(rows[1],'skip');
+  rows[2]=changeAction(rows[2],'create');
+  assert.ok(validateDraft(rows,newBook,stage).some(x=>x.includes('ID и номер')));
+  for(const [field,value] of [['chapter_id','announcement'],['chapter_index','99'],
+                              ['chapter_path','chapters/announcement.xhtml']]){
+    rows[2]=destinationEdited(rows[2],field,value);
+  }
+  assert.deepEqual(validateDraft(rows,newBook,stage),[]);
+  assert.deepEqual(confirmation(rows,newBook,stage).chapters[1],{sequence:2,action:'skip'});
+  assert.equal(confirmation(rows,newBook,stage).chapters[2].chapter_index,99);
+});
