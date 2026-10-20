@@ -202,3 +202,31 @@ source revision change, and explicit fail-closed unsupported HTML.
   archive and source-revision fencing.
 - Preserve glossary/context/recovery/editor contracts and translation worker
   before replacing the actual Python API process.
+
+## RUST-03a: standalone source-text classification, independently verified
+
+The `erida-source-policy` crate ports the source-unit **standalone text**
+classifier: NFKC, HTML entity decoding, zero-width/decorative separators,
+promotion prefixes/fragments, anti-scraper domains, chapter-ending markers,
+next-chapter navigation and position-dependent tail labels. Its prefix and
+fragment tables are copied verbatim from
+`chaptera_translation_core/utils/source_units.py`. Its API returns
+`CONTENT`, `SOURCE_BOILERPLATE` or `NEXT_CHAPTER_BOUNDARY` and exactly
+the existing Python `reason` text. It also independently exposes the
+last-visible-node tail label predicate.
+
+The offline JSONL `source-policy-probe` binary and
+`scripts/compare_rust_source_policy.py` perform seeded tests against
+Python's original `classify_source_text()` and
+`is_source_tail_boilerplate_text()`. Corpus covers simplified/traditional
+Chinese, Russian, English, promotional watermarks, obfuscated 101 domains,
+empty/decorative text, full-width NFKC and narrative mentions.
+
+This is NOT a full BeautifulSoup DOM port. The number, hierarchy and
+serialization of HTML text nodes, title inference, contextual
+`NEXT_CHAPTER_BOUNDARY`, block decomposition and canonical source hashes
+still come from Python. **The new crate is intentionally NOT imported by
+the Rust chapter writer**, so an insufficiently validated new text predicate
+cannot silently widen the writable HTML scope or corrupt revision hashes.
+Casefold-exceptional Unicode needs a separate corpus before source policy
+can be declared complete.
