@@ -308,7 +308,7 @@ mod tests {
         let input = "<p>История <i>продолжается</i>.</p><p>下一章</p><p>Другой <b>текст</b>.</p>";
         let result = clean_inline_paragraphs(input, None).unwrap();
         assert_eq!(result.html, "<p>История <i>продолжается</i>.</p>");
-        assert_eq!(result.removed_text_nodes, 3);
+        assert_eq!(result.removed_text_nodes, 4);
     }
 
     #[test]
