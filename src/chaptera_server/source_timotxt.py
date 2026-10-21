@@ -135,6 +135,19 @@ class TimotxtAdapter(PublicHtmlAdapter):
         return chapters
 
     def parse_body(self, html: str) -> str:
+        body = self.extract_unverified_body(html)
+        # Public Stage/Confirm still refuses damaged RAW: only the durable
+        # source worker may preserve it as a NOT-VERIFIED review snapshot.
+        if _OBFUSCATED.search(body) or _PUA.search(body):
+            raise IngestError("needs_review", "Timotxt RAW contains unresolved obfuscated glyphs")
+        return body
+
+    def extract_unverified_body(self, html: str) -> str:
+        """Extract original chapter prose without approving its glyph quality.
+
+        All block/login/challenge checks remain active. Only the final
+        Hangul/PUA refusal is deferred to worker-owned quarantine storage.
+        """
         soup = BeautifulSoup(html, "html.parser")
         node = soup.select_one(".content")
         if node is None:
@@ -156,10 +169,6 @@ class TimotxtAdapter(PublicHtmlAdapter):
             raise IngestError("missing_body", "Timotxt returned empty chapter text")
         if any(word in body.lower() for word in _BLOCKED):
             raise IngestError("blocked", "Timotxt chapter is a rate-limit or access page")
-        # Timotxt has historically substituted Korean glyphs/PUA for Chinese
-        # characters. Without an evidence-backed map do not fake a clean RAW.
-        if _OBFUSCATED.search(body) or _PUA.search(body):
-            raise IngestError("needs_review", "Timotxt RAW contains unresolved obfuscated glyphs")
         return body
 
     def next_part_url(self, html: str, current_url: str) -> str | None:
