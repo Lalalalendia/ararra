@@ -33,7 +33,7 @@ verified RAW -> staged import -> existing translation and editorial flow.
 - Unknown Hangul or private-use glyph substitution is a **needs_review**
   error, not guessed Chinese text. Preserve exact bytes where supported.
 - Request rate is scoped by existing SQLite source limiter:
-  6 s minimum, 300 requests per UTC day, one simultaneous source request.
+  6 s minimum, 240 requests per UTC day, one simultaneous source request.
   HTTP 429 defers the whole job, honoring bounded Retry-After/cooldown;
   it does not trigger CAPTCHA, browser or session circumvention.
 

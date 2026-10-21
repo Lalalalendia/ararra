@@ -214,8 +214,11 @@ class PublicHtmlFetcher:
         parts = urlsplit(url)
         host = parts.hostname or ""
         profile = site_profile(source)
+        # Timotxt has a documented short-burst 429 threshold. Enforce its
+        # reviewed site pace even in a standalone fetcher without SQLite.
         minimum_delay = (max(MIN_REQUEST_INTERVAL, profile.minimum_delay_seconds)
-                         if self._request_limiter is not None else MIN_REQUEST_INTERVAL)
+                         if self._request_limiter is not None or source == "timotxt"
+                         else MIN_REQUEST_INTERVAL)
         lock = self._locks.setdefault(host, asyncio.Lock())
         async with lock:
             now = asyncio.get_running_loop().time()

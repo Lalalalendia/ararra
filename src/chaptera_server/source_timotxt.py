@@ -42,7 +42,7 @@ def timotxt_declared_count(html: str) -> int | None:
         return None
     # Limit inspection to the header/metadata vicinity, not chapter prose.
     nearby = soup.get_text(" ", strip=True)[:1200]
-    match = re.search(r"(?:章節|章节)\s*[:：]\s*([1-9][0-9]{0,4})\b", nearby)
+    match = re.search(r"(?:章節|章节)\s*[:：]\s*([1-9][0-9]{0,4})(?![0-9])", nearby)
     return int(match.group(1)) if match else None
 
 

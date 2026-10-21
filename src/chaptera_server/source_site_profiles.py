@@ -43,7 +43,7 @@ SITE_PROFILES: dict[str, SourceSiteProfile] = {
     "timotxt": SourceSiteProfile(
         "timotxt", "Timotxt (提莫書屋)",
         frozenset({"www.timotxt.com", "timotxt.com"}),
-        minimum_delay_seconds=6.0, daily_requests=300,
+        minimum_delay_seconds=6.0, daily_requests=240,
     ),
 }
 

@@ -105,7 +105,7 @@ def test_timotxt_profile_and_chapter_url_provenance():
     p = SITE_PROFILES["timotxt"]
     assert p.hosts == frozenset({"www.timotxt.com", "timotxt.com"})
     assert p.minimum_delay_seconds >= 6
-    assert p.daily_requests <= 300
+    assert p.daily_requests <= 240
     assert source_book_id(ROOT, "timotxt") == "2010493463"
     assert source_book_id(ONE_PART2, "timotxt") == "2010493463"
     assert chapter_identity(ONE, "timotxt", "2010493463") == "10"
