@@ -40,6 +40,21 @@ SITE_PROFILES: dict[str, SourceSiteProfile] = {
         "uukanshu", "UUKanshu", frozenset({"uukanshu.cc"}),
         minimum_delay_seconds=6.0, daily_requests=180,
     ),
+    "wikisource_en": SourceSiteProfile(
+        "wikisource_en", "Wikisource (English)",
+        frozenset({"en.wikisource.org"}),
+        minimum_delay_seconds=5.0, daily_requests=120,
+    ),
+    "wikisource_ru": SourceSiteProfile(
+        "wikisource_ru", "Викитека (русский)",
+        frozenset({"ru.wikisource.org"}),
+        minimum_delay_seconds=5.0, daily_requests=120,
+    ),
+    "ao3": SourceSiteProfile(
+        "ao3", "Archive of Our Own (AO3)",
+        frozenset({"archiveofourown.org"}),
+        minimum_delay_seconds=8.0, daily_requests=80,
+    ),
 }
 
 
