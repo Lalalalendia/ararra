@@ -68,6 +68,11 @@ def corpus() -> tuple[list[dict[str, str]], list[dict[str, str]]]:
             good.append(sample(p + hint))
             good.append(sample(hint + p))
         good.append(sample(PLAIN[0] + p + PLAIN[1]))
+    # Python searches from node zero when it is the sole visible text node.
+    # The first node of a multi-node document remains an ordinary content node.
+    for boundary in TAILS:
+        good.append(sample(boundary))
+        good.append(sample(boundary + PLAIN[0]))
     rng = random.Random(20261021)
     for _ in range(280):
         elements = [rng.choice(INLINE), rng.choice(INLINE + PLAIN)]
