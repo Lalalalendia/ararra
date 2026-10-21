@@ -60,7 +60,7 @@ fn validate_scope_conflicts(
                 continue;
             };
             let mut reduced = Map::new();
-            for key in ("rus", "note") {
+            for key in ["rus", "note"] {
                 if let Some(value) = override_fields.get(key) {
                     reduced.insert(key.to_string(), value.clone());
                 }
@@ -176,7 +176,7 @@ mod tests {
     use super::*;
     use serde_json::json;
     fn fixture() -> Connection {
-        let mut db = Connection::open_in_memory().unwrap();
+        let db = Connection::open_in_memory().unwrap();
         db.execute_batch(
             "PRAGMA foreign_keys=ON;\
              CREATE TABLE books(id TEXT PRIMARY KEY,title TEXT,owner_member_id TEXT,\
