@@ -134,15 +134,24 @@ pub fn is_active_moderator(
     Ok(managed.map_or_else(|| cfg.team_tokens.contains_key(member), |active| active == 1))
 }
 
+/// Purpose-separated browser CSRF proof; not an authentication bearer token.
+/// Returned only from an authenticated session response.
+pub fn csrf_for_cookie(cookie: &str) -> Option<String> {
+    if !cookie.starts_with("rs_") || cookie.len() > 128 {
+        return None;
+    }
+    let mut mac = Hmac::<Sha256>::new_from_slice(cookie.as_bytes()).ok()?;
+    mac.update(b"readera:browser-csrf:v1");
+    Some(hex::encode(mac.finalize().into_bytes()))
+}
+
 pub fn csrf_matches(cookie: &str, provided: &str) -> bool {
-    if cookie.is_empty() || provided.is_empty() {
+    if provided.is_empty() {
         return false;
     }
-    let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(cookie.as_bytes()) else {
+    let Some(expected) = csrf_for_cookie(cookie) else {
         return false;
     };
-    mac.update(b"readera:browser-csrf:v1");
-    let expected = hex::encode(mac.finalize().into_bytes());
     bool::from(expected.as_bytes().ct_eq(provided.as_bytes()))
 }
 
