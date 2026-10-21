@@ -162,6 +162,11 @@ def learn_timotxt_mapping(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def has_suspect_glyphs(text: str) -> bool:
+    """Includes Hangul syllables, compatibility Jamo and private-use glyphs."""
+    return bool(_SUSPECT_GLYPH.search(text))
+
+
 def derive_timotxt_candidate(raw: str, learned: dict[str, Any]) -> dict[str, Any]:
     """Produce a separate candidate with SHA/provenance, never rewrite RAW.
 
