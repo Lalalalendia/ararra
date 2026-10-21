@@ -258,7 +258,7 @@ pub fn clean_inline_paragraphs(
     let mut tail_at = None;
     for (index, block) in blocks.iter().enumerate() {
         if !block.inline
-            && visible_before > 0
+            && (visible_before > 0 || (blocks.len() == 1 && block.nodes.len() == 1))
             && classify_source_text(block.nodes[0]).kind == "NEXT_CHAPTER_BOUNDARY"
         {
             tail_at = Some(index);
@@ -312,6 +312,20 @@ mod tests {
         let result = clean_inline_paragraphs(input, None).unwrap();
         assert_eq!(result.html, "<p>История <i>продолжается</i>.</p>");
         assert_eq!(result.removed_text_nodes, 4);
+    }
+
+    #[test]
+    fn single_explicit_boundary_is_removed_but_first_of_two_is_not() {
+        // Python source_units starts the boundary scan at index zero only
+        // when exactly one meaningful text node exists.
+        for html in ["<p>下一章</p>", "<p>next chapter</p>"] {
+            let result = clean_inline_paragraphs(html, Some("parts/story.xhtml")).unwrap();
+            assert_eq!(result.html, "");
+            assert_eq!(result.removed_text_nodes, 1);
+            assert_eq!(result.source_hash, hex::encode(Sha256::digest(b"")));
+        }
+        let html = "<p>下一章</p><p>故事仍然继续。</p>";
+        assert_eq!(clean_inline_paragraphs(html, None).unwrap().html, html);
     }
 
     #[test]
