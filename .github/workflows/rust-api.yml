@@ -4,15 +4,40 @@ on:
     paths:
       - 'rust/**'
       - 'scripts/compare_rust_*.py'
+      - 'scripts/rust_contract_inventory.py'
+      - 'tests/test_rust_contract_inventory.py'
+      - 'tests/test_architecture.py'
+      - 'src/chaptera_server/api.py'
+      - 'src/chaptera_server/http/**'
+      - 'src/chaptera_server/storage.py'
+      - 'src/chaptera_server/library.py'
+      - 'src/chaptera_server/team_*.py'
+      - 'src/chaptera_translation_core/core/**'
+      - 'src/chaptera_translation_core/utils/source_units.py'
       - '.github/workflows/rust-api.yml'
   pull_request:
     paths:
       - 'rust/**'
       - 'scripts/compare_rust_*.py'
+      - 'scripts/rust_contract_inventory.py'
+      - 'tests/test_rust_contract_inventory.py'
+      - 'tests/test_architecture.py'
+      - 'src/chaptera_server/api.py'
+      - 'src/chaptera_server/http/**'
+      - 'src/chaptera_server/storage.py'
+      - 'src/chaptera_server/library.py'
+      - 'src/chaptera_server/team_*.py'
+      - 'src/chaptera_translation_core/core/**'
+      - 'src/chaptera_translation_core/utils/source_units.py'
       - '.github/workflows/rust-api.yml'
 
 permissions:
   contents: read
+
+# Cancel obsolete branch runs; never cancel main acceptance.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   rust-readonly-parity:
@@ -40,6 +65,17 @@ jobs:
           cargo build --release --manifest-path rust/Cargo.toml -p erida-source-clean --bin source-inline-probe
       - name: Install Python reference API in disposable runner
         run: python -m pip install -e .
+      - name: Inventory Python contracts and guarded Rust candidate routes
+        run: |
+          python scripts/rust_contract_inventory.py --check --json "$RUNNER_TEMP/erida-rust-m0.json"
+          python -m pytest -q tests/test_rust_contract_inventory.py
+      - name: Upload M0 method and path gap report
+        uses: actions/upload-artifact@v4
+        with:
+          name: erida-rust-m0-contract-inventory
+          path: ${{ runner.temp }}/erida-rust-m0.json
+          if-no-files-found: error
+          retention-days: 7
       - name: Compare auth/jobs semantics and sample idle memory
         run: python scripts/compare_rust_api.py rust/target/release/erida-api
       - name: Verify disposable cross-runtime SQLite job writes and CSRF
