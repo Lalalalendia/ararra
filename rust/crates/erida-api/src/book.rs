@@ -6,12 +6,29 @@ use axum::response::Response;
 use axum::Json;
 use erida_library::{self, LibraryError};
 use serde::Deserialize;
+use serde_json::{json, Value};
+use std::collections::BTreeMap;
 
 #[derive(Deserialize)]
 pub struct CreateBook {
     book_id: String,
     title: String,
     owner_member_id: Option<String>,
+}
+
+fn default_glossary_authority() -> String {
+    "READY".to_string()
+}
+
+#[derive(Deserialize)]
+pub struct SaveGlossary {
+    #[serde(default)]
+    glossary: BTreeMap<String, Value>,
+    #[serde(default)]
+    glossary_versions: BTreeMap<String, Vec<BTreeMap<String, Value>>>,
+    #[serde(default = "default_glossary_authority")]
+    glossary_authority: String,
+    expected_revision: i64,
 }
 
 #[derive(Deserialize)]
@@ -28,6 +45,7 @@ fn length_valid(value: &str, min: usize, max: usize) -> bool {
 fn map_library(error: LibraryError) -> ApiError {
     match error {
         LibraryError::Conflict(reason) => ApiError::BookConflict(reason),
+        LibraryError::GlossaryRuleConflict(reason) => ApiError::DetailedGlossaryConflict(reason),
         LibraryError::Missing(_) => ApiError::BookNotFound,
         LibraryError::Invalid(reason) => ApiError::BadRequest(reason),
         LibraryError::UnsupportedSource => ApiError::InvalidInput(
@@ -129,6 +147,31 @@ pub async fn reassign(
         }
         erida_library::transfer_owner(
             db, &book_id, &body.owner_member_id, body.expected_owner_revision, actor,
+        ).map_err(map_library)
+    }).await
+}
+
+pub async fn save_glossary(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(book_id): Path<String>,
+    Json(body): Json<SaveGlossary>,
+) -> Result<Response, ApiError> {
+    if body.expected_revision < 0 {
+        return Err(ApiError::InvalidInput("Invalid glossary revision"));
+    }
+    if !matches!(
+        body.glossary_authority.as_str(),
+        "READY" | "READY_WITH_WARNINGS" | "EMPTY_EXPECTED" | "UNAVAILABLE" | "DISABLED"
+    ) || body.glossary.values().any(|value| !(value.is_string() || value.is_object())) {
+        return Err(ApiError::InvalidInput("Invalid glossary submission"));
+    }
+    let glossary = json!(body.glossary);
+    let versions = json!(body.glossary_versions);
+    secured_write(state, headers, move |db, actor, _auth| {
+        erida_library::put_glossary(
+            db, &book_id, &glossary, &versions,
+            &body.glossary_authority, body.expected_revision, actor,
         ).map_err(map_library)
     }).await
 }
