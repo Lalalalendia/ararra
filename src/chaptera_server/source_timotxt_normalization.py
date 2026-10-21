@@ -88,7 +88,7 @@ def learn_timotxt_mapping(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
             if row["rus"]:
                 clean_by_target[row["rus"].casefold()].append(row)
 
-    claims: dict[str, list[tuple[str, str, str, int, int, int]]] = defaultdict(list)
+    claims: dict[str, list[tuple[str, str, str, str, int, int, int]]] = defaultdict(list)
     seen: set[tuple[str, str, str, int, int]] = set()
 
     def record(corrupt: dict[str, Any], clean: dict[str, Any], kind: str,
