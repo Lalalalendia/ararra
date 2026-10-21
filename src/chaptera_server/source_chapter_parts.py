@@ -36,7 +36,13 @@ async def fetch_complete_chapter(
         page = await fetch_html(current)
         if not 0 < len(page) <= MAX_PART_HTML_CHARS:
             raise IngestError("catalog_incomplete", "Source chapter part HTML outside limits")
-        parts.append(adapter.parse_body(page))
+        part_body = adapter.parse_body(page)
+        # A second URL returning exactly the first part is a common cached
+        # or broken pagination response, not verified additional source text.
+        # Never store doubled prose as a completed chapter.
+        if part_body in parts:
+            raise IngestError("catalog_conflict", "Duplicate source chapter part body")
+        parts.append(part_body)
         body = normalize_body("\n\n".join(parts))
         if len(body) > MAX_ASSEMBLED_BODY_CHARS:
             raise IngestError("too_large", "Source chapter exceeds assembled text limit")

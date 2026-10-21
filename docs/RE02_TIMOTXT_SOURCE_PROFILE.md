@@ -1,6 +1,6 @@
 # RE-02 — Timotxt (提莫書屋): novel RAW import profile
 
-Status: **Draft / offline candidate**, not released or deployed.
+Status: **Parser merged in main by PR #118; live-site gate not passed and no VPS deployment.**
 
 ## Product reason
 
@@ -54,3 +54,51 @@ Timotxt sometimes transforms original glyphs. The earlier FullCycle project
 has normalization research, but no universal, proven mapping was ported.
 Whole-book counts over the generic 2000 cap or directories split across
 unrecognized lists remain unsupported until separately verified.
+
+## Integrity follow-up: CSS-independent page continuation
+
+The initial parser looked only in three navigation CSS containers. A source
+template update could place a real `_2.html` link elsewhere while returning
+a valid HTTP 200, causing a **silent partial chapter accepted as complete**.
+
+The follow-up now scans all observed anchor URLs for the strict adjacent
+same-book/same-chapter part identity, while a visible `下一頁` or `下一页`
+link with no valid target is a hard `catalog_incomplete` error. This is
+source-body fidelity logic, **not a license to guess undisclosed URLs**.
+A second part yielding the exact text of an earlier part triggers
+`catalog_conflict` rather than storing duplicate prose. Tests cover a
+changed pager CSS wrapper, orphan/missing/cross-book next links and a
+wrong server response repeated on part 2.
+
+The system still cannot infer an unadvertised continuation. Operational
+live validation must verify the actual chapter navigation markup,
+authoritative chapter completeness and rights/robots before a
+source-specific production support claim.
+
+## Operator-owned metadata probe, without chapter downloading
+
+A bounded read-only diagnostic checks one **already registered Atarax**
+Timotxt book from the actual execution network. It never requests chapter
+body URLs, creates source jobs, sends Gemini requests, or writes to the book
+library. The normal PublicHtmlFetcher checks DNS/IP pinning, TLS,
+robots.txt, redirects, source rate pacing and response sizes.
+
+After confirming site terms and permitted metadata access, and while
+the regular source-worker is stopped, the operator may run:
+
+```sh
+python scripts/probe_timotxt_metadata.py --book-id 2010493463 --approved-metadata-check
+```
+
+The program checks the book landing and its explicitly linked full
+directory, returns only source IDs count, advertised count, coverage,
+semantic catalog checksum and classification counts. It reports no
+chapter titles or prose. Errors provide a `blocked_or_incomplete`
+receipt, and a passing receipt still carries
+`production_acceptance: pending authorized body, VPS backup and quotas`.
+
+This command is **not run in automatic CI** or on the production VPS
+by this PR. A GitHub-hosted test is not evidence that the site's robots
+policy and anti-rate-limit behavior permit collection from the VPS.
+The next authorized stage remains an independently approved one-chapter
+pilot through `source-worker --run-once --job-id`, not an unbounded crawl.
