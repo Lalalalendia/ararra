@@ -19,6 +19,11 @@ from starlette.routing import Mount
 from chaptera_server.api import create_app
 from chaptera_server.config import Settings
 from chaptera_server.http.dependencies import require_admin, require_member
+from chaptera_server.http.routers import (
+    batches, books, editorial, gemini_keys, health, identity, imports, jobs,
+    quota, session, source_archive, source_books, source_jobs, source_reviews,
+    source_team, ui,
+)
 from chaptera_server.storage import QueueStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -99,38 +104,43 @@ def _python_routes() -> tuple[list[dict], list[str]]:
         app = create_app(settings, store)
         entries: list[dict] = []
         mounts: list[str] = []
-        for route in app.routes:
-            if isinstance(route, Mount):
-                mounts.append(route.path)
-            # Some patched ASGI test harnesses expose route implementations
-            # through wrapper classes. Reflect only objects that carry the
-            # FastAPI dependency contract, never a bare Starlette static Route.
-            if not hasattr(route, "dependant") or not hasattr(route, "endpoint"):
-                continue
-            for method in sorted(getattr(route, "methods", None) or ()):
-                path = route.path
-                auth = _authorization(method, path, route.dependant)
-                entries.append({
-                    "method": method,
-                    "path": path,
-                    "handler": f"{route.endpoint.__module__}.{route.endpoint.__name__}",
-                    "auth": auth,
-                    "cookie_csrf": (
-                        "verified_by_dependency_for_cookie_writes"
-                        if auth in {"member", "administrator"}
-                        and method not in {"GET", "HEAD", "OPTIONS"}
-                        else "manual_handler_review_required"
-                        if auth == "browser_session_in_handler"
-                        else "not_applicable"
-                    ),
-                    "success_status_declared": route.status_code or 200,
-                    "request_fields": _request_fields(route.dependant),
-                    # Declaration inspection cannot establish dynamic error
-                    # status, response headers, side effects or byte parity.
-                    "runtime_errors": "needs_differential_tests",
-                    "side_effects": "needs_review",
-                    "response_parity": "unproven",
-                })
+        # FastAPI >=0.137 defers included routers as _IncludedRouter wrappers.
+        # The underlying APIRouters remain the version-independent source of
+        # route.dependant metadata; app.openapi() is the public URL surface.
+        mounts = sorted(r.path for r in app.routes if isinstance(r, Mount))
+        owners = (
+            books, batches, health, identity, imports, jobs, editorial, quota,
+            session, source_books, source_jobs, source_reviews, source_team,
+            source_archive, gemini_keys, ui,
+        )
+        for owner in owners:
+            for route in owner.router.routes:
+                if not isinstance(route, APIRoute):
+                    continue
+                for method in sorted(getattr(route, "methods", None) or ()):
+                    path = route.path
+                    auth = _authorization(method, path, route.dependant)
+                    entries.append({
+                        "method": method,
+                        "path": path,
+                        "handler": f"{route.endpoint.__module__}.{route.endpoint.__name__}",
+                        "auth": auth,
+                        "cookie_csrf": (
+                            "verified_by_dependency_for_cookie_writes"
+                            if auth in {"member", "administrator"}
+                            and method not in {"GET", "HEAD", "OPTIONS"}
+                            else "manual_handler_review_required"
+                            if auth == "browser_session_in_handler"
+                            else "not_applicable"
+                        ),
+                        "success_status_declared": route.status_code or 200,
+                        "request_fields": _request_fields(route.dependant),
+                        # Declaration inspection cannot establish dynamic error
+                        # status, response headers, side effects or byte parity.
+                        "runtime_errors": "needs_differential_tests",
+                        "side_effects": "needs_review",
+                        "response_parity": "unproven",
+                    })
         if not entries:
             raise RuntimeError(
                 "Executable FastAPI contract has no methods: "
