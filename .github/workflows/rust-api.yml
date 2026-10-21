@@ -113,3 +113,6 @@ jobs:
         run: python scripts/compare_rust_accepted_history.py rust/target/release/erida-api
       - name: Verify cross-runtime editorial notes, CAS and security on disposable SQLite
         run: python scripts/compare_rust_review_notes.py rust/target/release/erida-api
+
+      - name: Verify composite book flow and Python export boundary, with fail-closed manifest
+        run: python scripts/compare_rust_book_vertical.py rust/target/release/erida-api
