@@ -11,6 +11,11 @@ on:
       - 'scripts/compare_rust_*.py'
       - '.github/workflows/rust-api.yml'
 
+# Cancel stale checks for the same branch/event; never cancel main acceptance.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 permissions:
   contents: read
 
