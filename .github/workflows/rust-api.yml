@@ -108,3 +108,6 @@ jobs:
         run: python scripts/compare_rust_acceptance.py rust/target/release/erida-api
       - name: Verify editorial draft CAS, explicit rebase and audit against Python
         run: python scripts/compare_rust_editor_drafts.py rust/target/release/erida-api
+
+      - name: Verify accepted history, cross-runtime restoration and stale-source fencing
+        run: python scripts/compare_rust_accepted_history.py rust/target/release/erida-api

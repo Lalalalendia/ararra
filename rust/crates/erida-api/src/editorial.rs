@@ -63,3 +63,62 @@ pub async fn save_draft(
         ).map_err(map_library)
     }).await
 }
+
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RestoreAccepted {
+    revision: i64,
+    expected_current_revision: i64,
+    expected_source_revision: i64,
+}
+
+pub async fn read_accepted_history(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((book_id, chapter_id)): Path<(String, String)>,
+) -> Result<Response, ApiError> {
+    secured_read(state, headers, move |db, _, _| {
+        erida_library::accepted_history(db, &book_id, &chapter_id).map_err(map_library)
+    }).await
+}
+
+pub async fn read_accepted_version(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((book_id, chapter_id, revision)): Path<(String, String, i64)>,
+) -> Result<Response, ApiError> {
+    secured_read(state, headers, move |db, _, _| {
+        erida_library::accepted_version(db, &book_id, &chapter_id, revision)
+            .map_err(|error| match error {
+                LibraryError::Missing("Accepted revision not found") => {
+                    ApiError::AcceptedRevisionNotFound
+                }
+                other => map_library(other),
+            })
+    }).await
+}
+
+pub async fn restore_accepted(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((book_id, chapter_id)): Path<(String, String)>,
+    Json(body): Json<RestoreAccepted>,
+) -> Result<Response, ApiError> {
+    if body.revision < 1 || body.expected_current_revision < 0
+        || body.expected_source_revision < 1
+    {
+        return Err(ApiError::InvalidInput("Invalid accepted restoration request"));
+    }
+    secured_write(state, headers, move |db, actor, _| {
+        erida_library::restore_accepted(
+            db, &book_id, &chapter_id, body.revision,
+            body.expected_current_revision, body.expected_source_revision, actor,
+        ).map_err(|error| match error {
+            LibraryError::Missing("Accepted revision not found") => {
+                ApiError::AcceptedRevisionNotFound
+            }
+            other => map_library(other),
+        })
+    }).await
+}
