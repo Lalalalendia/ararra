@@ -2,7 +2,7 @@
 //! Never change original source HTML or accepted translation.
 use super::{secured_read, write::secured_write, ApiError, AppState};
 use axum::extract::{Path, State};
-use axum::http::HeaderMap;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use axum::Json;
 use erida_library::{self, LibraryError};
@@ -120,5 +120,84 @@ pub async fn restore_accepted(
             }
             other => map_library(other),
         })
+    }).await
+}
+
+
+// M1d: shared review notes. Only GET is live-read capable;
+// POST/PATCH are registered only with the disposable test-write gate.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CreateNote {
+    body_text: String,
+    expected_source_revision: i64,
+    expected_draft_revision: i64,
+    expected_accepted_revision: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SetNoteStatus {
+    status: String,
+    expected_revision: i64,
+}
+
+fn map_note_library(error: LibraryError) -> ApiError {
+    match error {
+        LibraryError::Missing("Review note not found") => ApiError::ReviewNoteNotFound,
+        other => map_library(other),
+    }
+}
+
+pub async fn read_notes(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((book_id, chapter_id)): Path<(String, String)>,
+) -> Result<Response, ApiError> {
+    secured_read(state, headers, move |db, _, _| {
+        erida_library::list_editor_notes(db, &book_id, &chapter_id)
+            .map_err(map_note_library)
+    }).await
+}
+
+pub async fn create_note(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((book_id, chapter_id)): Path<(String, String)>,
+    Json(body): Json<CreateNote>,
+) -> Result<Response, ApiError> {
+    let text_length = body.body_text.chars().count();
+    if !(1..=4000).contains(&text_length) ||
+        body.expected_source_revision < 1 ||
+        body.expected_draft_revision < 0 ||
+        body.expected_accepted_revision < 0
+    {
+        return Err(ApiError::InvalidInput("Invalid review note submission"));
+    }
+    let mut response = secured_write(state, headers, move |db, actor, _| {
+        erida_library::create_editor_note(
+            db, &book_id, &chapter_id, &body.body_text,
+            body.expected_source_revision, body.expected_draft_revision,
+            body.expected_accepted_revision, actor,
+        ).map_err(map_note_library)
+    }).await?;
+    *response.status_mut() = StatusCode::CREATED;
+    Ok(response)
+}
+
+pub async fn update_note(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((book_id, chapter_id, note_id)): Path<(String, String, String)>,
+    Json(body): Json<SetNoteStatus>,
+) -> Result<Response, ApiError> {
+    if !matches!(body.status.as_str(), "open" | "resolved") || body.expected_revision < 1 {
+        return Err(ApiError::InvalidInput("Invalid note status submission"));
+    }
+    secured_write(state, headers, move |db, actor, _| {
+        erida_library::set_editor_note_status(
+            db, &book_id, &chapter_id, &note_id, &body.status,
+            body.expected_revision, actor,
+        ).map_err(map_note_library)
     }).await
 }

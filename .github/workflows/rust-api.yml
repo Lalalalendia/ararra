@@ -111,3 +111,5 @@ jobs:
 
       - name: Verify accepted history, cross-runtime restoration and stale-source fencing
         run: python scripts/compare_rust_accepted_history.py rust/target/release/erida-api
+      - name: Verify cross-runtime editorial notes, CAS and security on disposable SQLite
+        run: python scripts/compare_rust_review_notes.py rust/target/release/erida-api
