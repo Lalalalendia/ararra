@@ -71,6 +71,9 @@ async def discover_pages(
     source: str, book_url: str, fetch_html: Callable[[str], Awaitable[str]],
 ) -> tuple[tuple[Chapter, ...], tuple[str, ...], int | None, str]:
     validate_url(book_url, source)
+    # Validate adapter-specific book ROOT before any source network request.
+    # For AO3 this refuses chapter/navigate URLs supplied as a work root.
+    make_adapter(source, book_url)
     if "page" in parse_qs(urlsplit(book_url).query):
         raise IngestError("catalog_incomplete", "Use book root URL, not page N")
     initial = await fetch_html(book_url)
