@@ -8,8 +8,9 @@ use unicode_normalization::UnicodeNormalization;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn source_hash_with_verified_policy(html: &str, chapter_path: &str) -> Result<String, LibraryError> {
-    // RUST-03d: allow short plain paragraphs ONLY when the separately
-    // Python-oracle-tested RUST-03c cleaner can prove the cleaned hash.
+    // RUST-03g: a second Python-oracle-tested, tightly bounded inline grammar
+    // is available only if plain-paragraph cleaning rejects the input.
+    // Neither path performs best-effort BeautifulSoup serialization.
     // Contextual chapter number/title logic has not been ported, so this
     // narrow branch explicitly forbids contexts likely to require it.
     let lowered_path = chapter_path.to_lowercase();
@@ -22,9 +23,11 @@ fn source_hash_with_verified_policy(html: &str, chapter_path: &str) -> Result<St
     let no_unverified_heading = !html.contains("第");
     let no_unverified_domain = !compact_digits.contains("101");
     if neutral_context && no_unverified_heading && no_unverified_domain {
-        if let Ok(cleaned) =
-            erida_source_clean::clean_plain_paragraphs(html, Some(chapter_path))
-        {
+        if let Ok(cleaned) = erida_source_clean::clean_plain_paragraphs(
+            html, Some(chapter_path),
+        ).or_else(|_| erida_source_clean::clean_inline_paragraphs(
+            html, Some(chapter_path),
+        )) {
             // A chapter containing only a removed watermark/tail is not
             // meaningfully usable; it remains Python-owned until complete
             // per-chapter context and Partial/Needs Review are implemented.
@@ -305,6 +308,47 @@ mod tests {
     }
 
     #[test]
+    fn nested_inline_writer_preserves_raw_and_hashes_python_cleaned_html() {
+        let mut db = db();
+        let input = "<p>Привет <strong>друг</strong>, сказал он.</p><p>记住本站</p><p>故事 <em>继续</em>。</p>";
+        let cleaned = "<p>Привет <strong>друг</strong>, сказал он.</p><p>故事 <em>继续</em>。</p>";
+        let first = put_chapter_conservative(
+            &mut db, "b", "inline", 8, "parts/story.xhtml", input, 0,
+        ).unwrap();
+        assert_eq!(first["source_html"], input);
+        assert_eq!(first["source_hash"], hex::encode(Sha256::digest(cleaned.as_bytes())));
+        assert_eq!(first["source_revision"], 1);
+        let replay = put_chapter_conservative(
+            &mut db, "b", "inline", 8, "parts/story.xhtml", input, 1,
+        ).unwrap();
+        assert_eq!(replay, first);
+    }
+
+    #[test]
+    fn nested_promotion_and_entities_reject_without_mutation() {
+        let mut db = db();
+        for (i, html) in [
+            "<p>Привет <b>记住本站</b> друг.</p>",
+            "<p>До <span>下一章</span> после.</p>",
+            "<p>История <em>продолжается</em> &amp; конец.</p>",
+            "<p>Он <b class='marked'>прочитал</b> книгу.</p>",
+            "<p>Герой <strong>закончил</em> путь.</p>",
+        ].iter().enumerate() {
+            assert!(matches!(
+                put_chapter_conservative(
+                    &mut db, "b", &format!("invalid-{i}"), i as i64 + 10,
+                    "parts/story.xhtml", html, 0,
+                ),
+                Err(LibraryError::UnsupportedSource)
+            ), "Unexpectedly accepted {html}");
+        }
+        let count: i64 = db.query_row(
+            "SELECT COUNT(*) FROM book_chapters", [], |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
     fn unsupported_context_and_all_removed_source_never_create_chapter() {
         let mut db = db();
         let short = "<p>Небольшой исходный текст.</p>";
@@ -313,7 +357,7 @@ mod tests {
             ("heading", 4, "parts/story.xhtml", "<p>第七章</p>"),
             ("domain", 5, "parts/story.xhtml", "<p>101kanshu.com</p>"),
             ("empty", 6, "parts/story.xhtml", "<p>本章完</p>"),
-            ("nested", 7, "parts/story.xhtml", "<p>Привет <b>мир</b>.</p>"),
+            ("nested-marker", 7, "parts/story.xhtml", "<p>Привет <b>记住本站</b>.</p>"),
         ] {
             assert!(matches!(
                 put_chapter_conservative(
