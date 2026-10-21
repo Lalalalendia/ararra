@@ -141,6 +141,25 @@ def _python_routes() -> tuple[list[dict], list[str]]:
                         "side_effects": "needs_review",
                         "response_parity": "unproven",
                     })
+        # app.openapi() expands lazy included routers; this is the actual
+        # public path surface and must agree with canonical router definitions.
+        registered = {
+            (method.upper(), path)
+            for path, operations in app.openapi()["paths"].items()
+            for method in operations
+            if method.upper() in {"GET", "POST", "PUT", "DELETE", "PATCH"}
+        }
+        canonical = {
+            (row["method"], row["path"])
+            for row in entries if row["path"] == "/healthz"
+            or row["path"].startswith("/v1/")
+        }
+        if canonical != registered:
+            raise RuntimeError(
+                "Canonical FastAPI routers diverge from public OpenAPI paths: "
+                f"added={sorted(canonical - registered)!r}, "
+                f"missing={sorted(registered - canonical)!r}"
+            )
         if not entries:
             raise RuntimeError(
                 "Executable FastAPI contract has no methods: "
@@ -177,10 +196,28 @@ def _rust_routes(path: Path = RUST_API) -> list[dict]:
     position = source.find(marker)
     if position < 0:
         raise ValueError("Rust disposable writer fence marker has disappeared")
+    # Scope the flag to the *actual guarded block*, not every route registered
+    # later in the source file. This is conservative static analysis; Rust
+    # unit tests and disposable DB parity remain the final writer fence.
+    begin = position + len(marker) - 1
+    depth = 0
+    end = None
+    for index in range(begin, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                end = index
+                break
+    if end is None:
+        raise ValueError("Rust disposable writer fence is unbalanced")
     found = []
     for match in RUST_ROUTE.finditer(source):
         method = match.group("method").upper()
-        mode = "disposable_test_writes" if match.start() > position else "read_only_candidate"
+        mode = ("disposable_test_writes"
+                if position < match.start() < end
+                else "read_only_candidate")
         found.append({
             "method": method,
             "path": match.group("path"),
