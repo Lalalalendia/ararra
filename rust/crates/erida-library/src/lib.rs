@@ -1,14 +1,16 @@
 //! RUST-02b: book directory and owner CAS on existing Python SQLite tables.
-//! No schema initializer, text mutation, glossary or accepted-translation writer.
+//! No schema initializer or production writes. Glossary CAS is disposable-only.
 use rusqlite::{params, Connection, TransactionBehavior};
 use serde_json::{json, Value};
 
 pub mod chapters;
 mod chapter_writes;
 mod acceptance;
+mod glossary;
 pub use chapters::{get_chapter, list_chapters};
 pub use chapter_writes::put_chapter_conservative;
 pub use acceptance::accept_translation_conservative;
+pub use glossary::put_glossary;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug)]
@@ -20,6 +22,7 @@ pub enum LibraryError {
     Malformed,
     UnsupportedSource,
     UnsupportedTranslation,
+    GlossaryRuleConflict(String),
 }
 impl From<rusqlite::Error> for LibraryError {
     fn from(error: rusqlite::Error) -> Self {

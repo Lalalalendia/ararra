@@ -75,6 +75,7 @@ pub enum ApiError {
     Forbidden,
     Conflict,
     GlossaryConflict,
+    DetailedGlossaryConflict(String),
     InvalidInput(&'static str),
     BadRequest(&'static str),
     BookNotFound,
@@ -102,7 +103,7 @@ impl From<StoreError> for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let (status, detail) = match self {
+        let (status, detail): (StatusCode, &str) = match &self {
             ApiError::InvalidApiKey => (StatusCode::UNAUTHORIZED, "Valid team API token required"),
             ApiError::InvalidSession => {
                 (StatusCode::UNAUTHORIZED, "Valid team authentication required")
@@ -114,11 +115,12 @@ impl IntoResponse for ApiError {
             ApiError::Forbidden => (StatusCode::FORBIDDEN, "CSRF proof required"),
             ApiError::Conflict => (StatusCode::CONFLICT, "Idempotency key refers to different input"),
             ApiError::GlossaryConflict => (StatusCode::UNPROCESSABLE_ENTITY, "Conflicting glossary versions"),
-            ApiError::InvalidInput(reason) => (StatusCode::UNPROCESSABLE_ENTITY, reason),
-            ApiError::BadRequest(reason) => (StatusCode::BAD_REQUEST, reason),
+            ApiError::DetailedGlossaryConflict(message) => (StatusCode::UNPROCESSABLE_ENTITY, message.as_str()),
+            ApiError::InvalidInput(reason) => (StatusCode::UNPROCESSABLE_ENTITY, *reason),
+            ApiError::BadRequest(reason) => (StatusCode::BAD_REQUEST, *reason),
             ApiError::BookNotFound => (StatusCode::NOT_FOUND, "Book not found"),
             ApiError::ChapterNotFound => (StatusCode::NOT_FOUND, "Chapter not found"),
-            ApiError::BookConflict(reason) => (StatusCode::CONFLICT, reason),
+            ApiError::BookConflict(reason) => (StatusCode::CONFLICT, *reason),
             ApiError::InvalidOwner => (StatusCode::UNPROCESSABLE_ENTITY, "Book owner must be an active moderator"),
             ApiError::ForbiddenAssignment => (StatusCode::FORBIDDEN, "Only administrator can assign another owner"),
             ApiError::ForbiddenAdmin => (StatusCode::FORBIDDEN, "Administrator role required"),
@@ -266,6 +268,7 @@ pub fn app(state: AppState) -> Router {
             .route("/v1/jobs/{job_id}/cancel", post(write::cancel))
             .route("/v1/books", post(book::create))
             .route("/v1/books/{book_id}/owner", axum::routing::put(book::reassign))
+            .route("/v1/books/{book_id}/glossary", axum::routing::put(book::save_glossary))
             .route("/v1/books/{book_id}/chapters/{chapter_id}",
                    axum::routing::put(chapter_write::save_chapter))
             .route("/v1/books/{book_id}/chapters/{chapter_id}/accepted-translation",

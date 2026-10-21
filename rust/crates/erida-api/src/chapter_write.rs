@@ -19,6 +19,7 @@ pub struct SaveChapter {
 fn map_error(error: LibraryError) -> ApiError {
     match error {
         LibraryError::Conflict(reason) => ApiError::BookConflict(reason),
+        LibraryError::GlossaryRuleConflict(reason) => ApiError::DetailedGlossaryConflict(reason),
         LibraryError::Missing(_) => ApiError::BookNotFound,
         LibraryError::UnsupportedSource => ApiError::InvalidInput(
             "Unsupported source HTML: Python source-policy normalization required",
