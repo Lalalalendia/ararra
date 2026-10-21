@@ -24,7 +24,7 @@ from .source_catalog_med import IngestError, validate_url
 from .source_request_limiter import SourceRequestLimiter, SourceSiteBusy
 from .source_site_profiles import site_profile
 
-USER_AGENT = "ReadEraSourceCollector/1.0 (public HTML; no login)"
+USER_AGENT = "ReadEraSourceCollector/1.0 (https://github.com/Lalalalendia/ararra; public HTML; no login)"
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 MIN_REQUEST_INTERVAL = 1.5
 TIMEOUT = httpx.Timeout(connect=8.0, read=15.0, write=8.0, pool=8.0)
