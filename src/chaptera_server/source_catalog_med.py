@@ -129,6 +129,12 @@ class PublicHtmlAdapter:
     def __init__(self, source: str, book_url: str):
         self.source = source
         self.book_url = validate_url(book_url, source)
+        # A chapter or navigation URL must never silently become the work root.
+        # The chapter URL grammar is validated separately during discovery.
+        if source == "ao3" and not re.fullmatch(
+            r"/works/[1-9]\\d*/?", urlsplit(self.book_url).path
+        ):
+            raise ValueError("AO3 import requires the canonical work root URL")
         self.book_id = source_book_id(book_url, source)
 
     def parse_catalog(self, html: str) -> list[Chapter]:
