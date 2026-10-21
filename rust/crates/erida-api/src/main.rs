@@ -15,7 +15,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState::from_env()
         .map_err(|_| "Experimental Rust API cannot safely initialize")?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app(state))
+    axum::serve(listener, app(state).into_make_service_with_connect_info::<SocketAddr>())
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;
         })
