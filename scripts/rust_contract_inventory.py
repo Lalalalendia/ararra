@@ -102,9 +102,12 @@ def _python_routes() -> tuple[list[dict], list[str]]:
         for route in app.routes:
             if isinstance(route, Mount):
                 mounts.append(route.path)
-            if not isinstance(route, APIRoute):
+            # Some patched ASGI test harnesses expose route implementations
+            # through wrapper classes. Reflect only objects that carry the
+            # FastAPI dependency contract, never a bare Starlette static Route.
+            if not hasattr(route, "dependant") or not hasattr(route, "endpoint"):
                 continue
-            for method in sorted(route.methods or ()):
+            for method in sorted(getattr(route, "methods", None) or ()):
                 path = route.path
                 auth = _authorization(method, path, route.dependant)
                 entries.append({
@@ -128,6 +131,15 @@ def _python_routes() -> tuple[list[dict], list[str]]:
                     "side_effects": "needs_review",
                     "response_parity": "unproven",
                 })
+        if not entries:
+            raise RuntimeError(
+                "Executable FastAPI contract has no methods: "
+                + repr([
+                    (type(route).__module__, type(route).__name__,
+                     getattr(route, "path", ""), sorted(getattr(route, "methods", None) or ()))
+                    for route in app.routes[:10]
+                ])
+            )
         return sorted(entries, key=lambda e: (e["path"], e["method"])), sorted(mounts)
 
 
