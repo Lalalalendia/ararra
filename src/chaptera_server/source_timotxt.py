@@ -163,7 +163,13 @@ class TimotxtAdapter(PublicHtmlAdapter):
         return body
 
     def next_part_url(self, html: str, current_url: str) -> str | None:
-        """Follow only an actually linked, contiguous next page of the SAME chapter."""
+        """Accept only a visible, contiguous same-book/same-chapter part link.
+
+        Search the whole page for exact *chapter-part URL identities*, not
+        specific CSS wrapper classes. Real sites can move their pagers.
+        A visible 'next page' hint with no valid target must fail closed;
+        silently treating that response as a complete chapter loses RAW.
+        """
         validate_url(current_url, "timotxt")
         current = urlsplit(current_url)
         match = _CHAPTER_PAGE.fullmatch(current.path)
@@ -173,35 +179,51 @@ class TimotxtAdapter(PublicHtmlAdapter):
         part = int(match.group(3) or "1")
         soup = BeautifulSoup(html, "html.parser")
         next_urls: set[str] = set()
-        next_label_seen = False
-        for link in soup.select(".foot-nav a[href], .chapter-nav a[href], .pagination a[href]"):
+        explicit_next_hints = 0
+        for link in soup.select("a"):
             label = link.get_text(" ", strip=True)
-            target = urljoin(current_url, link["href"])
+            next_hint = any(word in label for word in _NEXT_PART_WORDS)
+            if next_hint:
+                explicit_next_hints += 1
+            href = link.get("href")
+            if not href:
+                if next_hint:
+                    raise IngestError("catalog_incomplete", "Timotxt next-page link has no URL")
+                continue
+            target = urljoin(current_url, href)
             try:
                 validate_url(target, "timotxt")
             except ValueError:
-                if any(word in label for word in _NEXT_PART_WORDS):
+                if next_hint:
                     raise IngestError("catalog_incomplete", "Unsafe Timotxt next-page link")
                 continue
             p = urlsplit(target)
             if p.hostname != current.hostname:
+                if next_hint:
+                    raise IngestError("catalog_incomplete", "Cross-host Timotxt next-page link")
                 continue
             candidate = _CHAPTER_PAGE.fullmatch(p.path)
-            if (candidate is not None and candidate.group(1) == self.book_id
-                    and candidate.group(2) == chapter_id):
-                to_part = int(candidate.group(3) or "1")
-                if to_part > part + 1:
-                    raise IngestError("catalog_incomplete", "Timotxt chapter part skipped")
-                if to_part == part + 1:
-                    next_urls.add(target)
-            if any(word in label for word in _NEXT_PART_WORDS):
-                next_label_seen = True
+            same_chapter = (
+                candidate is not None and candidate.group(1) == self.book_id
+                and candidate.group(2) == chapter_id
+            )
+            if not same_chapter:
+                if next_hint:
+                    raise IngestError("catalog_incomplete", "Next-page label points outside the chapter")
+                continue
+            to_part = int(candidate.group(3) or "1")
+            if to_part > part + 1:
+                raise IngestError("catalog_incomplete", "Timotxt chapter part skipped")
+            if to_part == part + 1:
+                next_urls.add(target)
+            elif next_hint:
+                raise IngestError("catalog_incomplete", "Next-page label points backward")
         if len(next_urls) > 1:
             raise IngestError("catalog_conflict", "Ambiguous Timotxt continuation page")
         if next_urls:
             if part >= 12:
                 raise IngestError("catalog_incomplete", "Timotxt chapter exceeds 12 parts")
             return next_urls.pop()
-        if next_label_seen:
+        if explicit_next_hints:
             raise IngestError("catalog_incomplete", "Timotxt continuation advertised but not linked")
         return None
