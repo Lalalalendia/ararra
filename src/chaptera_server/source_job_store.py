@@ -21,6 +21,7 @@ from .source_collect import (
 from .source_site_storage import _fingerprint
 from .source_selection_store import _digest as _selection_digest
 from .source_original_archive import SourceOriginalArchive, SourceArchiveConflict
+from .source_job_review import SourceReviewStore
 from .storage import QueueStore
 
 MAX_JOB_CHAPTERS = 2000
@@ -135,6 +136,9 @@ class SourceJobStore:
         # Separate, immutable, bounded team archive. No legacy data is
         # copied merely by starting the API or opening the old database.
         self.archive = SourceOriginalArchive(store)
+        # Unverified Timotxt text is never part of verified items/archives.
+        # Migration is additive and safe for legacy SQLite source jobs.
+        self.reviews = SourceReviewStore(store)
 
     @staticmethod
     def _used_bytes(con: sqlite3.Connection, actor: str) -> tuple[int, int]:
@@ -242,6 +246,10 @@ class SourceJobStore:
                                   if row["selection_mode"] == "ordered" else None),
             "next_ordinal": next((ch["ordinal"] for ch in chapters if ch["ordinal"] not in done), None),
             "manual_retries": row["manual_retries"],
+            "review_snapshots": con.execute(
+                "SELECT COUNT(*) FROM source_collect_review_raw WHERE job_id=?",
+                (row["id"],),
+            ).fetchone()[0],
             "next_attempt_at": (row["ready_at"] if row["status"] == "queued"
                                 and row["ready_at"] > time.time() else None),
             "waiting_reason": (row["defer_reason"] if row["status"] == "queued"
@@ -407,6 +415,11 @@ class SourceJobStore:
                 "SELECT COALESCE(SUM(bytes),0) FROM source_collect_items WHERE job_id=?",
                 (job_id,),
             ).fetchone()[0]
+            review_counts = con.execute(
+                "SELECT COUNT(*) AS n, COALESCE(SUM(raw_bytes),0) AS size "
+                "FROM source_collect_review_raw WHERE job_id=?",
+                (job_id,),
+            ).fetchone()
             con.execute(
                 "DELETE FROM source_collect_jobs WHERE id=? AND actor_id=?",
                 (job_id,actor),
@@ -423,6 +436,8 @@ class SourceJobStore:
             return {
                 "deleted":True,"job_id":job_id,
                 "deleted_checkpoints":count,"freed_source_bytes":bytes_freed,
+                "deleted_review_snapshots":review_counts["n"],
+                "freed_review_bytes":review_counts["size"],
                 "library_unchanged":True,
                 **retained,
             }
@@ -542,7 +557,10 @@ class SourceJobStore:
     def finish(
         self, job_id: str, token: str, *,
         body: str | None = None, error: str | None = None,
+        review_raw: str | None = None,
     ) -> dict:
+        if review_raw is not None and (body is not None or error != "needs_review"):
+            raise ValueError("Quarantine requires a failed needs_review checkpoint")
         if (body is None) == (error is None):
             raise ValueError("Either chapter body or failure receipt required")
         if body is not None and not 100 <= len(body) <= MAX_BODY_CHARS:
@@ -587,6 +605,16 @@ class SourceJobStore:
                 elif global_used + item_bytes > self.global_quota_bytes:
                     error = "Shared verified source storage quota exhausted; contact administrator"
                     body = None
+            # The review RAW and failed checkpoint share one SQLite
+            # transaction and the same valid lease. A stale or cancelled
+            # worker never writes either record. Review storage has separate
+            # strict quotas and cannot accidentally become verified output.
+            if review_raw is not None:
+                snapshot = self.reviews._record_in_transaction(
+                    con,row,ch,index,review_raw,now,
+                )
+                if snapshot is None:
+                    error = "needs_review: quarantine storage full; RAW was not saved"
             status = "ok" if body is not None else "failed"
             con.execute(
                 "INSERT INTO source_collect_items("

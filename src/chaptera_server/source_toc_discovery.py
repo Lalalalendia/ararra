@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable
 from urllib.parse import parse_qs, urlsplit
 
 from .source_catalog_med import Chapter, IngestError, make_adapter, validate_url
+from .source_timotxt import observed_directory_url, timotxt_declared_count
 from .source_toc_pages import (
     MAX_TOC_PAGES, MAX_TOC_CHAPTERS,
     declared_royalroad_count, pagination_links,
@@ -24,7 +25,8 @@ def merge_observed_pages(
     for number, url, html in pages:
         if not 0 < len(html) <= MAX_TOC_HTML_CHARS:
             raise IngestError("catalog_incomplete", "TOC page is empty or too large")
-        count = declared_royalroad_count(source, html)
+        count = (timotxt_declared_count(html) if source == "timotxt"
+                 else declared_royalroad_count(source, html))
         if count is not None:
             if declared is not None and declared != count:
                 raise IngestError("catalog_conflict", "Inconsistent advertised chapter counts")
@@ -34,12 +36,12 @@ def merge_observed_pages(
                 prior = found_ids[ch.source_id]
                 if prior.url != ch.url:
                     raise IngestError("catalog_conflict", "Source ID changes URL across pages")
-                if source != "royalroad" and prior.ordinal != ch.ordinal:
+                if source not in ("royalroad", "timotxt") and prior.ordinal != ch.ordinal:
                     raise IngestError("catalog_conflict", "Source ordinal changes across pages")
                 continue
             # Royal Road's official TOC order also includes unnumbered
             # prologues, interludes, and chapters with Roman numerals.
-            ordinal = len(collected) + 1 if source == "royalroad" else ch.ordinal
+            ordinal = len(collected) + 1 if source in ("royalroad", "timotxt") else ch.ordinal
             if ordinal in found_numbers:
                 raise IngestError("catalog_conflict", "Two chapters share one ordinal")
             item = Chapter(
@@ -68,9 +70,20 @@ async def discover_pages(
     source: str, book_url: str, fetch_html: Callable[[str], Awaitable[str]],
 ) -> tuple[tuple[Chapter, ...], tuple[str, ...], int | None, str]:
     validate_url(book_url, source)
+    # Reject a supplied chapter/TOC URL before doing any network work.
+    make_adapter(source, book_url)
     if "page" in parse_qs(urlsplit(book_url).query):
         raise IngestError("catalog_incomplete", "Use book root URL, not page N")
     initial = await fetch_html(book_url)
+    if source == "timotxt":
+        # Book landing pages display only a short reverse-chronological
+        # preview; the linked /<book>/dir is the entire official HTML TOC.
+        directory_url = observed_directory_url(book_url, initial)
+        directory_html = await fetch_html(directory_url)
+        chapters, _, declared, coverage = merge_observed_pages(
+            source, book_url, [(1, directory_url, directory_html)],
+        )
+        return chapters, (book_url, directory_url), declared, coverage
     pages: dict[int, tuple[str, str]] = {1: (book_url, initial)}
     scanned: set[int] = set()
     while len(scanned) < len(pages):

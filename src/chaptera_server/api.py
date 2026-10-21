@@ -22,14 +22,13 @@ from .team_sessions import TeamSessions
 from .team_login_throttle import BrowserLoginThrottle
 from .personal_gemini_keys import PersonalGeminiKeys
 from .storage import QueueStore
-from .http.routers import books, batches, health, identity, imports, jobs, quota, ui, editorial, session, source_books, source_team, source_archive, source_jobs, gemini_keys
+from .http.routers import books, batches, health, identity, imports, jobs, quota, ui, editorial, session, source_books, source_team, source_archive, source_jobs, source_reviews, gemini_keys
 from .http.routers.ui import ASSETS as UI_ASSETS
 
 from .http.schemas import (  # noqa: F401
     AcceptTranslation, CreateBook, SaveChapter, SaveGlossary,
     SubmitChapter, TranslateBookChapter,
 )
-
 
 def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
     app = FastAPI(
@@ -75,6 +74,7 @@ def create_app(settings: Settings, store: QueueStore | None = None) -> FastAPI:
     app.include_router(source_team.router)
     app.include_router(source_archive.router)
     app.include_router(source_jobs.router)
+    app.include_router(source_reviews.router)
     app.include_router(editorial.router)
     app.include_router(jobs.router)
     app.include_router(quota.router)
