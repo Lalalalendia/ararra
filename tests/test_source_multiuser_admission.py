@@ -39,7 +39,7 @@ def catalog():
 
 
 def test_profiles_exposed_only_after_team_auth(tmp_path):
-    assert set(SITE_PROFILES) == {"royalroad", "webnovel", "uukanshu"}
+    assert set(SITE_PROFILES) == {"royalroad", "webnovel", "uukanshu", "timotxt"}
     for p in SITE_PROFILES.values():
         assert p.minimum_delay_seconds >= 1.5
         assert p.daily_requests <= 240
