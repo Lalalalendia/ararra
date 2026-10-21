@@ -306,3 +306,31 @@ SHA-256 hash; unsupported complex markup must return an explicit
 unsupported status. This prevents source-hash drift while establishing
 the next concrete step toward lifting the Rust writer's >260-character
 minimum without bypassing Python policy.
+
+## RUST-03d: bounded source-cleaning integration with a disposable writer
+
+The `erida-library` chapter writer now calls the independently verified
+`erida-source-clean` Rust crate **before** it opens a SQLite write
+transaction. For short simple HTML paragraphs in neutral chapter-path
+contexts, the database still stores the **raw** `source_html` but saves the
+SHA-256 of HTML after removing Python-compatible standalone watermarks,
+last-node hints and explicit next-chapter tails. This is the existing Python
+`BookLibrary.put_chapter` semantics, not a new canonicalization scheme.
+
+A narrowed gate blocks numbered/heading-based chapter paths and ambiguous
+numbered headings, all-removed/no-content cases, potential obfuscated
+`101` domains, markup/entities and Unicode requiring unproven casefold
+behavior. If the new cleaner rejects, the old long-paragraph proof gate
+remains available; otherwise Rust returns HTTP 422 without modifying SQLite.
+
+`scripts/compare_rust_clean_writer.py` tests Rust-created short chapters
+replayed by Python, Python-created short chapters replayed by Rust, byte
+equality of original HTML and Python-cleaned SHA-256, true competing
+source-revision writes with one winner, preservation of stale accepted
+translations, unsupported HTML non-mutation and CSRF.
+
+**Still a research-only test SQLite slice.** No arbitrary HTML, source
+worker, paid Gemini request, runtime switch or VPS deployment is enabled.
+Production remains on Python until complete API+worker parity and memory
+measurements. The new writer code must not be confused with a universal
+BeautifulSoup replacement.
