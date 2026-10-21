@@ -360,3 +360,35 @@ Parser-dependent malformed HTML and implicit full-document repair remain
 explicitly unsupported. This work does NOT serialize cleaned HTML, change
 source hashing or change any Rust SQLite write allowance. No production
 processes are affected.
+
+## RUST-03f: read-only nested inline paragraph source-cleaning parity
+
+The source cleaner now offers **another isolated, opt-in read-only function**:
+`clean_inline_paragraphs`. It accepts immediately adjacent, attribute-free
+`<p>...</p>` blocks with balanced nested `b`, `strong`, `i`, `em` and
+`span` inline tags. It preserves the raw HTML bytes of all retained blocks,
+removes only standalone plain-paragraph promotions/footers, and cuts the
+explicit next-chapter tail. SHA-256 is computed from the resulting cleaned
+HTML exactly as the Python `strip_source_boilerplate` policy does within
+this intentionally limited grammar.
+
+Important fail-closed boundaries:
+
+- Mixed/ambiguous **nested text nodes** that Python could independently
+  remove are rejected. The implementation does not guess BeautifulSoup's
+  `NavigableString.extract()` or serializer behavior.
+- No HTML entities, attributes, comments, empty/nonnarrative inline tags,
+  unbalanced markup, script/style, numeric/CJK chapter-title context,
+  unsupported scripts, or incomplete HTML.
+- Only the specifically differential-tested, well-formed HTML subset may
+  pass. Parser recovery of malformed HTML and arbitrary document wrappers
+  remain Python-owned.
+
+`scripts/compare_rust_inline_clean.py` verifies source-cleaned HTML bytes and
+SHA-256 against the **real Python** BeautifulSoup source stripper on a
+deterministic multilingual corpus with nested Russian/Chinese/English
+paragraphs, standalone scraper watermarks and explicit next-chapter tails.
+It also verifies that invalid cases fail closed. This result is **not wired
+into the test SQLite writer**, much less the production API. A separate
+cross-runtime CAS/parity gate and explicit approval would be required before
+extending the set of writable source inputs.
