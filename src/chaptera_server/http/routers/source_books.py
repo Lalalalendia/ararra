@@ -25,7 +25,7 @@ from ...source_site_storage import (
 from ..dependencies import require_member, get_import_sessions
 
 router = APIRouter(prefix="/v1/source-books", dependencies=[Depends(require_member)])
-SourceName = Literal["royalroad", "webnovel", "uukanshu"]
+SourceName = Literal["royalroad", "webnovel", "uukanshu", "timotxt"]
 
 
 class InspectSourceBook(BaseModel):

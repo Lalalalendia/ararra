@@ -45,12 +45,17 @@ def validate_url(url: str, source: str) -> str:
             or p.username or p.password or p.port not in (None, 443)
             or not p.path.startswith("/")):
         raise ValueError(f"Unsafe or unsupported {source} URL: {url}")
+    if source == "timotxt" and (p.query or p.fragment or
+            not re.fullmatch(r"/[0-9]{10}(?:/?|/dir|/[1-9][0-9]{0,8}(?:_[0-9]{1,2})?\.html)", p.path)):
+        raise ValueError("Unsupported Timotxt path, query, or fragment")
     return url
 
 
 def source_book_id(url: str, source: str) -> str:
     p = urlsplit(validate_url(url, source))
-    if source == "royalroad":
+    if source == "timotxt":
+        match = re.match(r"^/([0-9]{10})(?:/|$)", p.path)
+    elif source == "royalroad":
         match = re.match(r"^/fiction/(\d+)(?:/|$)", p.path)
     elif source == "uukanshu":
         match = re.match(r"^/book/(\d+)(?:/|$)", p.path)
@@ -63,7 +68,9 @@ def source_book_id(url: str, source: str) -> str:
 
 def chapter_identity(url: str, source: str, expected_book_id: str) -> str | None:
     p = urlsplit(validate_url(url, source))
-    if source == "royalroad":
+    if source == "timotxt":
+        m = re.fullmatch(r"/([0-9]{10})/([1-9][0-9]{0,8})\.html", p.path)
+    elif source == "royalroad":
         m = re.match(r"^/fiction/(\d+)/(?:[^/]+/)?chapter/(\d+)(?:/|$)", p.path)
     elif source == "uukanshu":
         m = re.match(r"^/book/(\d+)/(\d+)\.html$", p.path)
@@ -317,6 +324,9 @@ class UUKanshuAdapter(PublicHtmlAdapter):
 def make_adapter(source: str, book_url: str) -> PublicHtmlAdapter:
     classes = {"royalroad": RoyalRoadAdapter, "webnovel": WebNovelAdapter,
                "uukanshu": UUKanshuAdapter}
+    if source == "timotxt":
+        from .source_timotxt import TimotxtAdapter
+        return TimotxtAdapter(source, book_url)
     if source not in classes:
         raise ValueError(f"Unknown source: {source}")
     return classes[source](source, book_url)
