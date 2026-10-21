@@ -145,7 +145,7 @@ async def exercise(app, db_path: Path, endpoint: str) -> None:
 
         # Failures charged by Python and Rust share the same SQLite peer budget.
         # Two implementations cannot bypass each other's lock by alternating.
-        for i in range(6):
+        for i in range(8):
             client = py if i % 2 else rs
             fail = await client.post(ROOT, json={"api_key": "not-valid"},
                                      headers={"X-Forwarded-For": f"198.51.100.{i+1}"})
