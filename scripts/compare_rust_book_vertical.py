@@ -24,6 +24,7 @@ from chaptera_server.api import create_app
 from chaptera_server.config import Settings
 from chaptera_server.storage import QueueStore
 from chaptera_server.team_sessions import TeamSessions
+from chaptera_translation_core.core.worker_helpers.translation_completeness import strip_source_boilerplate
 
 
 async def scenario(app, settings: Settings, db_path: Path, rust_url: str) -> None:
@@ -46,6 +47,17 @@ async def scenario(app, settings: Settings, db_path: Path, rust_url: str) -> Non
     updated_source = "<p>" + (
         "В новом путешествии герои находят безопасную дорогу через долину. " * 12
     ) + "</p>"
+
+    # This test relies on the narrow Rust source-clean identity grammar.
+    # Guard the fixture against future Python source-policy classification drift.
+    for content, chapter_path in (
+        (first_source, "alpha.xhtml"),
+        (second_source, "beta.xhtml"),
+        (updated_source, "beta.xhtml"),
+    ):
+        assert strip_source_boilerplate(
+            content, current_chapter_path=chapter_path,
+        ) == content, "Fixture is no longer a Python source-policy identity"
 
     async with (
         httpx.AsyncClient(
@@ -312,6 +324,10 @@ async def scenario(app, settings: Settings, db_path: Path, rust_url: str) -> Non
         stale_preview = (await py.get(export_preview, headers=mod)).json()
         assert not stale_preview["ready"]
         assert {"code": "stale_accepted", "chapter_index": 2} in stale_preview["issues"]
+        if native_export_enabled:
+            native_stale = await rs.get(export_preview, headers=mod)
+            assert native_stale.status_code == 200
+            assert native_stale.json() == stale_preview
         denied = await download("txt")
         assert denied.status_code == 409
         assert "content-disposition" not in denied.headers
@@ -334,7 +350,7 @@ async def scenario(app, settings: Settings, db_path: Path, rust_url: str) -> Non
         print("rust_m1e_python_export_txt_html_exact_receipts=PASS")
         print("rust_m1e_source_change_stale_manifest_blocked=PASS")
         print("rust_m1e_browser_cookie_csrf_and_key_precedence=PASS")
-        print("rust_m1e_RUST_export_not_implemented=TRUE")
+        print("rust_m1e_native_Rust_export="+("EXACT_PARITY" if native_export_enabled else "NOT_YET_AVAILABLE"))
         print("rust_m1e_RUST_browser_login_not_implemented=TRUE")
         print("production_sqlite_access=no")
         print("gemini_calls=0")
