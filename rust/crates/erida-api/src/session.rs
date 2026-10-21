@@ -162,7 +162,10 @@ pub async fn read(
         let db = erida_store::open_read_only(state.db_path.as_path())
             .map_err(|_| ApiError::Unavailable)?;
         let member = erida_auth::authenticate(None, Some(&raw), &db, &state.auth)
-            .map_err(|_| ApiError::SessionRequired)?;
+            .map_err(|error| match error {
+                erida_auth::AuthFailure::Storage => ApiError::Unavailable,
+                _ => ApiError::SessionRequired,
+            })?;
         payload(&member, state.auth.role(&member), &raw)
     }).await.map_err(|_| ApiError::Unavailable)??;
     let mut response = (StatusCode::OK, Json(body)).into_response();
@@ -230,10 +233,14 @@ pub async fn logout(
     tokio::task::spawn_blocking(move || {
         let db = erida_store::open_disposable_writer(state.db_path.as_path())
             .map_err(|_| ApiError::Unavailable)?;
-        if erida_auth::authenticate(None, Some(&raw), &db, &state.auth).is_ok()
-            && !erida_auth::csrf_matches(&raw, &proof)
-        {
-            return Err(ApiError::Forbidden);
+        match erida_auth::authenticate(None, Some(&raw), &db, &state.auth) {
+            Ok(_) if !erida_auth::csrf_matches(&raw, &proof) => {
+                return Err(ApiError::Forbidden);
+            }
+            Err(erida_auth::AuthFailure::Storage) => {
+                return Err(ApiError::Unavailable);
+            }
+            _ => {}
         }
         if raw.starts_with("rs_") && raw.len() <= 128 {
             db.execute(
