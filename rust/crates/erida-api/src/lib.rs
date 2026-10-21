@@ -6,6 +6,7 @@ mod write;
 mod book;
 mod chapter_write;
 mod accepted;
+mod editorial;
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -261,7 +262,8 @@ pub fn app(state: AppState) -> Router {
         .route("/v1/books", get(book::books))
         .route("/v1/books/{book_id}", get(book::book))
         .route("/v1/books/{book_id}/chapters", get(book::chapters))
-        .route("/v1/books/{book_id}/chapters/{chapter_id}", get(book::chapter));
+        .route("/v1/books/{book_id}/chapters/{chapter_id}", get(book::chapter))
+        .route("/v1/books/{book_id}/chapters/{chapter_id}/draft", get(editorial::read_draft));
     if state.test_writes_enabled {
         app = app
             .route("/v1/jobs", post(write::submit))
@@ -273,6 +275,8 @@ pub fn app(state: AppState) -> Router {
                    axum::routing::put(chapter_write::save_chapter))
             .route("/v1/books/{book_id}/chapters/{chapter_id}/accepted-translation",
                    axum::routing::put(accepted::accept))
+            .route("/v1/books/{book_id}/chapters/{chapter_id}/draft",
+                   axum::routing::put(editorial::save_draft))
             .layer(DefaultBodyLimit::max(8 * 1024 * 1024));
     }
     app.with_state(state)

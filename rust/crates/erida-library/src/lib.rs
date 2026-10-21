@@ -6,10 +6,12 @@ use serde_json::{json, Value};
 pub mod chapters;
 mod chapter_writes;
 mod acceptance;
+mod editorial;
 mod glossary;
 pub use chapters::{get_chapter, list_chapters};
 pub use chapter_writes::put_chapter_conservative;
 pub use acceptance::accept_translation_conservative;
+pub use editorial::{get_draft as get_editor_draft, save_draft as save_editor_draft};
 pub use glossary::put_glossary;
 use std::time::{SystemTime, UNIX_EPOCH};
 
