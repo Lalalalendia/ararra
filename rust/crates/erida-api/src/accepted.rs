@@ -35,6 +35,7 @@ pub async fn accept(
         )
         .map_err(|error| match error {
             LibraryError::Conflict(message) => ApiError::BookConflict(message),
+            LibraryError::GlossaryRuleConflict(message) => ApiError::DetailedGlossaryConflict(message),
             LibraryError::Missing(_) => ApiError::ChapterNotFound,
             LibraryError::UnsupportedTranslation => ApiError::InvalidInput(
                 "Unsupported accepted translation HTML: visible text proof required",
