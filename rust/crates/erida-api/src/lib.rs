@@ -82,6 +82,7 @@ pub enum ApiError {
     BookNotFound,
     ChapterNotFound,
     AcceptedRevisionNotFound,
+    ReviewNoteNotFound,
     BookConflict(&'static str),
     InvalidOwner,
     ForbiddenAssignment,
@@ -123,6 +124,7 @@ impl IntoResponse for ApiError {
             ApiError::BookNotFound => (StatusCode::NOT_FOUND, "Book not found"),
             ApiError::ChapterNotFound => (StatusCode::NOT_FOUND, "Chapter not found"),
             ApiError::AcceptedRevisionNotFound => (StatusCode::NOT_FOUND, "Accepted revision not found"),
+            ApiError::ReviewNoteNotFound => (StatusCode::NOT_FOUND, "Review note not found"),
             ApiError::BookConflict(reason) => (StatusCode::CONFLICT, *reason),
             ApiError::InvalidOwner => (StatusCode::UNPROCESSABLE_ENTITY, "Book owner must be an active moderator"),
             ApiError::ForbiddenAssignment => (StatusCode::FORBIDDEN, "Only administrator can assign another owner"),
@@ -266,6 +268,7 @@ pub fn app(state: AppState) -> Router {
         .route("/v1/books/{book_id}/chapters", get(book::chapters))
         .route("/v1/books/{book_id}/chapters/{chapter_id}", get(book::chapter))
         .route("/v1/books/{book_id}/chapters/{chapter_id}/draft", get(editorial::read_draft))
+        .route("/v1/books/{book_id}/chapters/{chapter_id}/notes", get(editorial::read_notes))
         .route("/v1/books/{book_id}/chapters/{chapter_id}/accepted-revisions", get(editorial::read_accepted_history))
         .route("/v1/books/{book_id}/chapters/{chapter_id}/accepted-revisions/{revision}", get(editorial::read_accepted_version));
     if state.test_writes_enabled {
@@ -283,6 +286,10 @@ pub fn app(state: AppState) -> Router {
                    axum::routing::put(editorial::save_draft))
             .route("/v1/books/{book_id}/chapters/{chapter_id}/restore-accepted",
                    post(editorial::restore_accepted))
+            .route("/v1/books/{book_id}/chapters/{chapter_id}/notes",
+                   post(editorial::create_note))
+            .route("/v1/books/{book_id}/chapters/{chapter_id}/notes/{note_id}",
+                   axum::routing::patch(editorial::update_note))
             .layer(DefaultBodyLimit::max(8 * 1024 * 1024));
     }
     app.with_state(state)
