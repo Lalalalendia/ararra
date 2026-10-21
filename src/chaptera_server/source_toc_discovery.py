@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from urllib.parse import parse_qs, urlsplit
+from bs4 import BeautifulSoup
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 from .source_catalog_med import Chapter, IngestError, make_adapter, validate_url
 from .source_toc_pages import (
@@ -34,12 +35,14 @@ def merge_observed_pages(
                 prior = found_ids[ch.source_id]
                 if prior.url != ch.url:
                     raise IngestError("catalog_conflict", "Source ID changes URL across pages")
-                if source != "royalroad" and prior.ordinal != ch.ordinal:
+                if source not in ("royalroad", "ao3", "wikisource_en", "wikisource_ru") and prior.ordinal != ch.ordinal:
                     raise IngestError("catalog_conflict", "Source ordinal changes across pages")
                 continue
             # Royal Road's official TOC order also includes unnumbered
             # prologues, interludes, and chapters with Roman numerals.
-            ordinal = len(collected) + 1 if source == "royalroad" else ch.ordinal
+            ordinal = (len(collected) + 1 if source in (
+                "royalroad", "ao3", "wikisource_en", "wikisource_ru"
+            ) else ch.ordinal)
             if ordinal in found_numbers:
                 raise IngestError("catalog_conflict", "Two chapters share one ordinal")
             item = Chapter(
@@ -71,6 +74,32 @@ async def discover_pages(
     if "page" in parse_qs(urlsplit(book_url).query):
         raise IngestError("catalog_incomplete", "Use book root URL, not page N")
     initial = await fetch_html(book_url)
+    if source == "ao3":
+        # AO3 has an explicit full-page chapter index (/works/{id}/navigate).
+        # Never synthesize it or request an endpoint absent from the public
+        # work HTML. This requires an observed link and the exact work ID.
+        soup = BeautifulSoup(initial, "html.parser")
+        root = urlsplit(book_url)
+        navigate_path = f"/works/{source_book_id(book_url, source)}/navigate"
+        index_url = None
+        for link in soup.select("a[href]"):
+            target = urljoin(book_url, link["href"])
+            parts = urlsplit(target)
+            if (parts.scheme == "https" and parts.hostname == root.hostname
+                and parts.path == navigate_path and not parts.query
+                and not parts.fragment):
+                index_url = target
+                break
+        if index_url is not None:
+            validate_url(index_url, source)
+            observed = await fetch_html(index_url)
+            entries, _, count, coverage = merge_observed_pages(
+                source, book_url, [(1, index_url, observed)],
+            )
+            return entries, (book_url, index_url), count, coverage
+        # Some work pages already include a complete HTML chapter index.
+        # If no suitable anchors are visible, fail rather than guessing URLs.
+        return merge_observed_pages(source, book_url, [(1, book_url, initial)])
     pages: dict[int, tuple[str, str]] = {1: (book_url, initial)}
     scanned: set[int] = set()
     while len(scanned) < len(pages):
