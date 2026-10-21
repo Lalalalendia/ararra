@@ -46,7 +46,7 @@ DIRECTORY = f"""<html><h1>測試小說 章節列表</h1>
 <li><a href="/2010493463/10.html">第一章 開場</a></li>
 <li><a href="/2010493463/11.html">第二章 又一段</a></li>
 <li><a href="/2010493463/12.html">番外：短篇</a></li>
-<li><a href="/2010493463/13.html">完本感言</a></li>
+<li><a href="/2010493463/13.html">完本感言～</a></li>
 <li><a href="{FOREIGN}">外站其他書</a></li>
 <li><a href="https://evil.invalid/2010493463/88.html">異域</a></li>
 </ul></html>"""

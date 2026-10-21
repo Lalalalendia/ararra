@@ -119,6 +119,13 @@ class TimotxtAdapter(PublicHtmlAdapter):
                     kind, author, method, confidence = (
                         "chapter", number, "title_pattern", "medium"
                     )
+            elif re.fullmatch(
+                r"(?:完本感言|上架感言|請假條|请假条|停更通知|更新通知)[～~!！?？。. ]*",
+                title,
+            ):
+                kind, author, method, confidence = (
+                    "service", None, "title_pattern", "medium"
+                )
             elif title.lstrip().startswith(("番外", "番外篇", "外傳", "外传")):
                 kind, author, method, confidence = "extra", None, "title_pattern", "medium"
             chapters.append(Chapter(
