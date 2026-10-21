@@ -99,15 +99,17 @@ async def run(app, db_path: Path, base: str, settings: Settings) -> None:
         # Reverse direction: Python creates a nested+tail source; Rust must
         # reproduce the same stored record and policy hash on replay.
         python_created = await py.put(
-            PREFIX + "/two", headers=headers, json=put_payload(inline_second, 0, 2),
+            PREFIX + "/two", headers=headers,
+            json=put_payload(inline_second, 0, 2, "parts/notes.xhtml"),
         )
         assert python_created.status_code == 200, (python_created.status_code, python_created.text)
         reverse = await rust.put(
-            PREFIX + "/two", headers=headers, json=put_payload(inline_second, 1, 2),
+            PREFIX + "/two", headers=headers,
+            json=put_payload(inline_second, 1, 2, "parts/notes.xhtml"),
         )
         assert reverse.status_code == 200, (reverse.status_code, reverse.text)
         assert reverse.json() == python_created.json()
-        assert reverse.json()["source_hash"] == python_hash(inline_second)
+        assert reverse.json()["source_hash"] == python_hash(inline_second, "parts/notes.xhtml")
 
         # Acceptance must survive a source revision as a stale translation.
         accepted = await py.put(
