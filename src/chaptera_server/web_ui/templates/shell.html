@@ -212,9 +212,9 @@
                 <div class="field-grid">
                   <label class="ui-field"><span>Источник</span>
                     <select id="source-site" class="ui-input">
-                      <option value="royalroad">Royal Road</option>
-                      <option value="webnovel">WebNovel</option>
-                      <option value="uukanshu">UUKanshu</option>
+                      {% for profile in source_profiles %}
+                      <option value="{{ profile.id }}">{{ profile.title }}</option>
+                      {% endfor %}
                     </select>
                   </label>
                   <label class="ui-field"><span>Ссылка на книгу</span>
