@@ -2,13 +2,22 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import json
+from pathlib import Path
 import sys
 
 import pytest
 
 from chaptera_server.source_collect import catalog_from_html
-from scripts import probe_timotxt_metadata as probe
+
+# scripts/ is not an installed Python package in CI. Load the exact
+# operator entrypoint by path instead of relying on pytest sys.path.
+_PROBE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "probe_timotxt_metadata.py"
+_spec = importlib.util.spec_from_file_location("probe_timotxt_metadata", _PROBE_PATH)
+assert _spec is not None and _spec.loader is not None
+probe = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(probe)
 
 BOOK = "https://www.timotxt.com/2010493463/"
 HTML = """<html>
