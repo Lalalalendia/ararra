@@ -62,3 +62,52 @@ Scope: import the user's existing public-page parsing logic from `Lalalalendia/m
 **Supported first slice:** public pages with numbered same-book chapter links on
 Royal Road, WebNovel and UUKanshu. Existing file import remains unchanged.
 
+
+## RE-02 additional reviewed site profiles (proposed, PR pending CI)
+
+Three new opt-in source families extend the same existing actor-owned
+preview/selection/temporary collection/explicit import-confirmation flow:
+
+| Profile | Accepted root | Chapter discovery | Content |
+|---|---|---|---|
+| \`wikisource_en\` | \`https://en.wikisource.org/wiki/<work>\` | Same-work subpage links in visible lists/tables | \`.mw-parser-output\`, without navigation/edit widgets |
+| \`wikisource_ru\` | \`https://ru.wikisource.org/wiki/<work>\` | Same-work subpage links in visible lists/tables | As above, only allowed host |
+| \`ao3\` | \`https://archiveofourown.org/works/<digits>\` | Public chapter-index anchors on work page or an explicitly linked exact-work \`/navigate\` page | Work \`#chapters\` article only |
+
+These profiles do NOT accept arbitrary domains, non-HTTPS requests, credentials,
+URL query/fragment switches, subscriber content, adult-consent bypass,
+redirects, private-address DNS resolution, or guess unpublished chapter URLs.
+
+Some Wikisource works consist of a single transcluded HTML page or contain
+non-subpage chapter links. Those are currently unsupported: the collector
+reports \`catalog_missing\` instead of inventing chapters. Wikisource
+text is generally free-licensed or public domain but the exact work's license,
+attribution and translation conditions still matter.
+
+AO3 prohibits bots/scraping for various disallowed purposes, including
+collecting content for **commercial generative AI**. This adapter is designed
+for private, user-directed handling of publicly readable stories only, not
+automatic public hosting, resale, bulk AI harvesting, or distribution.
+Restricted works are intentionally unsupported. Applicable source rights,
+platform terms and robots policy must be checked before operational rollout.
+See https://secure.ao3.org/tos_faq and
+https://www.mediawiki.org/wiki/Wikimedia_APIs/Access_policy
+
+The UI picker now derives its entries from the same authoritative Python
+SITE_PROFILES registry used by URL validation. Adding a profile requires:
+a reviewed host allowlist, book/chapter identity constraints, offline
+catalog/body fixtures, a live robots/TLS/access gate, and full CI. A name
+alone is not an enabled parser.
+
+Explicitly NOT enabled:
+- Narou HTML ingestion: Shosetsuka ni Narou terms prohibit automated
+  access/collection except via developer-provided APIs; the official
+  novel API does not expose chapter bodies.
+- Kakuyomu: the existing MED workflow demonstrates page structures, but
+  the use and rights conditions and server access need a separate review.
+- Royal Road 403: this is an upstream block; adding other profiles does
+  not fix it. The collector never attempts an anti-bot bypass.
+
+Tests: \`tests/test_source_more_profiles.py\` and existing RE-02 security,
+source collection, catalog identity and Chromium suites. No production
+network access or credentials are used by these offline tests.
