@@ -1,6 +1,6 @@
 # RE-02 — Timotxt (提莫書屋): novel RAW import profile
 
-Status: **Draft / offline candidate**, not released or deployed.
+Status: **Parser merged in main by PR #118; live-site gate not passed and no VPS deployment.**
 
 ## Product reason
 
@@ -54,3 +54,23 @@ Timotxt sometimes transforms original glyphs. The earlier FullCycle project
 has normalization research, but no universal, proven mapping was ported.
 Whole-book counts over the generic 2000 cap or directories split across
 unrecognized lists remain unsupported until separately verified.
+
+## Integrity follow-up: CSS-independent page continuation
+
+The initial parser looked only in three navigation CSS containers. A source
+template update could place a real `_2.html` link elsewhere while returning
+a valid HTTP 200, causing a **silent partial chapter accepted as complete**.
+
+The follow-up now scans all observed anchor URLs for the strict adjacent
+same-book/same-chapter part identity, while a visible `下一頁` or `下一页`
+link with no valid target is a hard `catalog_incomplete` error. This is
+source-body fidelity logic, **not a license to guess undisclosed URLs**.
+A second part yielding the exact text of an earlier part triggers
+`catalog_conflict` rather than storing duplicate prose. Tests cover a
+changed pager CSS wrapper, orphan/missing/cross-book next links and a
+wrong server response repeated on part 2.
+
+The system still cannot infer an unadvertised continuation. Operational
+live validation must verify the actual chapter navigation markup,
+authoritative chapter completeness and rights/robots before a
+source-specific production support claim.
