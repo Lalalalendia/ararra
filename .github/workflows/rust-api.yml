@@ -116,3 +116,6 @@ jobs:
 
       - name: Verify composite book flow and Python export boundary, with fail-closed manifest
         run: python scripts/compare_rust_book_vertical.py rust/target/release/erida-api
+
+      - name: Compare native Rust accepted-book preview and TXT/HTML export with Python
+        run: python scripts/compare_rust_book_export.py rust/target/release/erida-api
