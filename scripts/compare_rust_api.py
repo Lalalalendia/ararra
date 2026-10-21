@@ -78,6 +78,7 @@ async def run_parity(
     paths = [
         "/healthz",
         "/v1/me",
+        "/v1/admin/members",
         "/v1/jobs",
         "/v1/jobs?limit=1",
         "/v1/jobs?limit=0",
@@ -110,12 +111,26 @@ async def run_parity(
 
         # Rotate a static moderator credential and ensure session invalidation
         # and header precedence immediately match in both processes.
+        # Administrative browser sessions can read but never leak secrets.
+        admin_cookie = app.state.team_sessions.issue(
+            member_id="chief", team_key=settings.team_tokens["chief"],
+            ttl_seconds=3600,
+        )
+        await comparison("/v1/admin/members", {
+            "Cookie": "readera_session=" + admin_cookie,
+        })
+        await comparison("/v1/admin/members", {
+            "Cookie": "readera_session=" + admin_cookie,
+            "X-API-Key": "invalid-secret",
+        })
         rotated = app.state.team_credentials.rotate("chief", "mod", settings)
         await comparison("/v1/me", mod)
         await comparison("/v1/me", browser)
         await comparison("/v1/me", {"X-API-Key": rotated["access_token"]})
+        await comparison("/v1/admin/members", admin)
         app.state.team_credentials.disable("chief", "new_mod", settings)
         await comparison("/v1/me", managed)
+        await comparison("/v1/admin/members", admin)
         app.state.team_sessions.revoke(cookie)
         await comparison("/v1/jobs", browser)
 
