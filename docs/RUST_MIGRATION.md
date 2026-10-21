@@ -417,3 +417,30 @@ and post-disable snapshots against one disposable SQLite instance.
 This is an independent API completeness step (not an extra resident
 service), not a full API/worker replacement, and does not authorize
 deployment or claim production memory savings.
+
+## RUST-03g: disposable SQLite nested-inline chapter write parity
+
+This phase extends merged RUST-03f and remains **experimental**.
+Only with `ERIDA_RUST_TEST_WRITES=1` and an independently validated
+temporary SQLite root may the Rust chapter writer try the bounded
+`clean_inline_paragraphs` policy after the previous plain-paragraph
+checker rejects a source. The same neutral chapter-path, heading, domain
+and nonempty-cleaned-body checks remain in place; ambiguous nested
+markers, HTML entities, attributes, malformed markup, numeric chapter
+contexts and unsupported structures must fail **before opening a write
+transaction**.
+
+`scripts/compare_rust_inline_writer.py` starts the experimental Rust
+loopback API alongside the actual Python ASGI application and opens
+one shared, newly initialized temporary SQLite database. It verifies
+source HTML immutability, Python-cleaned SHA-256 (not RAW hash),
+bidirectional writer replay, one-winner expected-revision CAS across
+the two runtimes, stale accepted-translation preservation, rejected
+input nonmutation, and rejection of unauthenticated mutation.
+
+RUST-03g does not cover arbitrary BeautifulSoup DOM mutation,
+production chapter writes, complete book APIs, queued translation
+workers, or the replacement of either resident Python process.
+No production RAM reduction may be claimed from these isolated tests.
+Promote only after an exact-head Rust + Python/Web/Chromium PASS
+and an independently reviewed merge of this integration.
