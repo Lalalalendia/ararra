@@ -8,12 +8,14 @@ mod chapter_writes;
 mod acceptance;
 mod accepted_history;
 mod editorial;
+mod review_notes;
 mod glossary;
 pub use chapters::{get_chapter, list_chapters};
 pub use chapter_writes::put_chapter_conservative;
 pub use acceptance::accept_translation_conservative;
 pub use accepted_history::{accepted_history, accepted_version, restore_accepted};
 pub use editorial::{get_draft as get_editor_draft, save_draft as save_editor_draft};
+pub use review_notes::{list_notes as list_editor_notes, create_note as create_editor_note, set_note_status as set_editor_note_status};
 pub use glossary::put_glossary;
 use std::time::{SystemTime, UNIX_EPOCH};
 
