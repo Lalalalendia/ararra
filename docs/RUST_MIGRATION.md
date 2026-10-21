@@ -334,3 +334,33 @@ worker, paid Gemini request, runtime switch or VPS deployment is enabled.
 Production remains on Python until complete API+worker parity and memory
 measurements. The new writer code must not be confused with a universal
 BeautifulSoup replacement.
+
+## RUST-04: Unicode-exact logical source-unit splitting
+
+The independent `erida-source-split` crate ports the Python
+`chaptera_translation_core.utils.source_units.split_source_text_node()`
+algorithm. This operation splits long source text nodes into stable logical
+units for provider translation, source-unit identities and alignment.
+
+The Rust implementation uses **Unicode codepoint indexes** matching Python
+`str`, not UTF-8 byte positions or extended grapheme clusters. It reproduces
+the exact separator list, search-half-window preference, `rfind` end bounds,
+fallback, and the edge case where the final hit ends just past the candidate
+limit. Each output concatenates back to the input exactly (no normalization).
+The default limit is 480 characters as in Python.
+
+Unlike a full per-character byte offset table, Rust keeps only a sliding
+`max_chars + 2` offset window per chunk, avoiding temporary offset allocation
+proportional to a full multi-megabyte chapter. Inputs over two million UTF-8
+bytes fail closed. A zero/negative maximum returns a defined error.
+
+`scripts/compare_rust_source_split.py` runs seeded multilingual, emojis,
+combining marks, newlines, ASCII and Chinese punctuation, boundary-edge
+fixtures and randomized cases against the actual Python function and compares
+every resulting chunk as UTF-8-preserving JSON. The Rust splitter is **not
+yet imported into the source worker or running API**; that migration requires
+matching document/source-unit IDs, DOM paths, and complete HTML policy gates.
+
+Only synthetic offline text is used. No running VPS process, production
+SQLite, HTTP crawl, paid Gemini call or memory-resident Python process
+is changed by this phase.

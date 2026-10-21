@@ -7,6 +7,7 @@ members = [
     "crates/erida-source-policy",
     "crates/erida-source-dom",
     "crates/erida-source-clean",
+    "crates/erida-source-split",
     "crates/erida-api",
 ]
 
