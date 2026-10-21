@@ -30,7 +30,7 @@ verified RAW -> staged import -> existing translation and editorial flow.
 - Assemble observed same-chapter _2.html etc. continuations in order,
   capped at 12 parts, before committing one chapter checksum/checkpoint.
   Missing/foreign/gapped parts fail; no successful half-chapter checkpoint.
-- Unknown Hangul or private-use glyph substitution is a **needs_review**
+- Any unresolved Hangul or private-use glyph is a **needs_review**
   error, not guessed Chinese text. Preserve exact bytes where supported.
 - Request rate is scoped by existing SQLite source limiter:
   6 s minimum, 240 requests per UTC day, one simultaneous source request.

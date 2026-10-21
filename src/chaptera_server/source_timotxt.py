@@ -151,7 +151,7 @@ class TimotxtAdapter(PublicHtmlAdapter):
             raise IngestError("blocked", "Timotxt chapter is a rate-limit or access page")
         # Timotxt has historically substituted Korean glyphs/PUA for Chinese
         # characters. Without an evidence-backed map do not fake a clean RAW.
-        if len(_OBFUSCATED.findall(body)) >= 3 or len(_PUA.findall(body)) >= 3:
+        if _OBFUSCATED.search(body) or _PUA.search(body):
             raise IngestError("needs_review", "Timotxt RAW contains unresolved obfuscated glyphs")
         return body
 

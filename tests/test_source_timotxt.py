@@ -107,6 +107,14 @@ def test_timotxt_profile_and_chapter_url_provenance():
     assert p.minimum_delay_seconds >= 6
     assert p.daily_requests <= 240
     assert source_book_id(ROOT, "timotxt") == "2010493463"
+    # Nine real Atarax source links, including zero-prefixed book IDs.
+    for book_id in (
+        "2312587182", "2511556748", "0404595507",
+        "0106158592", "2404580687", "1302454676",
+        "2007523815", "1205152975", "2010493463",
+    ):
+        assert source_book_id(f"https://www.timotxt.com/{book_id}/", "timotxt") == book_id
+        assert make_adapter("timotxt", f"https://www.timotxt.com/{book_id}/").book_id == book_id
     assert source_book_id(ONE_PART2, "timotxt") == "2010493463"
     assert chapter_identity(ONE, "timotxt", "2010493463") == "10"
     assert chapter_identity(ONE_PART2, "timotxt", "2010493463") is None
@@ -221,7 +229,9 @@ def test_obfuscated_hangul_and_pua_are_not_misrepresented_as_verified_cn_raw():
     adapter = make_adapter("timotxt", ROOT)
     for text in (
         "這是一段正常中文" * 50 + "놖꺗껣",
+        "這是一段正常中文" * 50 + "놖",
         "這是一段正常中文" * 50 + "\ue014\ue015\ue016",
+        "這是一段正常中文" * 50 + "\ue014",
     ):
         with pytest.raises(IngestError, match="obfuscated"):
             adapter.parse_body(page(text))
