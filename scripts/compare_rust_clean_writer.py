@@ -128,7 +128,7 @@ async def run(app, db_path: Path, base: str, settings: Settings) -> None:
 
         # An unsupported input must be rejected before touching the DB.
         invalid = (
-            ("<p>Short <em>nested</em> text.</p>", "parts/story.xhtml"),
+            ("<p>Short <em>记住本站</em> text.</p>", "parts/story.xhtml"),
             ("<p>With &amp; HTML entities.</p>", "parts/story.xhtml"),
             ("<p>本章完</p>", "parts/story.xhtml"),
             ("<p>第七章</p>", "parts/story.xhtml"),
