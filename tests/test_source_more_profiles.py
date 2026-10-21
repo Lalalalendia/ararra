@@ -173,6 +173,12 @@ def test_ao3_index_uses_observed_full_index_not_guessed_api():
     ]
 
 
+def test_ao3_requires_work_root_not_chapter_or_navigation_url():
+    for url in (ONE, TWO, INDEX, AO3 + "/chapter/7001"):
+        with pytest.raises(ValueError, match="canonical work root"):
+            make_adapter("ao3", url)
+
+
 def test_ao3_without_observed_index_fails_without_endpoint_guessing():
     calls = []
     async def fetch(url):
