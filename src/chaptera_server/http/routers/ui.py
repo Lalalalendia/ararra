@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ...source_site_profiles import public_site_profiles
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -40,6 +42,7 @@ def read_ui(request: Request, page: str = ""):
     return TEMPLATES.TemplateResponse(
         request=request,
         name="shell.html",
-        context={"active_page": page or "overview"},
+        context={"active_page": page or "overview",
+                 "source_profiles": public_site_profiles()},
         headers=_PRIVATE_HTML_HEADERS,
     )
