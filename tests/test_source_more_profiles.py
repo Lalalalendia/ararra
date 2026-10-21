@@ -178,6 +178,12 @@ def test_ao3_requires_work_root_not_chapter_or_navigation_url():
         with pytest.raises(ValueError, match="canonical work root"):
             make_adapter("ao3", url)
 
+    async def no_network(url):
+        raise AssertionError("Invalid book URL reached the network: " + url)
+    for url in (ONE, TWO, INDEX):
+        with pytest.raises(ValueError, match="canonical work root"):
+            asyncio.run(fetch_catalog("ao3", url, no_network))
+
 
 def test_ao3_without_observed_index_fails_without_endpoint_guessing():
     calls = []
