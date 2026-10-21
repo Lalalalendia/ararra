@@ -2,6 +2,11 @@ name: Python tests
 on:
   push:
   pull_request:
+# Cancel stale PR/branch jobs, preserving every main push acceptance.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
