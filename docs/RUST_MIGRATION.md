@@ -392,3 +392,28 @@ It also verifies that invalid cases fail closed. This result is **not wired
 into the test SQLite writer**, much less the production API. A separate
 cross-runtime CAS/parity gate and explicit approval would be required before
 extending the set of writable source inputs.
+
+## RUST-04a: admin-only membership list (read-only identity parity)
+
+The experimental Rust API implements the existing
+`GET /v1/admin/members` endpoint. Authorization requires successful
+team authentication **and** the explicitly configured administrator
+identity. Ordinary moderators and disabled/revoked credentials receive
+the existing Python response and status; an invalid API-key header
+takes precedence over any valid browser cookie.
+
+The Rust projection mirrors Python `TeamCredentials.list_members`:
+sorted union of configured and managed IDs, administrator/ordinary
+moderator roles, current active/disabled status, and a coarse
+`configuration`/`managed` credential source. Secret tokens, SHA-256
+digests, audit entries and session identifiers are **never returned**.
+No new team credential mutation, endpoint or permission is invented.
+
+The existing Python-vs-Rust API differential suite now exercises
+`/v1/admin/members` with anonymous, administrator, moderator, managed,
+browser-cookie and invalid-key precedence cases, plus post-rotation
+and post-disable snapshots against one disposable SQLite instance.
+
+This is an independent API completeness step (not an extra resident
+service), not a full API/worker replacement, and does not authorize
+deployment or claim production memory savings.
