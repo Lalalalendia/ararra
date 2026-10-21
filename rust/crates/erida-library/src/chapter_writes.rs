@@ -271,7 +271,7 @@ mod tests {
     fn ambiguous_source_is_rejected_without_writing() {
         let mut con=db();
         for html in [
-            "<p>Short <strong>chapter</strong>.</p>".to_owned(),
+            "<p>Short <strong>记住本站</strong> chapter.</p>".to_owned(),
             safe("甲").replace("甲", "101kanshu甲"),
             format!("<div>{}</div>", "林".repeat(300)),
             format!("<p>{}&amp;</p>", "木".repeat(300)),
