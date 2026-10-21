@@ -205,6 +205,58 @@ def test_timotxt_partial_chapter_link_identity_and_assembly():
     assert body.index(FIRST_TEXT) < body.index(SECOND_TEXT)
 
 
+def test_next_page_link_survives_css_wrapper_change_without_truncation():
+    # The source can move its pager outside .foot-nav/.chapter-nav.
+    first = page(FIRST_TEXT) + (
+        '<aside class="reader-pager">'
+        '<a href="/2010493463/10_2.html">下一頁</a></aside>'
+    )
+    visited = []
+    async def fetch(url):
+        visited.append(url)
+        if url == ONE:
+            return first
+        if url == ONE_PART2:
+            return PART2
+        raise AssertionError("Unexpected URL " + url)
+    result = asyncio.run(fetch_complete_chapter("timotxt", ROOT, ONE, fetch))
+    assert visited == [ONE, ONE_PART2]
+    assert FIRST_TEXT in result and SECOND_TEXT in result
+
+
+def test_visible_broken_next_page_cannot_be_silently_accepted_as_complete():
+    cases = (
+        '<div class="reader-pager"><a>下一頁</a></div>',
+        '<div class="reader-pager"><a href="/2010493464/10_2.html">下一頁</a></div>',
+        '<div class="reader-pager"><a href="/2010493463/11.html">下一頁</a></div>',
+        '<div class="reader-pager"><a href="https://evil.invalid/2010493463/10_2.html">下一頁</a></div>',
+    )
+    for added in cases:
+        calls = []
+        async def fetch(url):
+            calls.append(url)
+            if url == ONE:
+                return page(FIRST_TEXT) + added
+            raise AssertionError("Unexpected extra source request " + url)
+        with pytest.raises(IngestError, match="next-page|continuation|Unsafe"):
+            asyncio.run(fetch_complete_chapter("timotxt", ROOT, ONE, fetch))
+        assert calls == [ONE]
+
+
+def test_duplicate_part_body_is_not_a_valid_completed_chapter():
+    visited = []
+    async def fetch(url):
+        visited.append(url)
+        if url == ONE:
+            return page(FIRST_TEXT, next_part="/2010493463/10_2.html")
+        if url == ONE_PART2:
+            return page(FIRST_TEXT)
+        raise AssertionError("Unexpected URL " + url)
+    with pytest.raises(IngestError, match="Duplicate source chapter part"):
+        asyncio.run(fetch_complete_chapter("timotxt", ROOT, ONE, fetch))
+    assert visited == [ONE, ONE_PART2]
+
+
 def test_unverified_part_links_cannot_turn_partial_raw_into_complete():
     async def fetch(url):
         if url == ONE:
