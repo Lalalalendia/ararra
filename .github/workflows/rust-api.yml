@@ -68,7 +68,8 @@ jobs:
       - name: Inventory Python contracts and guarded Rust candidate routes
         run: |
           python scripts/rust_contract_inventory.py --check --json "$RUNNER_TEMP/erida-rust-m0.json"
-          python -m pytest -q tests/test_rust_contract_inventory.py
+          # Full contract tests run in the separate Python 3.11/3.12 matrix.
+          # Do not install pytest just for the Rust parity workflow.
       - name: Upload M0 method and path gap report
         uses: actions/upload-artifact@v4
         with:
