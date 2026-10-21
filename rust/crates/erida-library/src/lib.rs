@@ -7,6 +7,7 @@ pub mod chapters;
 mod chapter_writes;
 mod acceptance;
 mod accepted_history;
+pub mod book_export;
 mod editorial;
 mod review_notes;
 mod glossary;

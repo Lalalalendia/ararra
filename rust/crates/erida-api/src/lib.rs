@@ -7,6 +7,7 @@ mod book;
 mod chapter_write;
 mod accepted;
 mod editorial;
+mod book_export;
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -82,6 +83,7 @@ pub enum ApiError {
     BookNotFound,
     ChapterNotFound,
     AcceptedRevisionNotFound,
+    ExportNotReady(Value),
     ReviewNoteNotFound,
     BookConflict(&'static str),
     InvalidOwner,
@@ -106,6 +108,18 @@ impl From<StoreError> for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
+        if let ApiError::ExportNotReady(ref preview) = self {
+            return (
+                StatusCode::CONFLICT,
+                [(header::CACHE_CONTROL, "no-store, private")],
+                Json(json!({
+                    "detail": {
+                        "message": "Book export is incomplete or changed after preview",
+                        "preview": preview,
+                    },
+                })),
+            ).into_response();
+        }
         let (status, detail): (StatusCode, &str) = match &self {
             ApiError::InvalidApiKey => (StatusCode::UNAUTHORIZED, "Valid team API token required"),
             ApiError::InvalidSession => {
@@ -125,6 +139,8 @@ impl IntoResponse for ApiError {
             ApiError::ChapterNotFound => (StatusCode::NOT_FOUND, "Chapter not found"),
             ApiError::AcceptedRevisionNotFound => (StatusCode::NOT_FOUND, "Accepted revision not found"),
             ApiError::ReviewNoteNotFound => (StatusCode::NOT_FOUND, "Review note not found"),
+            // Early-response branch above handles its structured body; keep match exhaustive.
+            ApiError::ExportNotReady(_) => (StatusCode::CONFLICT, "Book export is incomplete or changed after preview"),
             ApiError::BookConflict(reason) => (StatusCode::CONFLICT, *reason),
             ApiError::InvalidOwner => (StatusCode::UNPROCESSABLE_ENTITY, "Book owner must be an active moderator"),
             ApiError::ForbiddenAssignment => (StatusCode::FORBIDDEN, "Only administrator can assign another owner"),
@@ -164,17 +180,20 @@ fn browser_token(headers: &HeaderMap) -> Option<String> {
     None
 }
 
-async fn secured_read<F>(
+/// Reuse the existing per-request member authentication for both JSON reads
+/// and binary book downloads. Never infer trust from prior preview receipts.
+async fn authenticated_read<T, F>(
     state: AppState,
     headers: HeaderMap,
     operation: F,
-) -> Result<Response, ApiError>
+) -> Result<T, ApiError>
 where
-    F: FnOnce(&Connection, &str, &AuthConfig) -> Result<Value, ApiError> + Send + 'static,
+    T: Send + 'static,
+    F: FnOnce(&Connection, &str, &AuthConfig) -> Result<T, ApiError> + Send + 'static,
 {
-    let payload = tokio::task::spawn_blocking(move || {
+    tokio::task::spawn_blocking(move || {
         let db = erida_store::open_read_only(state.db_path.as_path())?;
-        // Header existence, even an empty or invalid value, blocks cookie fallback.
+        // Header existence, even an empty/invalid value, blocks cookie fallback.
         let key = headers
             .get("x-api-key")
             .map(|header| header.to_str().unwrap_or(""));
@@ -183,7 +202,18 @@ where
         operation(&db, &actor, &state.auth)
     })
     .await
-    .map_err(|_| ApiError::Unavailable)??;
+    .map_err(|_| ApiError::Unavailable)?
+}
+
+async fn secured_read<F>(
+    state: AppState,
+    headers: HeaderMap,
+    operation: F,
+) -> Result<Response, ApiError>
+where
+    F: FnOnce(&Connection, &str, &AuthConfig) -> Result<Value, ApiError> + Send + 'static,
+{
+    let payload = authenticated_read(state, headers, operation).await?;
     Ok(private_response(payload))
 }
 
@@ -265,6 +295,8 @@ pub fn app(state: AppState) -> Router {
         .route("/v1/jobs/{job_id}/events", get(job_events))
         .route("/v1/books", get(book::books))
         .route("/v1/books/{book_id}", get(book::book))
+        .route("/v1/books/{book_id}/export/preview", get(book_export::preview))
+        .route("/v1/books/{book_id}/export", get(book_export::download))
         .route("/v1/books/{book_id}/chapters", get(book::chapters))
         .route("/v1/books/{book_id}/chapters/{chapter_id}", get(book::chapter))
         .route("/v1/books/{book_id}/chapters/{chapter_id}/draft", get(editorial::read_draft))
