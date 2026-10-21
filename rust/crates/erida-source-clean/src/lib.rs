@@ -172,7 +172,7 @@ pub fn clean_inline_paragraphs(
         let inside = &rest[3..end];
         let raw = &rest[..end + 4];
         let mut nodes = Vec::<&str>::new();
-        let mut stack = Vec::<&str>::new();
+        let mut stack = Vec::<(&str, usize)>::new();
         let mut cursor = 0;
         let mut inline = false;
         while cursor < inside.len() {
@@ -185,11 +185,14 @@ pub fn clean_inline_paragraphs(
                         if stack.len() >= 16 {
                             return Err(CleanError::UnsupportedHtml);
                         }
-                        stack.push(&token[1..token.len() - 1]);
+                        stack.push((&token[1..token.len() - 1], nodes.len()));
                     }
                     "</b>" | "</strong>" | "</em>" | "</i>" | "</span>" => {
                         let name = &token[2..token.len() - 1];
-                        if stack.pop() != Some(name) {
+                        let Some((opened, node_count_at_open)) = stack.pop() else {
+                            return Err(CleanError::UnsupportedHtml);
+                        };
+                        if opened != name || nodes.len() == node_count_at_open {
                             return Err(CleanError::UnsupportedHtml);
                         }
                     }
@@ -207,7 +210,7 @@ pub fn clean_inline_paragraphs(
                     ch.is_control()
                         || matches!(ch, '\u{00a0}' | '\u{200b}'..='\u{200f}' | '\u{feff}')
                 })
-                || chapter_number_like(text)
+                || chapter_number_like(text) || text.contains('第')
                 || text.chars().any(|ch| {
                     !(ch.is_ascii()
                         || matches!(ch,
