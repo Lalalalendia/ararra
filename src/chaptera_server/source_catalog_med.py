@@ -10,7 +10,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import unquote, urljoin, urlsplit
 
 from bs4 import BeautifulSoup
 
@@ -45,6 +45,10 @@ def validate_url(url: str, source: str) -> str:
             or p.username or p.password or p.port not in (None, 443)
             or not p.path.startswith("/")):
         raise ValueError(f"Unsafe or unsupported {source} URL: {url}")
+    # Newly reviewed profiles admit exactly URL identities, not URL-driven
+    # filtering, age-consent/query toggles or arbitrary fragments.
+    if source in ("wikisource_en", "wikisource_ru", "ao3") and (p.query or p.fragment):
+        raise ValueError(f"Unsupported {source} URL parameters")
     return url
 
 
@@ -54,6 +58,15 @@ def source_book_id(url: str, source: str) -> str:
         match = re.match(r"^/fiction/(\d+)(?:/|$)", p.path)
     elif source == "uukanshu":
         match = re.match(r"^/book/(\d+)(?:/|$)", p.path)
+    elif source == "ao3":
+        match = re.match(r"^/works/([1-9]\d*)(?:/|$)", p.path)
+    elif source in ("wikisource_en", "wikisource_ru"):
+        decoded = unquote(p.path)
+        # Subpages share the first page-name segment; full book-root
+        # ownership is additionally checked by WikisourceAdapter below.
+        match = re.match(r"^/wiki/([^/:?#]+)(?:/|$)", decoded)
+        if match and (match.group(1) in (".", "..") or len(match.group(1)) > 512):
+            match = None
     else:
         match = re.match(r"^/book/(?:[^/]*_)?(\d{6,})(?:/|$)", p.path)
     if not match:
@@ -67,6 +80,13 @@ def chapter_identity(url: str, source: str, expected_book_id: str) -> str | None
         m = re.match(r"^/fiction/(\d+)/(?:[^/]+/)?chapter/(\d+)(?:/|$)", p.path)
     elif source == "uukanshu":
         m = re.match(r"^/book/(\d+)/(\d+)\.html$", p.path)
+    elif source == "ao3":
+        m = re.match(r"^/works/([1-9]\d*)/chapters/([1-9]\d*)/?$", p.path)
+    elif source in ("wikisource_en", "wikisource_ru"):
+        decoded = unquote(p.path)
+        m = re.match(r"^/wiki/([^/:?#]+)/([^?#]+)$", decoded)
+        if m and any(piece in (".", "..", "") for piece in m.group(2).split("/")):
+            m = None
     else:
         m = re.match(r"^/book/(?:[^/]*_)?(\d{6,})/[^/]+_(\d{8,})(?:/|$)", p.path)
     if not m or m.group(1) != expected_book_id:
@@ -314,9 +334,125 @@ class UUKanshuAdapter(PublicHtmlAdapter):
         return body
 
 
+
+class WikisourceAdapter(PublicHtmlAdapter):
+    """Explicit same-work subpages only; full text is never guessed from an index.
+
+    Two separately allowlisted language subdomains share this parser. The
+    authorial numbering is independent of the observed contents order.
+    """
+
+    def parse_catalog(self, html: str) -> list[Chapter]:
+        soup = BeautifulSoup(html, "html.parser")
+        content = soup.select_one("#mw-content-text .mw-parser-output, .mw-parser-output")
+        if content is None:
+            raise IngestError("catalog_missing", "Wikisource article body not found")
+        root_path = unquote(urlsplit(self.book_url).path).rstrip("/") + "/"
+        found: dict[str, Chapter] = {}
+        # Only links published inside book contents lists or tables; never
+        # scan whole-page footer/sidebar/navigation links.
+        for link in content.select("ol a[href], ul a[href], table a[href]"):
+            target = urljoin(self.book_url, link["href"])
+            try:
+                identity = chapter_identity(target, self.source, self.book_id)
+            except ValueError:
+                continue
+            if not identity or not unquote(urlsplit(target).path).startswith(root_path):
+                continue
+            label = re.sub(r"\s+", " ", link.get_text(" ", strip=True))
+            if not label:
+                continue
+            previous = found.get(identity)
+            if previous is not None:
+                if previous.url != target:
+                    raise IngestError("catalog_conflict", "Wikisource chapter URL changed")
+                continue
+            kind, author, method, confidence = classify_toc_title(label)
+            found[identity] = Chapter(
+                len(found) + 1, label, target, identity,
+                kind, author, method, confidence,
+            )
+        return list(found.values())
+
+    def parse_body(self, html: str) -> str:
+        soup = BeautifulSoup(html, "html.parser")
+        node = soup.select_one("#mw-content-text .mw-parser-output, .mw-parser-output")
+        if node is None:
+            raise IngestError("missing_body", "Wikisource chapter article not found")
+        for junk in node.select(
+            "script,style,noscript,iframe,form,nav,header,footer,button,"
+            ".mw-editsection,.toc,.metadata,.navbox,.printfooter,"
+            ".mw-references-wrap,.reflist,.ws-noexport,.catlinks,"
+            ".noprint,.mw-cite-backlink,sup.reference,table"
+        ):
+            junk.decompose()
+        text = normalize_body(node.get_text("\n", strip=True))
+        if not text:
+            raise IngestError("missing_body", "Wikisource chapter has no visible prose")
+        return text
+
+
+class AO3Adapter(PublicHtmlAdapter):
+    """Public, non-login AO3 works with HTML chapter-index links.
+
+    No age-gate, account, cookie, redirect, restricted work or paywall bypass.
+    A separate work-owned /navigate index is requested only if explicitly
+    linked from the public work page.
+    """
+
+    def parse_catalog(self, html: str) -> list[Chapter]:
+        soup = BeautifulSoup(html, "html.parser")
+        links = soup.select(
+            "#chapter_index a[href], .chapter.index a[href],"
+            " ol.chapter.index.group a[href]"
+        )
+        found: dict[str, Chapter] = {}
+        for link in links:
+            target = urljoin(self.book_url, link["href"])
+            try:
+                identity = chapter_identity(target, self.source, self.book_id)
+            except ValueError:
+                continue
+            if not identity:
+                continue
+            title = re.sub(r"\s+", " ", link.get_text(" ", strip=True)).strip()
+            if not title:
+                continue
+            previous = found.get(identity)
+            if previous is not None:
+                if previous.url != target:
+                    raise IngestError("catalog_conflict", "AO3 chapter ID URL conflict")
+                continue
+            kind, author, method, confidence = classify_toc_title(title)
+            found[identity] = Chapter(
+                len(found) + 1, title, target, identity,
+                kind, author, method, confidence,
+            )
+        return list(found.values())
+
+    def parse_body(self, html: str) -> str:
+        soup = BeautifulSoup(html, "html.parser")
+        node = soup.select_one(
+            "#chapters .userstuff.module[role='article'],"
+            " #chapters div.userstuff[role='article'],"
+            " #chapters .chapter .userstuff.module"
+        )
+        if node is None:
+            low = soup.get_text(" ", strip=True).lower()
+            if any(marker in low for marker in BLOCK_PATTERNS) or (
+                "only available to registered users" in low
+            ):
+                raise IngestError("blocked", "AO3 access or permission required")
+            raise IngestError("missing_body", "No public AO3 chapter text")
+        for junk in node.select("script,style,noscript,iframe,form,nav,button"):
+            junk.decompose()
+        return normalize_body(node.get_text("\n", strip=True))
+
+
 def make_adapter(source: str, book_url: str) -> PublicHtmlAdapter:
     classes = {"royalroad": RoyalRoadAdapter, "webnovel": WebNovelAdapter,
-               "uukanshu": UUKanshuAdapter}
+               "uukanshu": UUKanshuAdapter, "ao3": AO3Adapter,
+               "wikisource_en": WikisourceAdapter, "wikisource_ru": WikisourceAdapter}
     if source not in classes:
         raise ValueError(f"Unknown source: {source}")
     return classes[source](source, book_url)
