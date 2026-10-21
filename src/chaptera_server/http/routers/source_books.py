@@ -6,14 +6,13 @@ from the browser. Only server-observed, actor-bound catalog IDs are selectable.
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ...import_sessions import StageTooLarge, ImportSessions
 from ...source_catalog_med import IngestError
-from ...source_site_profiles import public_site_profiles
+from ...source_site_profiles import SITE_PROFILES, public_site_profiles
 from ...source_request_limiter import SourceSiteBusy
 from ...source_collect import fetch_catalog, collect_selected
 from ...source_selection_store import (SourceSelectionMissing, SourceSelectionExpired,
@@ -25,13 +24,18 @@ from ...source_site_storage import (
 from ..dependencies import require_member, get_import_sessions
 
 router = APIRouter(prefix="/v1/source-books", dependencies=[Depends(require_member)])
-SourceName = Literal["royalroad", "webnovel", "uukanshu"]
-
 
 class InspectSourceBook(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    source: SourceName
+    source: str = Field(min_length=2, max_length=32)
     book_url: str = Field(min_length=16, max_length=2048)
+
+    @field_validator('source')
+    @classmethod
+    def allow_registered_source_only(cls, source: str) -> str:
+        if source not in SITE_PROFILES:
+            raise ValueError('Source profile is not enabled')
+        return source
 
 
 class SaveSelectionPlan(BaseModel):
