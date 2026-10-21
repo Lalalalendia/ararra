@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 from .source_catalog_med import IngestError, make_adapter, validate_url, source_book_id
 from .source_toc_discovery import merge_observed_pages, discover_pages
+from .source_chapter_parts import fetch_complete_chapter
 from .source_catalog_semantics import CatalogSemanticEntry, semantic_catalog_sha256
 
 MAX_CHAPTERS = 100
@@ -178,10 +179,9 @@ async def collect_selected(
         if adapter.book_id != source_book_id(ch.url, catalog.source):
             raise ValueError("Cross-book chapter URL rejected")
         try:
-            page = await fetch_html(ch.url)
-            if not 0 < len(page) <= MAX_HTML_CHARS:
-                raise ValueError("Chapter HTML outside safety limits")
-            body = adapter.parse_body(page)
+            body = await fetch_complete_chapter(
+                catalog.source, catalog.book_url, ch.url, fetch_html,
+            )
             if not min_body_chars <= len(body) <= MAX_BODY_CHARS:
                 raise ValueError("Missing, truncated or oversized chapter text")
             digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
