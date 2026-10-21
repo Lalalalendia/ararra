@@ -1,6 +1,9 @@
 name: Rust API migration parity
 on:
   push:
+    # Avoid duplicate heavy Rust parity runs for the same PR commit.
+    # Feature branches are validated by pull_request, main by push.
+    branches: [main]
     paths:
       - 'rust/**'
       - 'scripts/compare_rust_*.py'

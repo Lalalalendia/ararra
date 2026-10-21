@@ -88,3 +88,17 @@ def test_m0_inventory_contains_no_token_or_chapter_text():
     assert "synthetic-local-key" not in serialized
     assert "contract-admin" not in serialized
     assert "chapter_text" not in serialized
+
+
+def test_m0_rust_fence_scan_rejects_a_late_unguarded_route(tmp_path):
+    original = inventory.RUST_API.read_text(encoding="utf-8")
+    after = tmp_path / "late_route.rs"
+    after.write_text(
+        original + '\n.route("/v1/jobs", post(unsafe_live_submit))\n',
+        encoding="utf-8",
+    )
+    rows = inventory._rust_routes(after)
+    matches = [row for row in rows if row["method"] == "POST"
+               and row["path"] == "/v1/jobs"]
+    assert len(matches) == 2
+    assert any(row["mode"] == "read_only_candidate" for row in matches)
