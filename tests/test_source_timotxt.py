@@ -238,7 +238,7 @@ def test_visible_broken_next_page_cannot_be_silently_accepted_as_complete():
             if url == ONE:
                 return page(FIRST_TEXT) + added
             raise AssertionError("Unexpected extra source request " + url)
-        with pytest.raises(IngestError, match="next-page|continuation|Unsafe"):
+        with pytest.raises(IngestError, match=r"(?i)next-page|continuation|unsafe"):
             asyncio.run(fetch_complete_chapter("timotxt", ROOT, ONE, fetch))
         assert calls == [ONE]
 
@@ -273,7 +273,7 @@ def test_unverified_part_links_cannot_turn_partial_raw_into_complete():
             if url == ONE:
                 return page(FIRST_TEXT, next_part=target)
             raise AssertionError("Invalid part was fetched: " + url)
-        with pytest.raises(IngestError, match="next-page|continuation|Unsafe"):
+        with pytest.raises(IngestError, match=r"(?i)next-page|continuation|unsafe"):
             asyncio.run(fetch_complete_chapter("timotxt", ROOT, ONE, bad_fetch))
 
 
