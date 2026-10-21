@@ -132,7 +132,7 @@ class PublicHtmlAdapter:
         # A chapter or navigation URL must never silently become the work root.
         # The chapter URL grammar is validated separately during discovery.
         if source == "ao3" and not re.fullmatch(
-            r"/works/[1-9]\\d*/?", urlsplit(self.book_url).path
+            r"/works/[1-9]\d*/?", urlsplit(self.book_url).path
         ):
             raise ValueError("AO3 import requires the canonical work root URL")
         self.book_id = source_book_id(book_url, source)
