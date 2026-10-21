@@ -5,9 +5,10 @@ import asyncio
 import logging
 import hashlib
 
-from .source_catalog_med import IngestError, make_adapter
+from .source_catalog_med import IngestError
 from .source_request_limiter import SourceSiteBusy
 from .source_collect import MAX_BODY_CHARS
+from .source_chapter_parts import fetch_complete_chapter
 from .source_job_store import SourceJobStore, SourceJobConflict, MAX_ITEM_BYTES
 
 log = logging.getLogger(__name__)
@@ -29,9 +30,10 @@ class SourceCollectionWorker:
         token = claim["lease_token"]
         ch = claim["chapter"]
         try:
-            adapter = make_adapter(claim["source"], claim["book_url"])
-            page = await self.fetcher.fetch(claim["source"],ch["url"])
-            body = adapter.parse_body(page)
+            body = await fetch_complete_chapter(
+                claim["source"], claim["book_url"], ch["url"],
+                lambda url: self.fetcher.fetch(claim["source"], url),
+            )
             if not 100 <= len(body) <= MAX_BODY_CHARS:
                 raise IngestError("too_short", "Source chapter has invalid character length")
             if len(body.encode("utf-8")) > MAX_ITEM_BYTES:
