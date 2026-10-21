@@ -21,7 +21,10 @@ async def fetch_complete_chapter(
     book_url: str,
     chapter_url: str,
     fetch_html: Callable[[str], Awaitable[str]],
+    *, allow_unverified_timotxt: bool = False,
 ) -> str:
+    if allow_unverified_timotxt and source != "timotxt":
+        raise ValueError("Unverified chapter collection is Timotxt-only")
     adapter = make_adapter(source, book_url)
     validate_url(chapter_url, source)
     if source_book_id(chapter_url, source) != adapter.book_id:
@@ -36,7 +39,10 @@ async def fetch_complete_chapter(
         page = await fetch_html(current)
         if not 0 < len(page) <= MAX_PART_HTML_CHARS:
             raise IngestError("catalog_incomplete", "Source chapter part HTML outside limits")
-        part_body = adapter.parse_body(page)
+        # Never use permissive extraction for synchronous Stage/Confirm or
+        # unrelated source sites. The worker saves suspect RAW only in review.
+        part_body = (adapter.extract_unverified_body(page)
+                     if allow_unverified_timotxt else adapter.parse_body(page))
         # A second URL returning exactly the first part is a common cached
         # or broken pagination response, not verified additional source text.
         # Never store doubled prose as a completed chapter.
