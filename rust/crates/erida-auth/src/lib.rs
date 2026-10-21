@@ -82,6 +82,39 @@ impl From<rusqlite::Error> for AuthFailure {
     }
 }
 
+/// Read-only administrator member projection. Mirrors Python
+/// TeamCredentials.list_members exactly while excluding credential digests.
+pub fn list_members(
+    db: &Connection,
+    cfg: &AuthConfig,
+) -> Result<serde_json::Value, AuthFailure> {
+    use serde_json::{json, Value};
+    let mut members: BTreeMap<String, (bool, bool)> = BTreeMap::new();
+    for member in cfg.team_tokens.keys() {
+        members.insert(member.to_owned(), (true, false));
+    }
+    let mut stmt = db.prepare(
+        "SELECT member_id,active,token_sha256 FROM team_access_credentials",
+    )?;
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let member: String = row.get(0)?;
+        let active: i64 = row.get(1)?;
+        let token: Option<String> = row.get(2)?;
+        members.insert(member, (active != 0, token.is_some_and(|s| !s.is_empty())));
+    }
+    let result: Vec<Value> = members.into_iter().map(|(member, (active, managed))| {
+        let admin = !cfg.admin_member_id.is_empty() && member == cfg.admin_member_id;
+        json!({
+            "member_id": member,
+            "role": if admin { "admin" } else { "moderator" },
+            "status": if admin || active { "active" } else { "disabled" },
+            "credential_source": if managed { "managed" } else { "configuration" },
+        })
+    }).collect();
+    Ok(json!({"members": result}))
+}
+
 /// Purpose-separated CSRF proof must match the Python TeamSessions digest.
 /// Mirrors TeamCredentials.is_active without revealing managed token hashes.
 /// Moderator ownership is distinct from ordinary authentication.
@@ -312,6 +345,42 @@ mod tests {
         .unwrap();
         assert!(authenticate(None, Some(cookie), &db, &cfg).is_err());
         assert!(authenticate(Some("re_rotated"), None, &db, &cfg).is_ok());
+    }
+
+    #[test]
+    fn member_listing_matches_python_admin_static_managed_disabled_semantics() {
+        let db = database();
+        let cfg = cfg();
+        let original = list_members(&db, &cfg).unwrap();
+        assert_eq!(original["members"].as_array().unwrap().len(), 2);
+        assert_eq!(original["members"][0]["member_id"], "chief");
+        assert_eq!(original["members"][0]["role"], "admin");
+        assert_eq!(original["members"][1]["credential_source"], "configuration");
+
+        db.execute(
+            "INSERT INTO team_access_credentials(member_id,active,token_sha256) VALUES('new_mod',1,'digest-only')",
+            [],
+        ).unwrap();
+        db.execute(
+            "INSERT INTO team_access_credentials(member_id,active,token_sha256) VALUES('mod',0,NULL)",
+            [],
+        ).unwrap();
+        // A damaged override row must never disable the configured administrator.
+        db.execute(
+            "INSERT INTO team_access_credentials(member_id,active,token_sha256) VALUES('chief',0,NULL)",
+            [],
+        ).unwrap();
+        let got = list_members(&db, &cfg).unwrap();
+        assert_eq!(got["members"].as_array().unwrap().len(), 3);
+        assert_eq!(got["members"][0]["role"], "admin");
+        assert_eq!(got["members"][0]["status"], "active");
+        assert_eq!(got["members"][1]["member_id"], "mod");
+        assert_eq!(got["members"][1]["status"], "disabled");
+        assert_eq!(got["members"][1]["credential_source"], "configuration");
+        assert_eq!(got["members"][2]["member_id"], "new_mod");
+        assert_eq!(got["members"][2]["credential_source"], "managed");
+        let text = got.to_string();
+        assert!(!text.contains("digest-only"), "Credentials must never leak");
     }
 
     #[test]
