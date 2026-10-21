@@ -191,6 +191,20 @@ async fn me(State(state): State<AppState>, headers: HeaderMap) -> Result<Respons
     .await
 }
 
+/// Administrator-only read of team membership; no token or digest values.
+async fn admin_members(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    secured_read(state, headers, |db, actor, auth| {
+        if auth.admin_member_id.is_empty() || actor != auth.admin_member_id {
+            return Err(ApiError::ForbiddenAdmin);
+        }
+        erida_auth::list_members(db, auth).map_err(|_| ApiError::Unavailable)
+    })
+    .await
+}
+
 #[derive(Deserialize, Default)]
 struct JobQuery {
     limit: Option<i64>,
@@ -238,6 +252,7 @@ pub fn app(state: AppState) -> Router {
     let mut app = Router::new()
         .route("/healthz", get(health))
         .route("/v1/me", get(me))
+        .route("/v1/admin/members", get(admin_members))
         .route("/v1/jobs", get(jobs))
         .route("/v1/jobs/{job_id}", get(job))
         .route("/v1/jobs/{job_id}/events", get(job_events))
