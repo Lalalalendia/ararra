@@ -9,6 +9,7 @@ from .source_catalog_med import IngestError
 from .source_request_limiter import SourceSiteBusy
 from .source_collect import MAX_BODY_CHARS
 from .source_chapter_parts import fetch_complete_chapter
+from .source_timotxt_normalization import has_suspect_glyphs
 from .source_job_store import SourceJobStore, SourceJobConflict, MAX_ITEM_BYTES
 
 log = logging.getLogger(__name__)
@@ -33,14 +34,24 @@ class SourceCollectionWorker:
             body = await fetch_complete_chapter(
                 claim["source"], claim["book_url"], ch["url"],
                 lambda url: self.fetcher.fetch(claim["source"], url),
+                allow_unverified_timotxt=(claim["source"] == "timotxt"),
             )
             if not 100 <= len(body) <= MAX_BODY_CHARS:
                 raise IngestError("too_short", "Source chapter has invalid character length")
             if len(body.encode("utf-8")) > MAX_ITEM_BYTES:
                 raise IngestError("too_large", "Source chapter exceeds durable size limit")
-            result = self.jobs.finish(job_id,token,body=body)
-            log.info("source chapter checkpoint saved: job=%s ordinal=%s %s/%s",
-                     job_id,ch["ordinal"],result["completed"],result["total"])
+            if claim["source"] == "timotxt" and has_suspect_glyphs(body):
+                result = self.jobs.finish(
+                    job_id, token, error="needs_review", review_raw=body,
+                )
+                log.info(
+                    "source chapter held for review: job=%s ordinal=%s snapshots=%s",
+                    job_id, ch["ordinal"], result["review_snapshots"],
+                )
+            else:
+                result = self.jobs.finish(job_id,token,body=body)
+                log.info("source chapter checkpoint saved: job=%s ordinal=%s %s/%s",
+                         job_id,ch["ordinal"],result["completed"],result["total"])
         except SourceSiteBusy as exc:
             # An upstream throttle or our own site budget is NOT a corrupt
             # chapter: release the job lease and retry later, without burning
