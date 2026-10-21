@@ -7,6 +7,7 @@ mod book;
 mod chapter_write;
 mod accepted;
 mod editorial;
+mod session;
 mod book_export;
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -25,6 +26,8 @@ pub struct AppState {
     db_path: Arc<PathBuf>,
     auth: Arc<AuthConfig>,
     test_writes_enabled: bool,
+    browser_session_ttl_seconds: i64,
+    browser_session_secure: bool,
 }
 
 impl AppState {
@@ -36,6 +39,18 @@ impl AppState {
             return Err("Existing SQLite database is required for Rust read-only mode".into());
         }
         let config = AuthConfig::from_env()?;
+        let browser_session_ttl_seconds: i64 = std::env::var(
+            "CHAPTERA_BROWSER_SESSION_TTL_SECONDS"
+        ).unwrap_or_else(|_| "43200".to_owned()).parse()
+            .map_err(|_| "Invalid browser session TTL")?;
+        if !(300..=604800).contains(&browser_session_ttl_seconds) {
+            return Err("Invalid browser session TTL".into());
+        }
+        let browser_session_secure = matches!(
+            std::env::var("CHAPTERA_BROWSER_SESSION_SECURE")
+                .unwrap_or_else(|_| "1".to_owned()).trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        );
         let test_writes_enabled = std::env::var("ERIDA_RUST_TEST_WRITES")
             .is_ok_and(|value| value == "1");
         if test_writes_enabled {
@@ -64,6 +79,8 @@ impl AppState {
             db_path: Arc::new(path),
             auth: Arc::new(config),
             test_writes_enabled,
+            browser_session_ttl_seconds,
+            browser_session_secure,
         })
     }
 }
@@ -84,6 +101,10 @@ pub enum ApiError {
     ChapterNotFound,
     AcceptedRevisionNotFound,
     ExportNotReady(Value),
+    SessionRequired,
+    LoginInvalidKey,
+    CrossSiteLogin,
+    LoginRateLimit(u64),
     ReviewNoteNotFound,
     BookConflict(&'static str),
     InvalidOwner,
@@ -108,6 +129,21 @@ impl From<StoreError> for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
+        if let ApiError::LoginRateLimit(after) = &self {
+            let mut response = (
+                StatusCode::TOO_MANY_REQUESTS,
+                [(header::CACHE_CONTROL, "private, no-store"),
+                 (header::PRAGMA, "no-cache"),
+                 (header::REFERRER_POLICY, "no-referrer")],
+                Json(json!({"detail": "Слишком много попыток входа"})),
+            ).into_response();
+            response.headers_mut().insert(
+                header::RETRY_AFTER,
+                axum::http::HeaderValue::from_str(&after.to_string())
+                    .unwrap_or(axum::http::HeaderValue::from_static("900")),
+            );
+            return response;
+        }
         if let ApiError::ExportNotReady(ref preview) = self {
             return (
                 StatusCode::CONFLICT,
@@ -139,6 +175,10 @@ impl IntoResponse for ApiError {
             ApiError::ChapterNotFound => (StatusCode::NOT_FOUND, "Chapter not found"),
             ApiError::AcceptedRevisionNotFound => (StatusCode::NOT_FOUND, "Accepted revision not found"),
             ApiError::ReviewNoteNotFound => (StatusCode::NOT_FOUND, "Review note not found"),
+            ApiError::SessionRequired => (StatusCode::UNAUTHORIZED, "Действующая сессия необходима"),
+            ApiError::LoginInvalidKey => (StatusCode::UNAUTHORIZED, "Неверный ключ участника"),
+            ApiError::CrossSiteLogin => (StatusCode::FORBIDDEN, "Cross-site login forbidden"),
+            ApiError::LoginRateLimit(_) => (StatusCode::TOO_MANY_REQUESTS, "Слишком много попыток входа"),
             // Early-response branch above handles its structured body; keep match exhaustive.
             ApiError::ExportNotReady(_) => (StatusCode::CONFLICT, "Book export is incomplete or changed after preview"),
             ApiError::BookConflict(reason) => (StatusCode::CONFLICT, *reason),
@@ -289,6 +329,7 @@ pub fn app(state: AppState) -> Router {
     let mut app = Router::new()
         .route("/healthz", get(health))
         .route("/v1/me", get(me))
+        .route("/v1/session", get(session::read))
         .route("/v1/admin/members", get(admin_members))
         .route("/v1/jobs", get(jobs))
         .route("/v1/jobs/{job_id}", get(job))
@@ -305,6 +346,8 @@ pub fn app(state: AppState) -> Router {
         .route("/v1/books/{book_id}/chapters/{chapter_id}/accepted-revisions/{revision}", get(editorial::read_accepted_version));
     if state.test_writes_enabled {
         app = app
+            .route("/v1/session", post(session::login))
+            .route("/v1/session/logout", post(session::logout))
             .route("/v1/jobs", post(write::submit))
             .route("/v1/jobs/{job_id}/cancel", post(write::cancel))
             .route("/v1/books", post(book::create))
