@@ -18,8 +18,17 @@ pub async fn preview(
     headers: HeaderMap,
     mut multipart: Multipart,
 ) -> Result<Response, ApiError> {
-    // Authorize before reading upload content; no data is written to SQLite.
-    authenticated_read(state, headers, |_, _, _| Ok(())).await?;
+    // Authorize before parsing the uploaded file. On rejected auth, consume
+    // the strictly capped body in streaming chunks (without allocating a
+    // file buffer). Otherwise HTTP/1.1 uploaders can receive an abrupt
+    // connection reset instead of the 401 response when the peer is still
+    // writing multipart bytes.
+    if let Err(auth_error) = authenticated_read(state, headers, |_, _, _| Ok(())).await {
+        while let Ok(Some(mut ignored)) = multipart.next_field().await {
+            while matches!(ignored.chunk().await, Ok(Some(_))) {}
+        }
+        return Err(auth_error);
+    }
 
     let field = multipart.next_field().await
         .map_err(|error| if error.status() == StatusCode::PAYLOAD_TOO_LARGE {
