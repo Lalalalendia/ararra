@@ -124,3 +124,5 @@ jobs:
         run: python scripts/compare_rust_browser_sessions.py rust/target/release/erida-api
       - name: Verify Rust admin key issue rotate disable, owner handoff and job cancellation
         run: python scripts/compare_rust_admin_credentials.py rust/target/release/erida-api
+      - name: Verify Rust-only cookie browser API book journey without Python HTTP
+        run: python scripts/verify_rust_native_cookie_book_e2e.py rust/target/release/erida-api
