@@ -1,5 +1,6 @@
 //! Read-only parity for ReadEra's existing team-key and browser-session auth.
 //! Do not issue tokens, change sessions or relax revocation on the Rust side.
+pub mod management;
 use rusqlite::{Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
 use hmac::{Hmac, Mac};
