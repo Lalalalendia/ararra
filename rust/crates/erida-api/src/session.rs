@@ -189,10 +189,14 @@ pub async fn login(
     {
         return Err(ApiError::CrossSiteLogin);
     }
+    // For reverse-proxied login, require an explicitly trusted loopback
+    // proxy header before any key validation or SQLite throttle mutation.
+    let remote = super::peer_identity::login_client_ip(
+        peer, &headers, state.trust_loopback_proxy_client_ip,
+    )?;
     let (raw, details, ttl, secure) = tokio::task::spawn_blocking(move || {
         let mut db = erida_store::open_disposable_writer(state.db_path.as_path())
             .map_err(|_| ApiError::Unavailable)?;
-        let remote = peer.ip().to_string();
         throttle_begin(&mut db, &remote)?;
         let member = match erida_auth::authenticate(
             Some(&body.api_key), None, &db, &state.auth,
