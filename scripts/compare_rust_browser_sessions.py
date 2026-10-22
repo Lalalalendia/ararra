@@ -138,6 +138,22 @@ async def exercise(app, db_path: Path, endpoint: str) -> None:
         new_cookie = {"Cookie": "readera_session=" +
                                new_login.cookies.get("readera_session")}
         assert (await py.get(ROOT, headers=new_cookie)).status_code == 200
+        # Owner protection is not an auth failure: moderator's book must be
+        # reassigned to a distinct active moderator before disabling them.
+        denied_owner = await py.post("/v1/admin/members/mod/disable", headers=admin)
+        assert denied_owner.status_code == 409
+        assert denied_owner.json()["detail"] == (
+            "Reassign owned books before disabling this moderator"
+        )
+        spare = await py.post("/v1/admin/members", headers=admin,
+                              json={"member_id": "spare"})
+        assert spare.status_code == 201, spare.text
+        handed_over = await py.put(
+            "/v1/books/m1g-cookie/owner", headers=admin,
+            json={"owner_member_id": "spare", "expected_owner_revision": 0},
+        )
+        assert handed_over.status_code == 200, handed_over.text
+        assert handed_over.json()["owner_member_id"] == "spare"
         disabled = await py.post("/v1/admin/members/mod/disable", headers=admin)
         assert disabled.status_code == 200, disabled.text
         assert (await rs.get(ROOT, headers=new_cookie)).status_code == 401
@@ -145,7 +161,15 @@ async def exercise(app, db_path: Path, endpoint: str) -> None:
 
         # Failures charged by Python and Rust share the same SQLite peer budget.
         # Two implementations cannot bypass each other's lock by alternating.
-        for i in range(8):
+        # Earlier invalid logins may already consume part of the 8-failure
+        # threshold; use the persisted shared counter instead of assuming zero.
+        with sqlite3.connect(db_path) as con:
+            existing_failures = con.execute(
+                "SELECT failures FROM browser_login_rate"
+            ).fetchone()[0]
+        assert 0 <= existing_failures < 8
+        remaining = 8 - existing_failures
+        for i in range(remaining):
             client = py if i % 2 else rs
             fail = await client.post(ROOT, json={"api_key": "not-valid"},
                                      headers={"X-Forwarded-For": f"198.51.100.{i+1}"})
