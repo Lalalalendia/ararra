@@ -31,7 +31,7 @@ fn main() {
     shell = uncomment(shell.replace(include, &partial));
     assert_eq!(shell.matches("{{ active_page }}").count(), 1);
     let checked = shell.replace("{{ active_page }}", "overview");
-    assert!(!["{{", "{%", "{#"].iter().any(|tag| checked.contains(tag)),
+    assert!(!["{{", "{%", "{#"].iter().any(|tag| checked.contains(*tag)),
         "New Jinja directives require explicit native renderer support");
     let body = "<body data-initial-page=";
     assert_eq!(shell.matches(body).count(), 1);
