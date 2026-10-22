@@ -6,6 +6,8 @@ on:
     branches: [main]
     paths:
       - 'rust/**'
+      # erida-api/build.rs embeds the canonical UI at compile time.
+      - 'src/chaptera_server/web_ui/**'
       - 'scripts/compare_rust_*.py'
       - 'scripts/rust_contract_inventory.py'
       - 'tests/test_rust_contract_inventory.py'
@@ -21,6 +23,8 @@ on:
   pull_request:
     paths:
       - 'rust/**'
+      # erida-api/build.rs embeds the canonical UI at compile time.
+      - 'src/chaptera_server/web_ui/**'
       - 'scripts/compare_rust_*.py'
       - 'scripts/rust_contract_inventory.py'
       - 'tests/test_rust_contract_inventory.py'
