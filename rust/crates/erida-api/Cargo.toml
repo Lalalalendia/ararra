@@ -10,7 +10,7 @@ license.workspace = true
 erida-auth = { path = "../erida-auth" }
 erida-store = { path = "../erida-store" }
 erida-library = { path = "../erida-library" }
-axum = { version = "0.8", features = ["http1", "json", "tokio", "query"] }
+axum = { version = "0.8", features = ["http1", "json", "tokio", "query", "multipart"] }
 tokio = { version = "1.47", features = ["rt", "macros", "net", "signal"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

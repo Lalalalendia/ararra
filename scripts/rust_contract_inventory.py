@@ -284,11 +284,16 @@ def validate_inventory(report: dict) -> list[str]:
         )
     if len(set(r_pairs)) != len(r_pairs):
         problems.append("Duplicate Rust method/path route")
+    # Read-only POST is permitted only for an explicit, reviewed preview
+    # endpoint. No staging, confirmation, DB write or job mutation qualifies.
+    read_only_post_allowlist = {("POST", "/v1/imports/preview")}
     for row in rust:
         pair = (row["method"], row["path"])
         if pair not in api:
             problems.append(f"Rust route has no Python reference: {pair}")
-        if row["method"] != "GET" and row["mode"] != "disposable_test_writes":
+        if (row["method"] != "GET"
+                and row["mode"] != "disposable_test_writes"
+                and pair not in read_only_post_allowlist):
             problems.append(f"Rust unsafe write outside disposable fence: {pair}")
     for row in python:
         if row["auth"] == "UNREVIEWED":

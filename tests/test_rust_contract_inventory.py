@@ -55,7 +55,10 @@ def test_m0_rust_mutations_cannot_be_mistaken_for_live_methods():
     report = inventory.build_inventory()
     for row in report["rust_routes"]:
         if row["method"] != "GET":
-            assert row["mode"] == "disposable_test_writes"
+            if (row["method"], row["path"]) == ("POST", "/v1/imports/preview"):
+                assert row["mode"] == "read_only_candidate"
+            else:
+                assert row["mode"] == "disposable_test_writes"
         assert row["behavior_parity"] == "not_proven_by_route_inventory"
     assert all(
         row["runtime_errors"] == "needs_differential_tests"
@@ -102,3 +105,18 @@ def test_m0_rust_fence_scan_rejects_a_late_unguarded_route(tmp_path):
                and row["path"] == "/v1/jobs"]
     assert len(matches) == 2
     assert any(row["mode"] == "read_only_candidate" for row in matches)
+
+def test_m1n_read_only_post_allowlist_is_exact_and_other_writes_fail_closed():
+    report = inventory.build_inventory()
+    allowed = [row for row in report["rust_routes"]
+               if row["method"] == "POST"
+               and row["mode"] == "read_only_candidate"]
+    assert [(row["method"], row["path"]) for row in allowed] == [
+        ("POST", "/v1/imports/preview")
+    ]
+    modified = json.loads(json.dumps(report))
+    modified["rust_routes"].append({
+        "method": "POST", "path": "/v1/imports/stages",
+        "mode": "read_only_candidate", "behavior_parity": "unproven",
+    })
+    assert any("unsafe write" in error for error in inventory.validate_inventory(modified))
