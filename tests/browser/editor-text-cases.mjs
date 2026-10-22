@@ -41,8 +41,11 @@ export const cases=[
 ];
 for(let i=0;i<24;i++){
   const atoms=['Слово','"цитата"',"'слово'",'A & B','<p>литерал</p>','&amp;lt;'];
-  cases.push({id:'combination-'+i,text:atoms[i%6]+'\n'+atoms[(i+1)%6]+'\n\n'+atoms[(i+3)%6]+'.'});
+  const third=(i+Math.floor(i/6)+3)%6;
+  cases.push({id:'combination-'+i,text:atoms[i%6]+'\n'+atoms[(i+1)%6]+'\n\n'+atoms[third]+'.'});
 }
+assert.equal(new Set(cases.map(c=>textToEditorHTML(c.text))).size,cases.length,
+  'Every corpus case must exercise distinct encoded input');
 export const rejectedHtml=[
   '<p> </p>', '<p>&unknown;</p>', '<p>&amp</p>', '<p>&#x3c;script&#x3e;</p>',
   '<p onclick="x">Text</p>', '<p>Text<br onclick="x">next</p>',
