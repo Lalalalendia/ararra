@@ -49,6 +49,15 @@ fn potentially_unproved_heading(line: &str) -> bool {
         || trimmed.starts_with("上架感言")
         || trimmed.starts_with("请假")
         || trimmed.starts_with("新书已发")
+        || trimmed.starts_with("完本感言")
+        || trimmed.starts_with("停更通知")
+        || trimmed.starts_with("停更说明")
+        || trimmed.starts_with("更新通知")
+        || trimmed.starts_with("更新说明")
+        || trimmed.starts_with("群炸了")
+        || trimmed.starts_with("电脑炸了")
+        || trimmed.starts_with("没办法再请天假")
+        || trimmed.starts_with("罪己诏")
 }
 
 fn plain_text(lines: &[String]) -> String {
@@ -266,7 +275,9 @@ mod tests {
     fn unknown_heading_types_and_unsafe_formats_are_rejected() {
         for input in ["Глава 1. Название\nТекст", "# Глава 1\nТекст",
                       "第一章\n文本", "Chapter 1: Title\nText",
-                      "Глава 1\nA\nChapter 2 - finale\nB"] {
+                      "Глава 1\nA\nChapter 2 - finale\nB",
+                      "完本感言\n感谢支持", "停更通知\n明天恢复",
+                      "罪己诏\n作者说明"] {
             assert_eq!(preview_txt("book.txt", input.as_bytes()).unwrap_err(),
                        PreviewError::Invalid("Unproved TXT chapter heading"));
         }
