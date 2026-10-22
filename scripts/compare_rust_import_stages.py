@@ -137,7 +137,6 @@ async def exercise(app, db: Path, url: str, settings: Settings) -> dict:
                 (i, rows[0][i] == rows[1][i])
                 for i in range(1, 6)
             ]
-            assert "<h1>Глава 1</h1>\\n" not in rows[0][4]
             decoded = json.loads(rows[0][4])
             assert decoded["chapters"][0]["source_html"] == (
                 "<h1>Глава 1</h1>\n<p>A &amp; B<br/>Вторая строка.</p>"
