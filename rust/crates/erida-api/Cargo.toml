@@ -1,6 +1,7 @@
 [package]
 name = "erida-api"
 version = "0.1.0"
+default-run = "erida-api"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

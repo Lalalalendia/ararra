@@ -1,0 +1,43 @@
+name: Rust UI Chromium acceptance
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+jobs:
+  native-ui:
+    name: Native Rust UI real Chromium
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test native renderer and build disposable preview
+        run: |
+          cargo test --manifest-path rust/Cargo.toml -p erida-api --all-targets
+          cargo build --release --manifest-path rust/Cargo.toml -p erida-api --bin erida-ui-preview
+      - name: Install schema bootstrap and browser harness
+        run: |
+          python -m pip install -e .
+          npm install --prefix tests/browser --no-audit --no-fund --ignore-scripts
+          google-chrome --version
+      - name: Real UI actions through Rust, without Python HTTP
+        run: python scripts/verify_rust_ui_browser.py rust/target/release/erida-ui-preview
+      - name: Safe browser evidence, no key fields or trace
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: erida-rust-ui-chromium-evidence
+          path: tests/browser/artifacts/rust-ui/
+          if-no-files-found: ignore
+          retention-days: 7
