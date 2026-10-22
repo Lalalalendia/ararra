@@ -1,10 +1,16 @@
-//! RUST-02e: source-revision-fenced accepted translation writes.
-//! Only a proven-visible plain HTML paragraph subset is supported until
-//! Python BeautifulSoup text semantics have full cross-runtime parity.
+//! RUST-02e/M1l: source-revision-fenced accepted translation writes.
+//! The exact safe textarea language is shared with export. Legacy proven
+//! plain paragraphs remain supported; arbitrary HTML remains fail-closed.
 use super::{get_chapter, now, LibraryError};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
+#[path = "editor_html.rs"]
+pub(crate) mod editor_html;
+
 fn visible_text_proven(html: &str) -> bool {
+    if let Some(parsed) = editor_html::parse(html) {
+        return parsed.has_text();
+    }
     if !html.starts_with("<p>") || !html.ends_with("</p>") {
         return false;
     }
@@ -24,8 +30,6 @@ fn visible_text_proven(html: &str) -> bool {
             return false;
         }
         if !text.chars().any(char::is_alphanumeric) {
-            // Conservatively reject punctuation-only markup even though
-            // some such text is valid under Python's broader policy.
             return false;
         }
         visible_paragraphs += 1;
@@ -35,7 +39,8 @@ fn visible_text_proven(html: &str) -> bool {
 }
 
 /// Preserve Python accept_translation transaction and immutable history.
-/// The existing chapter source and glossary remain untouched.
+/// The existing chapter source and glossary remain untouched. In particular,
+/// entity decoding for validation must never rewrite the stored HTML bytes.
 pub fn accept_translation_conservative(
     db: &mut Connection,
     book_id: &str,
@@ -183,9 +188,9 @@ mod tests {
     #[test]
     fn unsupported_html_is_rejected_without_writing() {
         let mut con=db();
-        for html in ["<p> </p>","<p>&amp;</p>",
+        for html in ["<p> </p>","<p>&unknown;</p>",
             "<div>Готово.</div>","<p>Готово <b>да</b></p>",
-            "<p>!</p>"
+            "<p onclick='x'>Готово.</p>","<p>Текст<br onclick='x'>Далее</p>"
         ] {
             assert!(matches!(
                 accept_translation_conservative(&mut con,"b","c",html,0,1,"mod"),
@@ -200,5 +205,21 @@ mod tests {
             "SELECT COUNT(*) FROM book_accepted_revisions",[],|row|row.get(0)
         ).unwrap();
         assert_eq!(count,0);
+    }
+
+    #[test]
+    fn textarea_html_is_stored_and_audited_without_entity_rewriting() {
+        let mut con = db();
+        let raw = "<p>Кавычки &quot;да&quot; &amp; &#39;нет&#39;.</p>\n<p>Строка<br>Продолжение &lt;текст&gt;.</p>";
+        let accepted = accept_translation_conservative(&mut con,"b","c",raw,0,1,"mod").unwrap();
+        assert_eq!(accepted["accepted_html"], raw);
+        let history: String = con.query_row(
+            "SELECT translated_html FROM book_accepted_revisions WHERE revision=1",
+            [], |row| row.get(0),
+        ).unwrap();
+        assert_eq!(history, raw);
+        assert_eq!(accept_translation_conservative(&mut con,"b","c",raw,1,1,"mod").unwrap(), accepted);
+        assert!(visible_text_proven("<p>&amp;</p>"));
+        assert!(visible_text_proven("<p>!</p>"));
     }
 }

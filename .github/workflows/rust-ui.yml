@@ -22,15 +22,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Test native renderer and build disposable preview
+      - name: Test native renderer and editor grammar; build API and preview
         run: |
-          cargo test --manifest-path rust/Cargo.toml -p erida-api --all-targets
-          cargo build --release --manifest-path rust/Cargo.toml -p erida-api --bin erida-ui-preview
+          cargo test --manifest-path rust/Cargo.toml -p erida-api -p erida-library --all-targets
+          cargo build --release --manifest-path rust/Cargo.toml -p erida-api --bins
       - name: Install schema bootstrap and browser harness
         run: |
           python -m pip install -e .
           npm install --prefix tests/browser --no-audit --no-fund --ignore-scripts
           google-chrome --version
+      - name: Exact textarea acceptance, history and Python export bytes
+        run: python scripts/compare_rust_editor_html.py rust/target/release/erida-api
       - name: Real UI actions through Rust, without Python HTTP
         run: python scripts/verify_rust_ui_browser.py rust/target/release/erida-ui-preview
       - name: Safe browser evidence, no key fields or trace

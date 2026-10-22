@@ -1,12 +1,14 @@
 /** Real existing UI in Chromium, all requests handled by the Rust preview.
  * No page.route().fulfill, fake backend, injected CSRF or programmatic UI writes.
  * The Python launcher creates only a fixture book/source via Rust HTTP first.
+ * M1l extends this same accepted gate to normal multi-paragraph editor text.
  */
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {chromium} from 'playwright';
+import {cases,textToEditorHTML} from './editor-text-cases.mjs';
 
 const origin=process.env.READ_E2E_BASE_URL;
 assert.equal(origin,'http://127.0.0.1:18492','test may only target disposable loopback');
@@ -17,8 +19,8 @@ mkdirSync(output,{recursive:true});
 const endpoints=[],pageErrors=[],unexpected=[],headerChecks=[];
 const privateDraft='Private working draft not for export.';
 const privateNote='Private editorial note not for export.';
-const firstAccepted='First accepted translation from real Chromium.';
-const secondAccepted='Second accepted translation from real Chromium.';
+const firstAccepted=cases.find(c=>c.id==='browser-first').text;
+const secondAccepted=cases.find(c=>c.id==='browser-second').text;
 
 async function login(page,key){
   await page.waitForFunction(()=>document.body?.dataset.authReady==='1');
@@ -119,13 +121,13 @@ try{
   assert.equal((await noteChange).status(),200);
   await page.locator('#editor-text').fill(firstAccepted);
   const accepted=await action(page,'PUT','/chapters/c1/accepted-translation',()=>page.locator('#editor-accept').click());
-  assert.equal((await accepted.json()).accepted_revision,1);
+  const acceptedData=await accepted.json();
+  assert.equal(acceptedData.accepted_revision,1);
+  assert.equal(acceptedData.accepted_html,textToEditorHTML(firstAccepted),'store exact UI HTML');
   await page.waitForFunction(()=>document.querySelector('#editor-accepted-rev')?.textContent==='rev 1');
   await page.locator('#editor-draft-stale').waitFor({state:'visible'});
   await screenshot(page,'02-editor.png');
-  // The dropdown changes before the new chapter GET completes. Wait for
-  // actual chapter/draft/history responses and the rendered chapter identity,
-  // otherwise typing can race displayChapter() and be replaced by source load.
+  // Wait for server data and rendered identity, not just the dropdown value.
   const chapterLoaded=page.waitForResponse(r=>r.request().method()==='GET'
     &&new URL(r.url()).pathname==='/v1/books/m1k-book/chapters/c2');
   const draftLoaded=page.waitForResponse(r=>r.request().method()==='GET'
@@ -142,11 +144,19 @@ try{
     &&document.querySelector('#editor-draft-stale')?.hidden===true
     &&document.querySelector('#editor-text')?.value==='');
   await page.locator('#editor-text').fill(secondAccepted);
-  await action(page,'PUT','/chapters/c2/accepted-translation',()=>page.locator('#editor-accept').click());
-  await page.waitForFunction(()=>document.querySelector('#editor-accepted-rev')?.textContent==='rev 1');
+  const secondResponse=await action(page,'PUT','/chapters/c2/accepted-translation',()=>page.locator('#editor-accept').click());
+  assert.equal((await secondResponse.json()).accepted_html,textToEditorHTML(secondAccepted));
+  await page.waitForFunction(()=>document.querySelector('#editor-accepted-rev')?.textContent==='rev 1'
+    &&document.querySelector('#editor-history-list')?.textContent.includes('Ревизия 1'));
+  // Explicitly reread the persisted chapter through the existing UI button.
+  await action(page,'GET','/chapters/c2',()=>page.locator('#editor-reload').click());
+  await page.waitForFunction(expected=>document.querySelector('#editor-text')?.value===expected
+    &&document.querySelector('#editor-info')?.textContent.includes('c2')
+    &&document.querySelector('#editor-history-list')?.textContent.includes('Ревизия 1'),secondAccepted);
+  assert.equal(await page.locator('#editor-text').inputValue(),secondAccepted,'textarea round trip');
+  await screenshot(page,'05-multiline-editor.png');
   await choose(page,'books');
   await page.waitForFunction(()=>document.querySelector('#book-list')?.textContent.includes('2 / 2'));
-  // Browser reload must restore the real HttpOnly cookie without re-entering the key.
   await page.reload();
   await page.locator('#authenticated').waitFor({state:'visible'});
   await page.waitForFunction(()=>document.querySelector('#book-list')?.textContent.includes('2 / 2'));
@@ -171,7 +181,23 @@ try{
     const filename=output+'accepted.'+format;
     await download.saveAs(filename);
     const data=readFileSync(filename),text=data.toString('utf8');
-    assert.ok(text.includes(firstAccepted)&&text.includes(secondAccepted));
+    if(format==='txt'){
+      assert.equal(text,`Глава 1\n\n${firstAccepted}\n\nГлава 2\n\n${secondAccepted}\n`);
+    }else{
+      // Detached, read-only parse verifies real output text, not HTML spelling.
+      const rendered=await page.evaluate(raw=>{
+        const doc=new DOMParser().parseFromString(raw,'text/html');
+        const unsafe=doc.querySelectorAll('script,img,b').length;
+        const chapters=Array.from(doc.querySelectorAll('section')).map(section=>{
+          section.querySelectorAll('br').forEach(br=>br.replaceWith(doc.createTextNode('\n')));
+          return Array.from(section.querySelectorAll('p')).map(p=>p.textContent).join('\n\n');
+        });
+        return {unsafe,chapters};
+      },text);
+      assert.equal(rendered.unsafe,0,'typed markup must remain inert text');
+      assert.deepEqual(rendered.chapters,[firstAccepted,secondAccepted]);
+      assert.ok(text.includes('<br/>')&&text.includes('&amp;')&&text.includes('&lt;b&gt;'));
+    }
     for(const excluded of [privateDraft,privateNote,'Original source'])assert.ok(!text.includes(excluded));
     hashes[format]=createHash('sha256').update(data).digest('hex');
     assert.equal(response.headers()['x-readera-content-sha256'],hashes[format]);
@@ -203,12 +229,14 @@ try{
   assert.ok(endpoints.some(e=>e.path.endsWith('/accepted-translation')&&e.method==='PUT'));
   assert.ok(!endpoints.some(e=>e.path.endsWith('/qa')),'unimplemented QA must never be presented as passed');
   writeFileSync(output+'evidence.json',JSON.stringify({
-    status:'PASS',backend:'Rust only',ui:'canonical existing shell and JS; explicit QA capability adapter',
+    status:'PASS',stage:'M1l',backend:'Rust only',ui:'canonical existing shell and JS; explicit QA capability adapter',
+    editor_coverage:['paragraphs','line breaks','quotes','ampersand','escaped markup','literal entity text','readback'],
     fixture_creation:'Rust HTTP before browser; NOT UI import',
-    limitations:['import','QA','quotas','Gemini','full HTML grammar','live HTTPS/Nginx'],
+    limitations:['import','QA','quotas','Gemini','arbitrary HTML grammar','live HTTPS/Nginx'],
     downloads:hashes,endpoints,pageErrors,unexpected,
   },null,2));
   console.log('rust_chromium_login_team_edit_draft_notes_accept_download_logout=PASS');
+  console.log('rust_chromium_multiline_editor_readback_and_exact_text_exports=PASS');
   console.log('rust_chromium_cookie_restore_mobile_headers_and_no_secret_storage=PASS');
   console.log('python_http_api_used=NO');
 }finally{await browser.close();}

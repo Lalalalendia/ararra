@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import subprocess
 import sys
 import tempfile
 
@@ -121,10 +122,11 @@ async def exercise(app, db_path: Path, endpoint: str, settings: Settings) -> Non
             "/v1/books/acceptance/chapters/one", headers=member
         )).json() == accepted.json()
 
-        # Unsupported markup cannot accidentally pass as a text-only proof.
+        # M1l proves editor &amp; and punctuation as visible text. Keep negative
+        # coverage for UNKNOWN entities and actual executable attributes.
         for index, html in enumerate((
-            "<p> </p>", "<p>&amp;</p>", "<p>Принят <b>перевод</b>.</p>",
-            "<div>Перевод</div>", "Текст без разметки", "<p>!</p>",
+            "<p> </p>", "<p>&unknown;</p>", "<p>Принят <b>перевод</b>.</p>",
+            "<div>Перевод</div>", "Текст без разметки", "<p onclick='x'>Текст.</p>",
         )):
             refused = await rust.put(
                 route, headers=member, json=payload(html, 3, 2),
