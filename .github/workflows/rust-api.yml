@@ -122,3 +122,5 @@ jobs:
 
       - name: Verify Rust browser login, logout, CSRF and shared Python throttle
         run: python scripts/compare_rust_browser_sessions.py rust/target/release/erida-api
+      - name: Verify Rust admin key issue rotate disable, owner handoff and job cancellation
+        run: python scripts/compare_rust_admin_credentials.py rust/target/release/erida-api

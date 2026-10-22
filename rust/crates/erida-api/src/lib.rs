@@ -8,6 +8,7 @@ mod chapter_write;
 mod accepted;
 mod editorial;
 mod session;
+mod admin_credentials;
 mod book_export;
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -106,6 +107,7 @@ pub enum ApiError {
     CrossSiteLogin,
     LoginRateLimit(u64),
     ReviewNoteNotFound,
+    ModeratorNotFound,
     BookConflict(&'static str),
     InvalidOwner,
     ForbiddenAssignment,
@@ -175,6 +177,7 @@ impl IntoResponse for ApiError {
             ApiError::ChapterNotFound => (StatusCode::NOT_FOUND, "Chapter not found"),
             ApiError::AcceptedRevisionNotFound => (StatusCode::NOT_FOUND, "Accepted revision not found"),
             ApiError::ReviewNoteNotFound => (StatusCode::NOT_FOUND, "Review note not found"),
+            ApiError::ModeratorNotFound => (StatusCode::NOT_FOUND, "Moderator not found"),
             ApiError::SessionRequired => (StatusCode::UNAUTHORIZED, "Действующая сессия необходима"),
             ApiError::LoginInvalidKey => (StatusCode::UNAUTHORIZED, "Неверный ключ участника"),
             ApiError::CrossSiteLogin => (StatusCode::FORBIDDEN, "Cross-site login forbidden"),
@@ -348,6 +351,9 @@ pub fn app(state: AppState) -> Router {
         app = app
             .route("/v1/session", post(session::login))
             .route("/v1/session/logout", post(session::logout))
+            .route("/v1/admin/members", post(admin_credentials::issue))
+            .route("/v1/admin/members/{member_id}/rotate", post(admin_credentials::rotate))
+            .route("/v1/admin/members/{member_id}/disable", post(admin_credentials::disable))
             .route("/v1/jobs", post(write::submit))
             .route("/v1/jobs/{job_id}/cancel", post(write::cancel))
             .route("/v1/books", post(book::create))
