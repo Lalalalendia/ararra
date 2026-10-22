@@ -124,7 +124,7 @@ pub fn stage(
     }
 
     let upload_sha = sha(data);
-    let fingerprint = sha(packed(&json!([filename, upload_sha]))?.as_bytes());
+    let fingerprint = sha(packed(&json!([filename, upload_sha.clone()]))?.as_bytes());
     let stamp = now()?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     tx.execute("DELETE FROM book_import_stages WHERE expires_at < ?1",
