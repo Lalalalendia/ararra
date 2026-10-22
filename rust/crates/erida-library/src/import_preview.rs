@@ -30,7 +30,7 @@ fn char_prefix(value: &str, count: usize) -> String {
 fn numbered_heading(line: &str) -> Option<i64> {
     let lower = line.to_lowercase();
     let tail = ["глава ", "chapter "].iter()
-        .find_map(|prefix| lower.strip_prefix(prefix))?;
+        .find_map(|prefix| lower.strip_prefix(*prefix))?;
     if tail.is_empty() || tail.len() > 7 || !tail.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
@@ -105,8 +105,13 @@ pub fn preview_txt(filename: &str, data: &[u8]) -> Result<Value, PreviewError> {
     let decoded = std::str::from_utf8(data)
         .map_err(|_| PreviewError::Invalid("Unsupported TXT encoding in Rust preview"))?;
     let decoded = decoded.strip_prefix('\u{feff}').unwrap_or(decoded);
+    // Python splitlines() recognizes extra Unicode and ASCII separators.
+    // Refuse them until line-splitting semantics are ported exactly.
     if decoded.contains('\0') || decoded.contains('\r') && !decoded.contains("\r\n")
-        || decoded.chars().any(|c| matches!(c, '\u{0085}' | '\u{2028}' | '\u{2029}'))
+        || decoded.chars().any(|c| matches!(c,
+            '\u{000b}' | '\u{000c}' | '\u{001c}' | '\u{001d}' |
+            '\u{001e}' | '\u{0085}' | '\u{2028}' | '\u{2029}'
+        ))
     {
         return Err(PreviewError::Invalid("Unproved TXT line boundaries"));
     }
