@@ -5,6 +5,7 @@ use erida_source_policy::{
     classify_source_text, is_source_boilerplate_text, is_source_tail_boilerplate_text,
 };
 use sha2::{Digest, Sha256};
+pub mod import_txt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CleanError {
