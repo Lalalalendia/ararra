@@ -5,6 +5,7 @@
  * innerHTML. Draft text is kept only in browser memory until accepted.
  */
 import {initEditorialPanels} from './editorial-panels.mjs';
+import {chapterOptionLabel,syncChapterOption} from './editor-chapter-options.mjs';
 
 const $ = id => document.getElementById(id);
 const richPattern = /<(?:a|strong|em|b|i|span|img|table|ul|ol|li|blockquote)\b/i;
@@ -102,6 +103,9 @@ export function initChapterEditor({request,flash,getBooks}) {
   }
   function displayChapter(data){
     chapter=data;chosenChapter=data.chapter_id;
+    // Use the same confirmed snapshot for the card and its navigation label.
+    // This also covers reread and restore; failed writes never enter this path.
+    syncChapterOption(chosenBook,toc,chapterChoice,data);
     $('editor-source').textContent=sourceAsText(data.source_html);
     acceptedText=sourceAsText(data.accepted_html);
     savedText=acceptedText;
@@ -157,10 +161,7 @@ export function initChapterEditor({request,flash,getBooks}) {
     if(ticket!==sequence)return;
     toc=response.chapters || [];
     for(const row of toc){
-      const state=row.accepted_revision>0
-        ? (row.accepted_current?' · принято':' · устарело') : ' · исходник';
-      chapterChoice.append(option(row.chapter_id,
-        'Глава '+row.chapter_index+' · '+row.chapter_id+state));
+      chapterChoice.append(option(row.chapter_id,chapterOptionLabel(row)));
     }
     if(toc.length){
       const target=toc.some(row=>row.chapter_id===requestedChapter)
