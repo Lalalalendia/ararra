@@ -111,10 +111,11 @@ async def exercise(app, db_path: Path, rust_url: str, settings: Settings) -> Non
 
         # This slice does not register stage/confirm routes. A successful
         # preview is never a durable import or a claim of complete UI support.
-        not_staged = await rs.post(
-            "/v1/imports/stages", headers=headers,
-            files={"file": ("book.txt", b"Chapter 1\nText", "text/plain")},
-        )
+        # Prove stage POST is not registered in a *read-only* Rust runtime.
+        # Send no request body: a missing route may reject while the multipart
+        # uploader is still transmitting, causing an HTTP/1.1 transport reset
+        # rather than changing the route's 404/405 semantics.
+        not_staged = await rs.post("/v1/imports/stages", headers=headers)
         assert not_staged.status_code in (404, 405)
 
     with sqlite3.connect(db_path) as con:
