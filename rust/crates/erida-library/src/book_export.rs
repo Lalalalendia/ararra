@@ -1,10 +1,8 @@
-//! RUST-M1f: revision-pinned accepted-book export on an existing SQLite.
+//! RUST-M1f/M1l: revision-pinned accepted-book export on an existing SQLite.
 //!
-//! Scope is intentionally conservative. The Python export accepts and sanitizes
-//! a broad HTML grammar. Rust accepts only well-formed, attribute-free safe tags,
-//! and marks everything else unsafe. It must NEVER silently export a fragment
-//! for which exact safety and byte parity are not proved.
-use super::LibraryError;
+//! The exact textarea grammar has a dedicated parser and Python-compatible
+//! serializer. Other HTML still uses the previously proven conservative gate.
+use super::{acceptance::editor_html, LibraryError};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -111,9 +109,9 @@ fn allowed_tag(name: &str) -> bool {
         "span" | "strong" | "b" | "em" | "i" | "u" | "br" | "hr")
 }
 
-/// Produce EXACT Python plain-text and sanitized HTML only for a proven
-/// attribute-free subset. Unknown HTML, malformed nesting, entities, URLs,
-/// editorial/service markup and source markers all fail closed.
+/// Exact textarea serialization first; other supported HTML retains the
+/// original conservative gate. Source markers and external URLs are checked
+/// BEFORE either parser, so the new grammar cannot bypass export policy.
 fn validated_fragment(raw: &str, chapter_index: i64)
     -> Result<(String, String), &'static str>
 {
@@ -129,8 +127,10 @@ fn validated_fragment(raw: &str, chapter_index: i64)
     if lower.contains("<!") || lower.contains("<?") {
         return Err("comment_or_declaration");
     }
-    // HTML entity decoding and BeautifulSoup's malformed-tree recovery have
-    // not been proved byte-equivalent in Rust. Reject, never treat as text.
+    if let Some(parsed) = editor_html::parse(raw) {
+        return parsed.export(chapter_index);
+    }
+    // Arbitrary entities and parser recovery remain outside the proved grammar.
     if raw.contains('&') || raw.chars().any(|ch|
         ch.is_control() && ch != '\n' && ch != '\t'
     ) {
@@ -219,9 +219,8 @@ fn validated_fragment(raw: &str, chapter_index: i64)
             let following = content[position..]
                 .find('<').map_or(content.len(), |i| position + i);
             let value = &content[position..following];
-            // BeautifulSoup normalizes whitespace-only siblings between
-            // top-level nodes (for example " \n" to "\n"). Until this is
-            // ported exactly, do not copy raw whitespace into an HTML export.
+            // Unknown inter-node whitespace is still unsupported outside the
+            // exact editor language handled above.
             if stack.is_empty() && !value.is_empty() {
                 return Err("rust_unsupported_fragment");
             }
@@ -242,8 +241,6 @@ fn validated_fragment(raw: &str, chapter_index: i64)
         return Err("empty_after_heading");
     }
 
-    // Equivalent to Python's [ \t]+\n, \n[ \t]+, \n{3,} and strip()
-    // for the conservatively admitted character/tag subset.
     let replaced = plain.replace('\u{a0}', " ");
     let joined = replaced.split('\n')
         .map(|line| line.trim_matches(|ch| ch == ' ' || ch == '\t'))
@@ -373,8 +370,6 @@ pub fn inspect_export(
         }
     }
 
-    // serde_json's default Map is sorted (BTreeMap), matching Python's
-    // json.dumps(ensure_ascii=False, sort_keys=True, separators=(",",":")).
     let manifest = json!({
         "schema": "readera-accepted-export-v1",
         "book_id": book_id,
@@ -542,10 +537,19 @@ mod tests {
             "<p>Текст.</p><script>alert(1)</script>",
             "<p onclick=\"evil()\">Текст.</p>",
             "<p>Текст TSEG_12345</p>",
-            "<p>Текст &amp; второй текст.</p>",
+            "<p>Текст &copy; второй текст.</p>",
             "<p>Посетите https://test.example</p>",
         ] {
             assert!(validated_fragment(dangerous, 1).is_err(), "{dangerous}");
         }
+    }
+
+    #[test]
+    fn textarea_normalization_never_changes_the_manifest_input() {
+        let raw = "<p>Один &amp; два.</p>\n<p>&quot;Три&quot;<br>&lt;четыре&gt;</p>";
+        let (plain, html) = validated_fragment(raw, 1).unwrap();
+        assert_eq!(plain, "Один & два.\n\n\"Три\"\n<четыре>");
+        assert_eq!(html, "<p>Один &amp; два.</p>\n<p>\"Три\"<br/>&lt;четыре&gt;</p>");
+        assert_ne!(sha256(raw.as_bytes()), sha256(html.as_bytes()));
     }
 }
