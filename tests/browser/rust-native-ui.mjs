@@ -123,9 +123,24 @@ try{
   await page.waitForFunction(()=>document.querySelector('#editor-accepted-rev')?.textContent==='rev 1');
   await page.locator('#editor-draft-stale').waitFor({state:'visible'});
   await screenshot(page,'02-editor.png');
+  // The dropdown changes before the new chapter GET completes. Wait for
+  // actual chapter/draft/history responses and the rendered chapter identity,
+  // otherwise typing can race displayChapter() and be replaced by source load.
+  const chapterLoaded=page.waitForResponse(r=>r.request().method()==='GET'
+    &&new URL(r.url()).pathname==='/v1/books/m1k-book/chapters/c2');
+  const draftLoaded=page.waitForResponse(r=>r.request().method()==='GET'
+    &&new URL(r.url()).pathname==='/v1/books/m1k-book/chapters/c2/draft');
+  const historyLoaded=page.waitForResponse(r=>r.request().method()==='GET'
+    &&new URL(r.url()).pathname==='/v1/books/m1k-book/chapters/c2/accepted-revisions');
   await page.locator('#editor-next').click();
-  await page.waitForFunction(()=>document.querySelector('#editor-chapter')?.value==='c2');
-  await page.waitForFunction(()=>document.querySelector('#editor-qa-summary')?.textContent.includes('Rust'));
+  for(const response of await Promise.all([chapterLoaded,draftLoaded,historyLoaded])){
+    assert.equal(response.status(),200,'next chapter loading failed');
+  }
+  await page.waitForFunction(()=>document.querySelector('#editor-chapter')?.value==='c2'
+    &&document.querySelector('#editor-info')?.textContent.includes('c2')
+    &&document.querySelector('#editor-accepted-rev')?.textContent==='rev 0'
+    &&document.querySelector('#editor-draft-stale')?.hidden===true
+    &&document.querySelector('#editor-text')?.value==='');
   await page.locator('#editor-text').fill(secondAccepted);
   await action(page,'PUT','/chapters/c2/accepted-translation',()=>page.locator('#editor-accept').click());
   await page.waitForFunction(()=>document.querySelector('#editor-accepted-rev')?.textContent==='rev 1');
@@ -179,7 +194,8 @@ try{
   const [width,viewport]=await small.evaluate(()=>[document.documentElement.scrollWidth,document.documentElement.clientWidth]);
   assert.ok(width<=viewport+2,'mobile page overflows horizontally');
   await screenshot(small,'04-mobile-books.png');
-  await small.locator('#logout').click();
+  await action(small,'POST','/v1/session/logout',()=>small.locator('#logout').click(),204);
+  await small.locator('#login-form').waitFor({state:'visible'});
   await mobile.close();
   await Promise.all(headerChecks);
   assert.deepEqual(pageErrors,[],'browser JS errors');
