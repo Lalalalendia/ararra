@@ -22,6 +22,11 @@ import httpx
 from compare_rust_api import launch, ready
 from chaptera_server.config import Settings
 from chaptera_server.storage import QueueStore
+from chaptera_server.library import BookLibrary
+from chaptera_server.editorial import EditorialStore
+from chaptera_server.team_credentials import TeamCredentials
+from chaptera_server.team_sessions import TeamSessions
+from chaptera_server.team_login_throttle import BrowserLoginThrottle
 
 
 def ok(response: httpx.Response, expected: int, phase: str) -> None:
@@ -400,8 +405,23 @@ def main() -> None:
             admin_member_id="chief",
             browser_session_secure=False,
         )
-        # Only SQLite schema bootstrap; no Python web app or worker is created.
-        QueueStore(db_path)
+        # Schema bootstrap only. These constructors apply the documented
+        # Python SQLite migrations; NO Python ASGI app or HTTP handler is run.
+        queue = QueueStore(db_path)
+        BookLibrary(queue)
+        EditorialStore(queue)
+        TeamCredentials(queue)
+        TeamSessions(queue)
+        BrowserLoginThrottle(queue)
+        with sqlite3.connect(db_path) as db:
+            for table in ("books", "book_chapters", "book_accepted_revisions",
+                          "editor_drafts", "editor_review_notes",
+                          "team_access_credentials", "team_browser_sessions",
+                          "browser_login_rate", "book_glossary_revisions"):
+                assert db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                    (table,),
+                ).fetchone(), f"SQLite bootstrap did not create {table}"
         env = dict(os.environ)
         for key in (
             "CREDENTIALS_DIRECTORY",
