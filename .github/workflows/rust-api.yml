@@ -119,3 +119,6 @@ jobs:
 
       - name: Compare native Rust accepted-book preview and TXT/HTML export with Python
         run: python scripts/compare_rust_book_export.py rust/target/release/erida-api
+
+      - name: Verify Rust browser login, logout, CSRF and shared Python throttle
+        run: python scripts/compare_rust_browser_sessions.py rust/target/release/erida-api
