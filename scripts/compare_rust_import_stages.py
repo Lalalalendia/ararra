@@ -118,6 +118,31 @@ async def exercise(app, db: Path, url: str, settings: Settings) -> dict:
         equal_projection((await py.get(ROUTE + "/" + bob_id, headers=bob)).json(),
                          rust_read_bob.json())
 
+        # Both parsers must store the EXACT canonical chapter HTML, not merely
+        # compatible preview metadata. This payload will later power confirm.
+        reference_same = await py.post(
+            ROUTE, headers=bob,
+            files={"file": ("story.txt", SOURCE, "text/plain")},
+        )
+        assert reference_same.status_code == 201
+        with sqlite3.connect(db) as con:
+            rows = con.execute(
+                "SELECT actor_id,input_fingerprint,original_sha256,"
+                "preview_json,payload_json,prefix_html FROM book_import_stages "
+                "WHERE id IN (?, ?) ORDER BY actor_id",
+                (stage_id, reference_same.json()["stage_id"]),
+            ).fetchall()
+            assert len(rows) == 2
+            assert rows[0][1:] == rows[1][1:], [
+                (i, rows[0][i] == rows[1][i])
+                for i in range(1, 6)
+            ]
+            assert "<h1>Глава 1</h1>\\n" not in rows[0][4]
+            decoded = json.loads(rows[0][4])
+            assert decoded["chapters"][0]["source_html"] == (
+                "<h1>Глава 1</h1>\n<p>A &amp; B<br/>Вторая строка.</p>"
+            )
+
         # Header-key is authorized; admin cookie mutation requires HMAC CSRF.
         admin = await py.post("/v1/session", json={"api_key": settings.team_tokens["chief"]})
         assert admin.status_code == 201
