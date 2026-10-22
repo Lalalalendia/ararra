@@ -126,3 +126,5 @@ jobs:
         run: python scripts/compare_rust_admin_credentials.py rust/target/release/erida-api
       - name: Verify Rust-only cookie browser API book journey without Python HTTP
         run: python scripts/verify_rust_native_cookie_book_e2e.py rust/target/release/erida-api
+      - name: Verify strict loopback proxy identity and shared Python Rust 429 lockout
+        run: python scripts/compare_rust_proxy_login_ip.py rust/target/release/erida-api

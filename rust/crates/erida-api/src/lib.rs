@@ -8,6 +8,7 @@ mod chapter_write;
 mod accepted;
 mod editorial;
 mod session;
+mod peer_identity;
 mod admin_credentials;
 mod book_export;
 use axum::http::{header, HeaderMap, StatusCode};
@@ -29,6 +30,7 @@ pub struct AppState {
     test_writes_enabled: bool,
     browser_session_ttl_seconds: i64,
     browser_session_secure: bool,
+    trust_loopback_proxy_client_ip: bool,
 }
 
 impl AppState {
@@ -52,6 +54,16 @@ impl AppState {
                 .unwrap_or_else(|_| "1".to_owned()).trim().to_ascii_lowercase().as_str(),
             "1" | "true" | "yes" | "on"
         );
+        // Explicit opt-in: the immediate peer must still be loopback, and
+        // Nginx must overwrite X-ReadEra-Client-IP (verified separately).
+        let trust_loopback_proxy_client_ip = match std::env::var(
+            "ERIDA_RUST_TRUST_LOOPBACK_PROXY_CLIENT_IP"
+        ) {
+            Ok(value) if value == "1" => true,
+            Ok(value) if value == "0" => false,
+            Err(std::env::VarError::NotPresent) => false,
+            _ => return Err("Invalid Rust trusted loopback proxy setting".into()),
+        };
         let test_writes_enabled = std::env::var("ERIDA_RUST_TEST_WRITES")
             .is_ok_and(|value| value == "1");
         if test_writes_enabled {
@@ -82,6 +94,7 @@ impl AppState {
             test_writes_enabled,
             browser_session_ttl_seconds,
             browser_session_secure,
+            trust_loopback_proxy_client_ip,
         })
     }
 }
@@ -106,6 +119,7 @@ pub enum ApiError {
     LoginInvalidKey,
     CrossSiteLogin,
     LoginRateLimit(u64),
+    TrustedClientIpUnavailable,
     ReviewNoteNotFound,
     ModeratorNotFound,
     BookConflict(&'static str),
@@ -182,6 +196,7 @@ impl IntoResponse for ApiError {
             ApiError::LoginInvalidKey => (StatusCode::UNAUTHORIZED, "Неверный ключ участника"),
             ApiError::CrossSiteLogin => (StatusCode::FORBIDDEN, "Cross-site login forbidden"),
             ApiError::LoginRateLimit(_) => (StatusCode::TOO_MANY_REQUESTS, "Слишком много попыток входа"),
+            ApiError::TrustedClientIpUnavailable => (StatusCode::BAD_REQUEST, "Trusted client IP unavailable"),
             // Early-response branch above handles its structured body; keep match exhaustive.
             ApiError::ExportNotReady(_) => (StatusCode::CONFLICT, "Book export is incomplete or changed after preview"),
             ApiError::BookConflict(reason) => (StatusCode::CONFLICT, *reason),
