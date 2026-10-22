@@ -280,9 +280,10 @@ def main() -> None:
             with httpx.Client(base_url="http://127.0.0.1:18495") as rust:
                 headers = {"X-API-Key": settings.team_tokens["alice"]}
                 assert rust.get(ROUTE + "/" + owned[0], headers=headers).status_code == 200
-                assert rust.post(ROUTE, headers=headers, files={
-                    "file": ("restarted.txt", SOURCE, "text/plain")
-                }).status_code in (404, 405)
+                # Without the test-write gate the POST route is absent.
+                # Probe without an upload body so the early router rejection
+                # does not race an HTTP/1.1 multipart write.
+                assert rust.post(ROUTE, headers=headers).status_code in (404, 405)
                 assert rust.delete(ROUTE + "/" + owned[0], headers=headers).status_code in (404, 405)
             print("rust_import_stage_restart_readonly_survives=PASS")
         finally:
