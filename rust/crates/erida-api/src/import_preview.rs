@@ -2,7 +2,7 @@
 //! Preview never creates a staging row or modifies a book.
 use super::{authenticated_read, private_response, ApiError, AppState};
 use axum::extract::{Multipart, State};
-use axum::http::HeaderMap;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use erida_library::import_preview::{self, PreviewError};
 
@@ -22,7 +22,11 @@ pub async fn preview(
     authenticated_read(state, headers, |_, _, _| Ok(())).await?;
 
     let field = multipart.next_field().await
-        .map_err(|_| ApiError::InvalidInput("Invalid import multipart data"))?
+        .map_err(|error| if error.status() == StatusCode::PAYLOAD_TOO_LARGE {
+            ApiError::ImportTooLarge
+        } else {
+            ApiError::InvalidInput("Invalid import multipart data")
+        })?
         .ok_or(ApiError::InvalidInput("Missing import file"))?;
     if field.name() != Some("file") {
         return Err(ApiError::InvalidInput("Expected one multipart file field"));
@@ -31,9 +35,17 @@ pub async fn preview(
         ApiError::InvalidInput("Missing imported file name")
     )?.to_owned();
     let bytes = field.bytes().await
-        .map_err(|_| ApiError::InvalidInput("Invalid import multipart data"))?;
+        .map_err(|error| if error.status() == StatusCode::PAYLOAD_TOO_LARGE {
+            ApiError::ImportTooLarge
+        } else {
+            ApiError::InvalidInput("Invalid import multipart data")
+        })?;
     if multipart.next_field().await
-        .map_err(|_| ApiError::InvalidInput("Invalid import multipart data"))?
+        .map_err(|error| if error.status() == StatusCode::PAYLOAD_TOO_LARGE {
+            ApiError::ImportTooLarge
+        } else {
+            ApiError::InvalidInput("Invalid import multipart data")
+        })?
         .is_some()
     {
         return Err(ApiError::InvalidInput("Expected one multipart file field"));
