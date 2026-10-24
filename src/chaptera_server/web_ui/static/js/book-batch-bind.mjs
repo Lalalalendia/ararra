@@ -11,6 +11,7 @@ export function mountBookBatchView({lookup,request,flash,onNavigate}){
   transport:$('book-batch-transport'),maxAttempts:$('book-batch-attempts'),
   previewButton:$('book-batch-preview'),review:$('book-batch-review'),
   reviewSummary:$('book-batch-review-summary'),ack:$('book-batch-ack'),
+  driveConsent:$('book-batch-drive-request'),
   submitButton:$('book-batch-submit'),status:$('book-batch-status'),
   historyList:$('book-batch-history-list'),historyRefresh:$('book-batch-history-refresh'),
   progressPanel:$('book-batch-progress'),progressTitle:$('book-batch-progress-title'),

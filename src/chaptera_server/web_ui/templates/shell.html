@@ -168,6 +168,12 @@
                     <input id="book-batch-ack" type="checkbox">
                     Я проверил состав партии и подтверждаю создание заданий перевода.
                   </label>
+                  <label class="check-confirm">
+                    <input id="book-batch-drive-request" type="checkbox">
+                    После перевода запросить отдельный TXT каждой главы на Google Drive.
+                    Файлы сохраняются только при работающем и разрешённом оператором экспортёре;
+                    до этого результат останется в очереди выгрузки.
+                  </label>
                   <button id="book-batch-submit" class="ui-button ui-button--primary"
                           type="button" disabled>Подтвердить отправку в очередь</button>
                 </div>
@@ -186,7 +192,7 @@
                           class="ui-button ui-button--ghost">Обновить прогресс</button>
                   <div class="table-scroll batch-progress-table-scroll">
                     <table class="ui-table">
-                      <thead><tr><th>Глава</th><th>ID</th><th>Состояние</th></tr></thead>
+                      <thead><tr><th>Глава</th><th>ID</th><th>Перевод</th><th>Google Drive</th></tr></thead>
                       <tbody id="book-batch-progress-rows"></tbody>
                     </table>
                   </div>

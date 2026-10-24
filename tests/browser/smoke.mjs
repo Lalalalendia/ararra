@@ -492,6 +492,10 @@ try{
   assert.deepEqual(await page.locator('#book-batch-chapters input[type="checkbox"]:checked').evaluateAll(
     elements=>elements.map(x=>x.dataset.chapterId).sort()),['12','13']);
   assert.equal(await page.locator('#book-batch-ack').isChecked(),false);
+  assert.equal(await page.locator('#book-batch-drive-request').isChecked(),false);
+  await page.locator('#book-batch-drive-request').check();
+  assert.equal(await page.locator('#book-batch-drive-request').isChecked(),true);
+  await page.locator('#book-batch-drive-request').uncheck();
   assert.equal(await page.locator('#book-batch-submit').isEnabled(),false);
   await page.locator('#book-batch-dialog button[value="cancel"]').click();
   await page.locator('#book-batch-dialog').waitFor({state:'hidden'});

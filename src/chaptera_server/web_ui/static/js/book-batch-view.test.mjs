@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildBatchPayload,batchProgressSummary,batchStatusLabel,
 } from './book-batch-view.mjs';
-import {importedChapterSelection} from './book-batch-presenter.mjs';
+import {importedChapterSelection,withDriveConsent,driveStatusLabel} from './book-batch-presenter.mjs';
 
 const book={book_id:'novel',glossary_revision:7};
 const toc=[
@@ -91,4 +91,21 @@ test('missing, stale, duplicate or oversized import receipts cannot trigger impl
   assert.throws(()=>importedChapterSelection({...one,imported_count:0,chapters:[{action:'skip'}]},toc),/от 1 до 100/);
   const tooMany=Array.from({length:101},(_,i)=>({action:'create',chapter_id:'x'+i}));
   assert.throws(()=>importedChapterSelection({...one,imported_count:101,chapters:tooMany},toc),/от 1 до 100/);
+});
+
+test('per-batch Drive request is explicit and is part of the pinned paid submission',()=>{
+  const payload={book_id:'novel',expected_manifest_sha256:'a'.repeat(64)};
+  assert.deepEqual(withDriveConsent(payload,false),{...payload,drive_export_requested:false});
+  assert.deepEqual(withDriveConsent(payload,true),{...payload,drive_export_requested:true});
+  assert.equal(payload.drive_export_requested,undefined,'do not mutate original manifest');
+  assert.throws(()=>withDriveConsent(payload,undefined),/explicit/);
+});
+test('Drive delivery is distinct from completed translation job',()=>{
+  const batch={chapter_count:2,counts:{completed:2},drive_export_requested:true,
+    drive_counts:{exported:1,awaiting_exporter:1}};
+  assert.match(batchProgressSummary(batch),/На Google Drive 1\/2/);
+  assert.equal(driveStatusLabel('awaiting_exporter'),'Ожидает выгрузки');
+  assert.equal(driveStatusLabel('exported'),'На Google Drive');
+  assert.equal(driveStatusLabel('requires_review'),'Нужна проверка');
+  assert.equal(driveStatusLabel('not_requested'),'Не запрошено');
 });

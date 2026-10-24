@@ -40,17 +40,38 @@ export function buildBatchPayload(book,chapters,selected,{transport='html_v0',ma
   };
 }
 
+/** An unchecked checkbox cannot silently opt the batch into Drive writes. */
+export function withDriveConsent(payload,checked){
+  if(typeof checked!=='boolean')throw new Error('Drive consent must be explicit');
+  return {...payload,drive_export_requested:checked};
+}
+export function driveStatusLabel(status){
+  return ({
+    not_requested:'Не запрошено',
+    awaiting_translation:'Ожидает перевода',
+    awaiting_exporter:'Ожидает выгрузки',
+    uploading:'Выгружается',
+    exported:'На Google Drive',
+    requires_review:'Нужна проверка',
+    not_delivered:'Не доставлено',
+  })[status]||'Статус неизвестен';
+}
+
 export function batchProgressSummary(batch){
   if(!batch || !Number.isInteger(batch.chapter_count))
     return 'Прогресс пока недоступен.';
   const counts=batch.counts||{};
   const total=batch.chapter_count;
+  const exported=Number(batch.drive_counts?.exported||0);
+  const drive=batch.drive_export_requested
+    ? ' · На Google Drive '+exported+'/'+total+'.'
+    : ' · Автоотправка на Google Drive не запрошена.';
   return 'Глав '+total+' · готово '+Number(counts.completed||0)+
     ' · в очереди '+Number(counts.queued||0)+
     ' · выполняются '+Number(counts.running||0)+
     ' · ожидают повтора '+Number(counts.retry_wait||0)+
     ' · ошибки '+Number(counts.failed||0)+
-    ' · отменены '+Number(counts.cancelled||0)+'.';
+    ' · отменены '+Number(counts.cancelled||0)+'.'+drive;
 }
 
 const statusLabels={
@@ -122,7 +143,9 @@ export function renderBatchProgress(batch,{progressPanel,progressTitle,progressS
       const tr=element('tr');
       tr.append(element('td','Глава '+chapter.chapter_index),
         element('td',chapter.chapter_id),
-        element('td',batchStatusLabel(chapter.status)));
+        element('td',batchStatusLabel(chapter.status)),
+        element('td',driveStatusLabel(chapter.drive_status||
+          (batch.drive_export_requested?'awaiting_translation':'not_requested'))));
       progressBody.append(tr);
     }
   }
