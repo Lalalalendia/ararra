@@ -88,7 +88,7 @@ def main() -> None:
                         })
                     assert response.status_code == 200, 'Rust fixture chapter creation failed'
                 # Negative UI and static-file boundaries use no proxy fallback.
-                assert client.get('/app/import').status_code == 501
+                assert client.get('/app/import').status_code == 200
                 assert client.get('/app/unknown').status_code == 404
                 for path in ('/app-static/.env', '/app-static/js/readera.test.mjs',
                              '/app-static/%2e%2e%2fCargo.toml'):

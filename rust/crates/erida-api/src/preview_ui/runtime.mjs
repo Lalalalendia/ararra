@@ -1,6 +1,6 @@
 /** Native preview capabilities, not fake successful server responses. */
-const supported=new Set(['overview','books','editor','team']);
-const message='Rust preview: \u0438\u043c\u043f\u043e\u0440\u0442, QA, \u043a\u0432\u043e\u0442\u044b, Gemini \u0438 \u043b\u0438\u0447\u043d\u044b\u0439 \u043a\u0430\u0431\u0438\u043d\u0435\u0442 \u0435\u0449\u0451 \u043d\u0435 \u043f\u0435\u0440\u0435\u043d\u0435\u0441\u0435\u043d\u044b. \u042d\u043a\u0441\u043f\u043e\u0440\u0442 \u043f\u043e\u043a\u0430 \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0435\u0442 \u043e\u0433\u0440\u0430\u043d\u0438\u0447\u0435\u043d\u043d\u0443\u044e HTML-\u0440\u0430\u0437\u043c\u0435\u0442\u043a\u0443.';
+const supported=new Set(['overview','books','editor','team','import']);
+const message='Rust preview: только проверенный TXT без HTML-сущностей, <br/>, EPUB/DOCX и загрузки сайтов. Gemini, QA и очереди переводов здесь недоступны.';
 const unavailable=target=>{
   const link=target?.closest?.('[data-page-link]');
   if(link&&!supported.has(link.dataset.pageLink))return link;
@@ -25,4 +25,22 @@ if(document.body.dataset.runtime==='rust-preview'){
     event.preventDefault();event.stopImmediatePropagation();
     banner.scrollIntoView({block:'nearest'});
   },true);
+}
+
+if(document.body.dataset.runtime==='rust-preview'){
+  const source=document.getElementById('source-import');
+  if(source){
+    source.hidden=true;source.style.display='none';source.setAttribute('aria-hidden','true');
+    source.querySelectorAll('input,button,select,textarea').forEach(el=>el.disabled=true);
+  }
+  const file=document.getElementById('chapters_file');
+  if(file)file.accept='.txt';
+  const upload=document.getElementById('import-upload');
+  if(upload){
+    const note=document.createElement('p');
+    note.id='rust-txt-import-boundary';
+    note.className='ui-alert';
+    note.textContent='Экспериментальный Rust TXT: UTF-8, пронумерованные главы, обычные длинные абзацы. Неизвестные HTML-форматы и служебные строки не сохраняются.';
+    upload.prepend(note);
+  }
 }
