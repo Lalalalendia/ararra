@@ -131,6 +131,8 @@ test('one uploaded unnumbered TXT becomes one suggested destination, not a fabri
   assert.ok(validateDraft([row],existing,stage).some(s=>s.includes('подтвердите номер')));
   const edited=destinationEdited(row,'chapter_index','10');
   assert.equal(edited.provisional_assignment,false);
+  assert.equal(edited.chapter_id,'10');
+  assert.equal(edited.chapter_path,'chapters/10.xhtml');
   assert.equal(edited.author_number,null);
   assert.deepEqual(validateDraft([edited],existing,stage),[]);
 });
@@ -176,3 +178,16 @@ test('service/extra entries never auto-assign even when preview includes positio
   assert.ok(validateDraft(rows,newBook,stage).some(s=>s.includes('выберите действие')));
 });
 
+
+test('manually edited chapter IDs and paths are never overwritten by later number edits',()=>{
+  const p=preview([null]);
+  p.chapters[0].suggested_index=1;
+  let row=createDraft(p)[0];
+  row=destinationEdited(row,'chapter_id','custom');
+  row=destinationEdited(row,'chapter_path','volumes/custom.xhtml');
+  row=destinationEdited(row,'chapter_index','10');
+  assert.equal(row.provisional_assignment,false);
+  assert.equal(row.chapter_id,'custom');
+  assert.equal(row.chapter_path,'volumes/custom.xhtml');
+  assert.deepEqual(validateDraft([row],newBook,stage),[]);
+});

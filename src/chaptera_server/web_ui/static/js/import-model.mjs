@@ -40,6 +40,8 @@ export function createDraft(preview) {
       author_number: c.author_number ?? c.detected_number,
       suggested_index: c.suggested_index ?? null,
       provisional_assignment,
+      auto_generated_id: provisional_assignment,
+      auto_generated_path: provisional_assignment,
       action: needsReview ? 'review' : 'create', chapter_id: needsReview ? '' : number,
       chapter_index: needsReview ? '' : number,
       chapter_path: needsReview ? '' : (number ? 'chapters/' + number + '.xhtml' : ''),
@@ -52,6 +54,7 @@ export function changeAction(row, action) {
   return {...row, action,
     ...(action === 'skip' ? {
       chapter_id:'', chapter_index:'', chapter_path:'', provisional_assignment:false,
+      auto_generated_id:false, auto_generated_path:false,
     } : {}),
     expected_revision: action === 'create' ? 0 : null,
     verified_book_id: null, verified_chapter_id: null,
@@ -59,8 +62,19 @@ export function changeAction(row, action) {
 }
 export function destinationEdited(row, field, value) {
   if (!['chapter_id','chapter_index','chapter_path'].includes(field)) throw new Error('Invalid field');
-  return {...row, [field]:value,
-    ...(field === 'chapter_index' ? { provisional_assignment:false } : {}),
+  const changed = {...row, [field]:value};
+  if (field === 'chapter_index') {
+    changed.provisional_assignment=false;
+    // Keep the two generated destination fields in sync while the user edits
+    // the suggested index. Explicitly edited IDs/paths never get overwritten.
+    if (safePositive(value)) {
+      if (row.auto_generated_id) changed.chapter_id=String(value);
+      if (row.auto_generated_path) changed.chapter_path='chapters/'+value+'.xhtml';
+    }
+  }
+  if (field === 'chapter_id') changed.auto_generated_id=false;
+  if (field === 'chapter_path') changed.auto_generated_path=false;
+  return {...changed,
     expected_revision: row.action === 'replace' ? null : 0,
     verified_book_id: null, verified_chapter_id: null,
   };
@@ -71,7 +85,7 @@ export function verifiedReplacement(row, bookId, remote) {
   }
   return {...row, chapter_index:String(remote.chapter_index),
     chapter_path:remote.chapter_path,expected_revision:remote.source_revision,
-    provisional_assignment:false,
+    provisional_assignment:false,auto_generated_id:false,auto_generated_path:false,
     verified_book_id:bookId,verified_chapter_id:remote.chapter_id};
 }
 const safePositive = n => /^[1-9]\d*$/.test(String(n)) && Number.isSafeInteger(Number(n));

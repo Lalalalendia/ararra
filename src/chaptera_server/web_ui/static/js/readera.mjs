@@ -445,6 +445,13 @@ function renderMapping() {
       const tdEl=document.createElement('td');
       const input=rowInput('input',row[key],key+' для главы '+row.sequence,value=>{
         rows=rows.map(r=>r.sequence===row.sequence?destinationEdited(r,key,value):r);
+        if(key==='chapter_index'){
+          const latest=rows.find(r=>r.sequence===row.sequence);
+          for(const dependent of ['chapter_id','chapter_path']){
+            const target=tr.querySelector('[data-import-field="'+dependent+'"]');
+            if(target&&latest)target.value=latest[dependent];
+          }
+        }
         if(row.action==='replace'){
           const latest=rows.find(r=>r.sequence===row.sequence);
           if(latest){const note=tr.querySelector('[data-rev-note]');if(note)note.textContent='Не проверена';}
@@ -452,6 +459,7 @@ function renderMapping() {
       });
       input.disabled=row.action==='skip';
       if(key==='chapter_index') input.inputMode='numeric';
+      input.dataset.importField=key;
       tdEl.append(input);tr.append(tdEl);
     }
     const revision=document.createElement('td');
