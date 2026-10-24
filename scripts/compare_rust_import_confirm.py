@@ -1,0 +1,208 @@
+#!/usr/bin/env python3
+"""M1p: disposable Python/Rust cross-runtime *atomic* TXT import acceptance.
+
+Both HTTP processes share exactly one temporary Python-created SQLite schema.
+No production DB, source network, Gemini, staged source disclosure or real keys.
+"""
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import os
+from pathlib import Path
+import sqlite3
+import subprocess
+import sys
+import tempfile
+
+import httpx
+from compare_rust_api import launch, ready
+from compare_rust_import_stages import runner_env
+from chaptera_server.api import create_app
+from chaptera_server.config import Settings
+from chaptera_server.library import _normalized_source_hash
+from chaptera_server.storage import QueueStore
+
+NARRATIVE = "История продолжается вдоль большой реки между городами. " * 16
+SOURCE = ("Глава 1\n" + NARRATIVE + "\nГлава 2\n" + NARRATIVE).encode()
+STAGE = "/v1/imports/stages"
+
+
+def request(book: str) -> dict:
+    return {
+        "book_id": book, "book_mode": "create", "title": "Проверка Rust",
+        "prefix_policy": "discard",
+        "chapters": [
+            {"sequence": 2, "action": "create", "chapter_id": "ch-2",
+             "chapter_index": 2, "chapter_path": "chapters/2.xhtml",
+             "expected_revision": 0},
+            {"sequence": 1, "action": "create", "chapter_id": "ch-1",
+             "chapter_index": 1, "chapter_path": "chapters/1.xhtml",
+             "expected_revision": 0},
+        ],
+    }
+
+
+def inspect(db: Path, book: str) -> list[tuple]:
+    with sqlite3.connect(db) as conn:
+        rows = conn.execute(
+            "SELECT chapter_id,chapter_index,chapter_path,source_html,source_hash,"
+            "source_revision FROM book_chapters WHERE book_id=? ORDER BY chapter_index",
+            (book,),
+        ).fetchall()
+        for chapter_id, index, path, html, source_hash, revision in rows:
+            assert source_hash == _normalized_source_hash(html, path)
+            assert source_hash == hashlib.sha256(html.encode()).hexdigest(), (
+                "Canonical current-chapter H1 must NOT be deleted", chapter_id
+            )
+            assert html.startswith(f"<h1>Глава {index}</h1>\n<p>")
+            assert revision == 1
+        return rows
+
+
+async def exercise(app, db: Path, url: str, settings: Settings) -> None:
+    alice = {"X-API-Key": settings.team_tokens["alice"]}
+    bob = {"X-API-Key": settings.team_tokens["bob"]}
+    async with (
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                          base_url="http://python", timeout=30) as py,
+        httpx.AsyncClient(base_url=url, timeout=30) as rust,
+    ):
+        async def stage(client: httpx.AsyncClient, raw: bytes, *, actor=alice) -> str:
+            response = await client.post(
+                STAGE, headers=actor,
+                files={"file": ("story.txt", raw, "text/plain")},
+            )
+            assert response.status_code == 201, response.text
+            return response.json()["stage_id"]
+
+        # Python-created stage must commit in native Rust and Python must
+        # observe its saved chapter hashes and actor-owned receipt.
+        rust_stage = await stage(py, SOURCE)
+        url_rust = f"{STAGE}/{rust_stage}/confirm"
+        assert (await rust.post(url_rust, json=request("rust-book"))).status_code == 401
+        assert (await rust.post(url_rust, headers=bob,
+                                json=request("rust-book"))).status_code == 404
+        confirm = await rust.post(url_rust, headers=alice, json=request("rust-book"))
+        assert confirm.status_code == 200, confirm.text
+        receipt = confirm.json()
+        assert receipt["created_book"] and receipt["imported_count"] == 2
+        assert receipt["skipped_count"] == 0
+        assert [r["sequence"] for r in receipt["chapters"]] == [1, 2]
+        assert (await rust.post(url_rust, headers=alice, json=request("rust-book"))).json() == receipt
+        assert (await py.get(f"{STAGE}/{rust_stage}",headers=alice)).json()["commit_result"] == receipt
+        changed=request("rust-book")
+        changed["chapters"][0]["chapter_id"]="different"
+        assert (await rust.post(url_rust,headers=alice,json=changed)).status_code == 409
+        rust_rows=inspect(db, "rust-book")
+        assert len(rust_rows)==2
+
+        # Rust-created stage confirmed by unchanged Python route: source
+        # HTML and SHA256 must be byte identical across both writers.
+        python_stage=await stage(rust,SOURCE)
+        url_py=f"{STAGE}/{python_stage}/confirm"
+        py_confirm=await py.post(url_py,headers=alice,json=request("python-book"))
+        assert py_confirm.status_code == 200,py_confirm.text
+        python_rows=inspect(db,"python-book")
+        assert python_rows==rust_rows,(python_rows,rust_rows)
+        assert (await rust.get(f"{STAGE}/{python_stage}",headers=alice)).json()["commit_result"]==py_confirm.json()
+
+        # A staged chapter using an unsupported escaped entity MUST NOT
+        # be imported by Rust just because Python might normalize it.
+        unsafe=await stage(rust,("Глава 1\n"+NARRATIVE+"A & B").encode())
+        one=request("entity-refused")
+        one["chapters"]=one["chapters"][:1]
+        one["chapters"][0].update({
+            "sequence":1,"chapter_id":"cx","chapter_index":1,
+            "chapter_path":"chapters/1.xhtml",
+        })
+        refused=await rust.post(f"{STAGE}/{unsafe}/confirm",headers=alice,json=one)
+        assert refused.status_code == 422,refused.text
+        with sqlite3.connect(db) as conn:
+            assert conn.execute("SELECT COUNT(*) FROM books WHERE id='entity-refused'").fetchone()[0]==0
+            assert conn.execute("SELECT status FROM book_import_stages WHERE id=?",
+                                (unsafe,)).fetchone()[0]=="staged"
+
+        # A real SQLite RAISE(FAIL) on the SECOND chapter must roll back
+        # the book, owner event, first chapter and stage receipt together.
+        crash_stage=await stage(py,SOURCE)
+        with sqlite3.connect(db) as conn:
+            conn.execute("""
+                CREATE TRIGGER m1p_inject_second BEFORE INSERT ON book_chapters
+                WHEN NEW.book_id='fault-book' AND NEW.chapter_id='ch-2'
+                BEGIN SELECT RAISE(FAIL,'injected second-chapter SQL failure'); END
+            """)
+        failed=await rust.post(f"{STAGE}/{crash_stage}/confirm",headers=alice,json=request("fault-book"))
+        assert failed.status_code in (409,503),failed.text
+        with sqlite3.connect(db) as conn:
+            assert conn.execute("SELECT COUNT(*) FROM books WHERE id='fault-book'").fetchone()[0]==0
+            assert conn.execute("SELECT COUNT(*) FROM book_owner_events WHERE book_id='fault-book'").fetchone()[0]==0
+            assert conn.execute("SELECT COUNT(*) FROM book_chapters WHERE book_id='fault-book'").fetchone()[0]==0
+            assert conn.execute("SELECT status FROM book_import_stages WHERE id=?",
+                                (crash_stage,)).fetchone()[0]=="staged"
+            conn.execute("DROP TRIGGER m1p_inject_second")
+        retry=await rust.post(f"{STAGE}/{crash_stage}/confirm",headers=alice,json=request("fault-book"))
+        assert retry.status_code==200,retry.text
+        assert len(inspect(db,"fault-book"))==2
+        # Authoritative data is not accessible by a foreign actor.
+        assert (await rust.get(f"{STAGE}/{crash_stage}",headers=bob)).status_code==404
+
+        # Keep production Python features untouched. No paid worker, no
+        # background sync or arbitrary HTML fallback is present in Rust.
+
+def main() -> None:
+    if len(sys.argv)!=2:
+        raise SystemExit("usage: compare_rust_import_confirm.py /path/to/erida-api")
+    binary=str(Path(sys.argv[1]).resolve(strict=True))
+    with tempfile.TemporaryDirectory(prefix="erida-m1p-confirm-") as tmp:
+        root=Path(tmp)
+        db=root/"disposable.sqlite3"
+        settings=Settings(
+            db_path=db,
+            team_tokens={"chief":"m1p-chief","alice":"m1p-alice","bob":"m1p-bob"},
+            admin_member_id="chief",browser_session_secure=False,
+        )
+        app=create_app(settings, QueueStore(db))
+        env=runner_env(root,db,settings)
+        process=launch([binary],env)
+        try:
+            ready("http://127.0.0.1:18495",process)
+            asyncio.run(exercise(app,db,"http://127.0.0.1:18495",settings))
+            assert process.poll() is None
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5)
+        # The complete Rust import route must be absent when the strict
+        # disposable writer double gate is disabled on the same SQLite DB.
+        env.pop("ERIDA_RUST_TEST_WRITES")
+        env.pop("ERIDA_RUST_DISPOSABLE_ROOT")
+        process=launch([binary],env)
+        try:
+            ready("http://127.0.0.1:18495",process)
+            with httpx.Client(base_url="http://127.0.0.1:18495") as rs:
+                confirm_url="/v1/imports/stages/unknown/confirm"
+                assert rs.post(confirm_url,headers={"X-API-Key":settings.team_tokens["alice"]}).status_code in (404,405)
+                assert rs.get("/v1/books/rust-book",headers={"X-API-Key":settings.team_tokens["alice"]}).status_code==200
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5)
+    print("rust_import_confirm_python_stage_to_rust_sqlite=PASS")
+    print("rust_import_confirm_rust_stage_to_python_sqlite=PASS")
+    print("rust_import_confirm_source_h1_sha256_exact=PASS")
+    print("rust_import_confirm_second_chapter_rollback=PASS")
+    print("rust_import_confirm_disposable_only_writer=PASS")
+    print("rust_import_confirm_paid_gemini_calls=ZERO")
+
+
+if __name__=="__main__":
+    main()

@@ -300,7 +300,7 @@ def main() -> None:
     print("rust_import_stage_actor_isolation_and_csrf=PASS")
     print("rust_import_stage_quota_cancel_ttl=PASS")
     print("rust_import_stage_book_mutations=ZERO")
-    print("rust_import_stage_confirm_not_implemented=TRUE")
+    print("rust_import_stage_confirm_disposable_only=TRUE")
     print("production_db_access=NO")
 
 
