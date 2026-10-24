@@ -2,7 +2,7 @@
  * All network requests are provided by the authenticated session client.
  */
 import {
-  buildBatchPayload,chapterOrder,bookPath,
+  buildBatchPayload,chapterOrder,bookPath,importedChapterSelection,
   renderBatchChapters,renderBatchHistory,renderBatchProgress,
 } from './book-batch-presenter.mjs';
 export {buildBatchPayload,batchProgressSummary,batchStatusLabel}
@@ -15,6 +15,7 @@ export function createBookBatchView({
   progressBody,progressRefresh,request,showError,notify,
 }){
   let active=null;
+  let importedReceipt=null;
   let catalog=[];
   let bookDetails=null;
   let selected=new Set();
@@ -89,6 +90,7 @@ export function createBookBatchView({
   function reset(){
     generation+=1;selectionRevision+=1;
     selected=new Set();catalog=[];bookDetails=null;active=null;receipt=null;
+    importedReceipt=null;
     currentBatchId='';
     working=false;reading=false;
     resetPreview();chaptersBody.replaceChildren();historyList.replaceChildren();
@@ -102,17 +104,20 @@ export function createBookBatchView({
   }
   dialog.addEventListener('close',reset);
 
-  async function open(book){
+  async function open(book,fromImport=null){
     if(!book || dialog.open)return;
     if(typeof dialog.showModal!=='function'){
       showError(new Error('Браузер не поддерживает окно подтверждения.'));return;
     }
     reset();
     active=book;
+    importedReceipt=fromImport;
     const ticket=generation;
     title.textContent='Перевод глав — '+book.title;
-    help.textContent='Исходные главы не изменяются. После отправки задания выполняет '+
-      'существующая очередь с личным Gemini-ключом модератора.';
+    help.textContent=fromImport
+      ? 'Выбраны только главы из этой загрузки. После проверки потребуется явное согласие на платный перевод. Автовыгрузка на Google Drive настраивается отдельно и сейчас не гарантируется.'
+      : 'Исходные главы не изменяются. После отправки задания выполняет '+
+        'существующая очередь с личным Gemini-ключом модератора.';
     dialog.showModal();
     try{
       const base=bookPath(book.book_id);
@@ -122,10 +127,22 @@ export function createBookBatchView({
       if(!activeFor(ticket,book))return;
       bookDetails=detail;
       catalog=(toc.chapters||[]).slice().sort(chapterOrder);
+      if(importedReceipt) {
+        try{selected=importedChapterSelection(importedReceipt,catalog);}
+        catch(error){
+          status.textContent=error.message;
+          showError(error);
+          void loadHistory();
+          return;
+        }
+      }
       renderChapters();refreshSelectionStatus();
-      status.textContent='Выберите главы и нажмите «Проверить партию». '+
-        'Отправка произойдёт только после отдельного подтверждения.';
+      status.textContent=importedReceipt
+        ? 'Импортированные главы выбраны. Проверяем состав и бюджет без платных запросов…'
+        : 'Выберите главы и нажмите «Проверить партию». '+
+          'Отправка произойдёт только после отдельного подтверждения.';
       void loadHistory();
+      if(importedReceipt)await preview();
     }catch(error){if(activeFor(ticket,book)){status.textContent='Оглавление недоступно.';showError(error);}}
   }
 
@@ -189,7 +206,10 @@ export function createBookBatchView({
           'Установите предел RPD в личном кабинете и повторите проверку.';
         return;
       }
-      receipt={payload,sha:result.manifest_sha256,key:crypto.randomUUID()};
+      receipt={
+        payload,sha:result.manifest_sha256,
+        key:importedReceipt ? 'import-mvp:'+importedReceipt.stage_id : crypto.randomUUID(),
+      };
       review.hidden=false;
       reviewSummary.textContent='Проверены '+result.chapter_count+
         ' глав. Контрольный SHA-256: '+result.manifest_sha256+
@@ -235,5 +255,5 @@ export function createBookBatchView({
       if(activeFor(ticket,book))setWorking(false);
     }
   }
-  return {open,reset};
+  return {open,openImported:(book,receipt)=>open(book,receipt),reset};
 }

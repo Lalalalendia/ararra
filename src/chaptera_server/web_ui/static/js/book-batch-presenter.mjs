@@ -126,3 +126,24 @@ export function renderBatchProgress(batch,{progressPanel,progressTitle,progressS
       progressBody.append(tr);
     }
   }
+
+/** The import receipt is only a selection hint, never authority to enqueue.
+ * Re-fetch the current TOC and verify every imported chapter before preview.
+ */
+export function importedChapterSelection(receipt,catalog) {
+  if(!receipt || !Array.isArray(receipt.chapters) ||
+      !Number.isSafeInteger(receipt.imported_count))
+    throw new Error('Квитанция импорта недоступна. Откройте книгу из библиотеки.');
+  const choices=receipt.chapters.filter(c=>c.action==='create'||c.action==='replace');
+  if(!choices.length || choices.length>100 || receipt.imported_count!==choices.length)
+    throw new Error('Один запуск поддерживает от 1 до 100 импортированных глав.');
+  const catalogIds=new Set(catalog.map(c=>c.chapter_id));
+  const ids=new Set();
+  for(const c of choices) {
+    if(typeof c.chapter_id!=='string'||!c.chapter_id||
+        ids.has(c.chapter_id)||!catalogIds.has(c.chapter_id))
+      throw new Error('Импортированные главы изменились. Откройте книгу из библиотеки.');
+    ids.add(c.chapter_id);
+  }
+  return ids;
+}

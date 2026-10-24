@@ -3,7 +3,7 @@ import {createBookBatchView} from './book-batch-view.mjs';
 
 export function mountBookBatchView({lookup,request,flash}){
   const $=lookup;
-  return createBookBatchView({
+  const view=createBookBatchView({
   dialog:$('book-batch-dialog'),title:$('book-batch-title'),help:$('book-batch-help'),
   selectionStatus:$('book-batch-selection-status'),
   chaptersBody:$('book-batch-chapters'),
@@ -19,4 +19,23 @@ export function mountBookBatchView({lookup,request,flash}){
   progressRefresh:$('book-batch-progress-refresh'),
   request,showError:error=>flash(error.message,true),notify:message=>flash(message),
 });
+  const translate=$('import-translate');
+  let imported=null;
+  translate.hidden=true;
+  translate.addEventListener('click',()=>{
+    if(!imported)return;
+    void view.openImported({
+      book_id:imported.book_id,title:imported.book_id,
+    },imported);
+  });
+  return {
+    ...view,
+    offerImported(receipt){
+      imported=receipt && receipt.imported_count>0 ? receipt : null;
+      translate.hidden=!imported;
+    },
+    reset(){
+      imported=null;translate.hidden=true;view.reset();
+    },
+  };
 }
