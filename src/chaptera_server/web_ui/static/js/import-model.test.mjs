@@ -113,3 +113,81 @@ test('ordered position never auto-confirms a service record',()=>{
   assert.ok(validateDraft(rows,newBook,stage).some(s=>s.includes('выберите действие')));
   assert.throws(()=>confirmation(rows,newBook,stage),/Unreviewed/);
 });
+
+test('one uploaded unnumbered TXT becomes one suggested destination, not a fabricated author number',()=>{
+  const p=preview([null]);
+  p.chapters[0].title='0010-15869792';
+  p.chapters[0].suggested_index=1; // Comes from the actual Python preview.
+  const [row]=createDraft(p);
+  assert.equal(row.title,'0010-15869792');
+  assert.equal(row.detected_number,null);
+  assert.equal(row.author_number,null);
+  assert.equal(row.provisional_assignment,true);
+  assert.equal(row.chapter_id,'1');
+  assert.equal(row.chapter_index,'1');
+  assert.equal(row.chapter_path,'chapters/1.xhtml');
+  assert.deepEqual(validateDraft([row],newBook,stage),[]);
+  assert.equal(confirmation([row],newBook,stage).chapters[0].chapter_index,1);
+  assert.ok(validateDraft([row],existing,stage).some(s=>s.includes('подтвердите номер')));
+  const edited=destinationEdited(row,'chapter_index','10');
+  assert.equal(edited.provisional_assignment,false);
+  assert.equal(edited.chapter_id,'10');
+  assert.equal(edited.chapter_path,'chapters/10.xhtml');
+  assert.equal(edited.author_number,null);
+  assert.deepEqual(validateDraft([edited],existing,stage),[]);
+});
+
+test('one TXT with multiple normal chapters proposes distinct destinations without changing author numbers',()=>{
+  const p=preview([null,2,null]);
+  p.chapters.forEach((c,i)=>{c.suggested_index=i+1;});
+  const rows=createDraft(p);
+  assert.deepEqual(rows.map(r=>r.chapter_id),['1','2','3']);
+  assert.deepEqual(rows.map(r=>r.chapter_index),['1','2','3']);
+  assert.deepEqual(rows.map(r=>r.chapter_path),[
+    'chapters/1.xhtml','chapters/2.xhtml','chapters/3.xhtml',
+  ]);
+  assert.deepEqual(rows.map(r=>r.author_number),[null,2,null]);
+  assert.deepEqual(rows.map(r=>r.provisional_assignment),[true,false,true]);
+  assert.deepEqual(validateDraft(rows,newBook,stage),[]);
+});
+
+test('do not suggest a destination overlapping an explicit chapter or another suggestion',()=>{
+  const p=preview([1,null,3,null]);
+  p.chapters[1].suggested_index=3; // Conflicts with the explicit chapter 3.
+  p.chapters[3].suggested_index=4;
+  const rows=createDraft(p);
+  assert.equal(rows[1].chapter_index,'');
+  assert.equal(rows[3].chapter_index,'4');
+  assert.ok(validateDraft(rows,newBook,stage).some(s=>s.includes('ID и номер')));
+  const noUnique=preview([null,null]);
+  noUnique.chapters[0].suggested_index=1;
+  noUnique.chapters[1].suggested_index=1;
+  const duplicate=createDraft(noUnique);
+  assert.equal(duplicate[0].chapter_index,'1');
+  assert.equal(duplicate[1].chapter_index,'');
+});
+
+test('service/extra entries never auto-assign even when preview includes position hints',()=>{
+  const p=preview([null,null]);
+  p.chapters[0].entry_type='service';
+  p.chapters[1].entry_type='extra';
+  p.chapters.forEach((c,i)=>{c.suggested_index=i+1;});
+  const rows=createDraft(p);
+  assert.deepEqual(rows.map(r=>r.action),['review','review']);
+  assert.deepEqual(rows.map(r=>r.chapter_index),['','']);
+  assert.ok(validateDraft(rows,newBook,stage).some(s=>s.includes('выберите действие')));
+});
+
+
+test('manually edited chapter IDs and paths are never overwritten by later number edits',()=>{
+  const p=preview([null]);
+  p.chapters[0].suggested_index=1;
+  let row=createDraft(p)[0];
+  row=destinationEdited(row,'chapter_id','custom');
+  row=destinationEdited(row,'chapter_path','volumes/custom.xhtml');
+  row=destinationEdited(row,'chapter_index','10');
+  assert.equal(row.provisional_assignment,false);
+  assert.equal(row.chapter_id,'custom');
+  assert.equal(row.chapter_path,'volumes/custom.xhtml');
+  assert.deepEqual(validateDraft([row],newBook,stage),[]);
+});
