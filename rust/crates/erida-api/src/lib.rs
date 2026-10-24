@@ -12,6 +12,7 @@ mod peer_identity;
 mod admin_credentials;
 mod book_export;
 mod import_preview;
+mod import_stage;
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -122,6 +123,9 @@ pub enum ApiError {
     LoginRateLimit(u64),
     TrustedClientIpUnavailable,
     ImportTooLarge,
+    ImportStageTooLarge(&'static str),
+    ImportStageMissing,
+    ImportStageExpired,
     ReviewNoteNotFound,
     ModeratorNotFound,
     BookConflict(&'static str),
@@ -200,6 +204,9 @@ impl IntoResponse for ApiError {
             ApiError::LoginRateLimit(_) => (StatusCode::TOO_MANY_REQUESTS, "Слишком много попыток входа"),
             ApiError::TrustedClientIpUnavailable => (StatusCode::BAD_REQUEST, "Trusted client IP unavailable"),
             ApiError::ImportTooLarge => (StatusCode::PAYLOAD_TOO_LARGE, "File exceeds 12 MiB limit"),
+            ApiError::ImportStageTooLarge(message) => (StatusCode::PAYLOAD_TOO_LARGE, message),
+            ApiError::ImportStageMissing => (StatusCode::NOT_FOUND, "Import stage not found"),
+            ApiError::ImportStageExpired => (StatusCode::GONE, "Import stage expired; upload the source again"),
             // Early-response branch above handles its structured body; keep match exhaustive.
             ApiError::ExportNotReady(_) => (StatusCode::CONFLICT, "Book export is incomplete or changed after preview"),
             ApiError::BookConflict(reason) => (StatusCode::CONFLICT, *reason),
@@ -359,6 +366,7 @@ pub fn app(state: AppState) -> Router {
         .route("/v1/books/{book_id}", get(book::book))
         .route("/v1/imports/preview", post(import_preview::preview)
             .layer(DefaultBodyLimit::max(12 * 1024 * 1024 + 64 * 1024)))
+        .route("/v1/imports/stages/{stage_id}", get(import_stage::read))
         .route("/v1/books/{book_id}/export/preview", get(book_export::preview))
         .route("/v1/books/{book_id}/export", get(book_export::download))
         .route("/v1/books/{book_id}/chapters", get(book::chapters))
@@ -371,6 +379,9 @@ pub fn app(state: AppState) -> Router {
         app = app
             .route("/v1/session", post(session::login))
             .route("/v1/session/logout", post(session::logout))
+            .route("/v1/imports/stages", post(import_stage::stage)
+                .layer(DefaultBodyLimit::max(12 * 1024 * 1024 + 64 * 1024)))
+            .route("/v1/imports/stages/{stage_id}", axum::routing::delete(import_stage::cancel))
             .route("/v1/admin/members", post(admin_credentials::issue))
             .route("/v1/admin/members/{member_id}/rotate", post(admin_credentials::rotate))
             .route("/v1/admin/members/{member_id}/disable", post(admin_credentials::disable))

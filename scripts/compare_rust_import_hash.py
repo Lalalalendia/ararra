@@ -119,6 +119,13 @@ def main() -> None:
         expected_html = strip_source_boilerplate(
             original, current_chapter_path=path,
         )
+        # For this strictly canonical TXT stage subset, Python classifies
+        # the current H1 as CURRENT_CHAPTER_TITLE (translatable) and retains it.
+        # Future policy changes must fail this proof, not silently discard H1.
+        assert expected_html == original, (
+            "Python source policy is no longer a no-op for this canonical case",
+            i, path, repr(original), repr(expected_html),
+        )
         expected_hash = hashlib.sha256(expected_html.encode()).hexdigest()
         assert rust["status"] == "ok", (i, path, rust)
         assert rust["cleaned_html"] == expected_html, (
@@ -127,7 +134,7 @@ def main() -> None:
         assert rust["source_hash"] == expected_hash, (
             i, path, expected_hash, rust["source_hash"]
         )
-        assert rust["removed_nodes"] == 1, (
+        assert rust["removed_nodes"] == 0, (
             i, path, rust["removed_nodes"]
         )
 

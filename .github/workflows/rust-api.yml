@@ -138,3 +138,6 @@ jobs:
         run: python scripts/compare_rust_import_hash.py rust/target/release/source-import-probe
       - name: Compare Rust read-only TXT import preview with Python and ensure no SQLite writes
         run: python scripts/compare_rust_import_preview.py rust/target/release/erida-api
+
+      - name: Compare Rust import stages against Python with idempotency, TTL, actor isolation and restart
+        run: python scripts/compare_rust_import_stages.py rust/target/release/erida-api

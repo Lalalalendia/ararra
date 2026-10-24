@@ -8,10 +8,11 @@ use sha2::{Digest, Sha256};
 
 /// A stage's numbered TXT entry is serialized exactly as
 /// <h1>Глава N</h1>\n<p>...narrative...</p>[...].
-/// Python strips the heading DOM node, and BeautifulSoup preserves the
-/// separating newline. We only return a hash when *every other* source text
-/// node is proven to survive unchanged under the existing conservative
-/// Rust paragraph cleaner, so no unverified DOM serialization is needed.
+/// Python classifies the matching current H1 as CURRENT_CHAPTER_TITLE,
+/// which is TRANSLATABLE and therefore preserved, unlike an actual
+/// boilerplate/tail node. We only return a hash when every source text node
+/// is proven to survive unchanged under the conservative paragraph cleaner.
+/// The differential Python oracle verifies the resulting exact bytes.
 pub fn clean_numbered_import_txt(
     html: &str,
     chapter_path: &str,
@@ -54,15 +55,15 @@ pub fn clean_numbered_import_txt(
     if checked.removed_text_nodes != 0 || checked.html != compact {
         return Err(CleanError::UnsupportedHtml);
     }
-    // H1 is a standalone source-title text node; no other node may be
-    // modified. Python soup.decompose() leaves precisely this newline before
-    // the stage's escaped paragraph body. This assumption is asserted in the
-    // differential test against the *real* Python source cleaner.
-    let cleaned = format!("\n{body}");
+    // A current-chapter H1 is a translation unit, not source boilerplate:
+    // stripping it changes both the source revision and the translator input.
+    // Preserve the exact allowlisted HTML, including the H1 and LF boundary.
+    // The real Python source cleaner is the oracle for this safe subset.
+    let cleaned = html.to_owned();
     Ok(CleanedSource {
         source_hash: hex::encode(Sha256::digest(cleaned.as_bytes())),
         html: cleaned,
-        removed_text_nodes: 1,
+        removed_text_nodes: 0,
     })
 }
 
@@ -71,13 +72,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn numbered_heading_is_removed_and_newline_is_included_in_hash() {
+    fn current_numbered_heading_is_retained_and_hashed() {
         let narrative = "События развиваются по дороге между городами. ".repeat(12);
         let html = format!("<h1>Глава 12</h1>\n<p>{narrative}</p>");
         let result = clean_numbered_import_txt(&html, "chapters/12.xhtml").unwrap();
-        let expected = format!("\n<p>{narrative}</p>");
+        let expected = html.clone();
         assert_eq!(result.html, expected);
-        assert_eq!(result.removed_text_nodes, 1);
+        assert_eq!(result.removed_text_nodes, 0);
         assert_eq!(
             result.source_hash,
             hex::encode(Sha256::digest(expected.as_bytes()))
@@ -92,7 +93,7 @@ mod tests {
             "A second long narrative paragraph continues the story. ".repeat(9)
         );
         let result = clean_numbered_import_txt(&html, "volumes/9.xhtml").unwrap();
-        assert_eq!(result.html, html.split_once("</h1>").unwrap().1);
+        assert_eq!(result.html, html);
     }
 
     #[test]
