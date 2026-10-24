@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildBatchPayload,batchProgressSummary,batchStatusLabel,
 } from './book-batch-view.mjs';
-import {importedChapterSelection,withDriveConsent,driveStatusLabel} from './book-batch-presenter.mjs';
+import {importedChapterSelection,withDriveConsent,driveStatusLabel,driveFileUrl} from './book-batch-presenter.mjs';
 
 const book={book_id:'novel',glossary_revision:7};
 const toc=[
@@ -108,4 +108,12 @@ test('Drive delivery is distinct from completed translation job',()=>{
   assert.equal(driveStatusLabel('exported'),'На Google Drive');
   assert.equal(driveStatusLabel('requires_review'),'Нужна проверка');
   assert.equal(driveStatusLabel('not_requested'),'Не запрошено');
+});
+
+test('only a verified Drive receipt identifier may produce an external link',()=>{
+  assert.equal(driveFileUrl('abc'),null);
+  assert.equal(driveFileUrl('javascript:alert(1)'),null);
+  assert.equal(driveFileUrl('a'.repeat(260)),null);
+  assert.equal(driveFileUrl('offline-translation-12345678'),
+    'https://drive.google.com/file/d/offline-translation-12345678/view');
 });
