@@ -148,3 +148,19 @@ export function confirmation(rows,target,stage) {
           expected_revision:r.expected_revision }),
   };
 }
+
+/** Separate source numbering from suggested destination positions. */
+export function importWarningText(warning) {
+  const unnumbered = warning === 'Some entries have no explicit author number: sequence numbers are suggestions only'
+    || warning === 'Some chapters have no explicit number: sequence numbers are suggestions only';
+  return unnumbered
+    ? 'Часть глав без номера в оригинале. Предложенные номера — только позиции в новой книге; проверьте их перед записью.'
+    : warning;
+}
+export function sourceChapterLabel(row) {
+  return row.detected_number === null
+    ? (row.provisional_assignment
+      ? 'Без авторского номера · предложена позиция '+row.chapter_index
+      : 'Без авторского номера')
+    : 'Авторский № '+row.detected_number;
+}

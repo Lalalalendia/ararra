@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createDraft, changeAction, destinationEdited, verifiedReplacement,
-  validateDraft, confirmation,
+  validateDraft, confirmation, importWarningText, sourceChapterLabel,
 } from './import-model.mjs';
 
 const preview = detected => ({
@@ -190,4 +190,12 @@ test('manually edited chapter IDs and paths are never overwritten by later numbe
   assert.equal(row.chapter_id,'custom');
   assert.equal(row.chapter_path,'volumes/custom.xhtml');
   assert.deepEqual(validateDraft([row],newBook,stage),[]);
+});
+
+test('source labels and warning translations preserve original numbering',()=>{
+  assert.match(importWarningText('Some chapters have no explicit number: sequence numbers are suggestions only'),/Предложенные номера/);
+  assert.equal(importWarningText('Other note'),'Other note');
+  assert.equal(sourceChapterLabel({detected_number:null,provisional_assignment:true,chapter_index:'1'}),'Без авторского номера · предложена позиция 1');
+  assert.equal(sourceChapterLabel({detected_number:null,provisional_assignment:false}),'Без авторского номера');
+  assert.equal(sourceChapterLabel({detected_number:10}),'Авторский № 10');
 });
