@@ -22,8 +22,10 @@ headers; a runtime marker identifies the Rust preview in browser evidence.
 
 ## Honest capability boundaries
 
-Supported preview pages: overview, books, editor, team. Import, jobs and cabinet
-return explicit HTTP 501 and their navigation is marked unavailable. A visible
+Supported preview pages: overview, books, editor, team, and strict TXT-only
+native import. Only proven H1/plain-paragraph input can be committed in the
+disposable writer. Unsupported entities, <br/>, HTML/EPUB/DOCX remain fail-closed.
+Source-site import, jobs and cabinet remain unavailable; jobs/cabinet give HTTP 501. A visible
 banner explains that import, QA, quotas, Gemini and general HTML compatibility
 are incomplete. The QA module has a named Rust-only capability adapter: it shows
 that QA was NOT performed and disables the scan. It never fabricates a QA report
@@ -54,7 +56,10 @@ HTTP. This is test setup, NOT proof that UI import/book creation works.
 5. Open the actual export dialog, preview the book, click both download buttons,
    and verify saved TXT/HTML bytes against response SHA256 headers. The output
    must contain accepted text, never source text, private draft or review note.
-6. Log out, reload and prove session revocation. Repeat login/library on a narrow
+6. Through the existing TXT file picker, upload two numbered chapters, inspect
+the mapping, acknowledge the choices, confirm them and verify a newly created
+book appears in the real library UI; browser credentials stay HttpOnly.
+7. Log out, reload and prove session revocation. Repeat login/library on a narrow
    viewport and check horizontal overflow.
 
 Every browser request targets the single Rust origin. External requests are
@@ -77,7 +82,7 @@ skipped or unrun job is not acceptance.
 
 ## Remaining release gates
 
-Real book import/creation UI, QA and paid translation workflows; full textarea
-HTML acceptance/export parity; all remaining API routes; live HTTPS/Nginx
-trusted client-IP proof; backup/restore and memory gates. This preview does not
+Full/production import, source sites, HTML/EPUB/DOCX/BR/entity grammar, QA and
+paid translation workflows; full editor HTML parity; other API routes, live
+HTTPS/Nginx, trusted IP, backup/restore and memory gates. This preview does not
 replace the production application and must not be described as doing so.

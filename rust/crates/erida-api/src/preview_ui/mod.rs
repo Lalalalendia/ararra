@@ -4,7 +4,7 @@ use axum::{body::Body, extract::Path, http::{header, HeaderValue, StatusCode},
 include!(concat!(env!("OUT_DIR"), "/preview_assets.rs"));
 
 const CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
-const LIMITED: &str = "Rust UI preview: import, QA, quotas, paid translation and personal cabinet are not migrated. This is not production readiness.";
+const LIMITED: &str = "Rust UI preview: source-site import, QA, quotas, paid translation and personal cabinet are not migrated. Only strict canonical TXT import is experimental. This is not production readiness.";
 
 fn reply(code: StatusCode, mime: &'static str, body: impl Into<Body>) -> Response {
     let mut response = Response::new(body.into());
@@ -24,14 +24,14 @@ fn reply(code: StatusCode, mime: &'static str, body: impl Into<Body>) -> Respons
 }
 
 fn render(page: &str) -> Option<String> {
-    if !matches!(page, "overview" | "books" | "editor" | "team") { return None; }
+    if !matches!(page, "overview" | "books" | "editor" | "team" | "import") { return None; }
     Some(SHELL.replace("{{ active_page }}", page))
 }
 async fn home() -> Response { page(Path("overview".to_owned())).await }
 async fn page(Path(page): Path<String>) -> Response {
     if let Some(html) = render(&page) {
         reply(StatusCode::OK, "text/html; charset=utf-8", html)
-    } else if matches!(page.as_str(), "import" | "jobs" | "cabinet") {
+    } else if matches!(page.as_str(), "jobs" | "cabinet") {
         reply(StatusCode::NOT_IMPLEMENTED, "text/plain; charset=utf-8", LIMITED)
     } else {
         reply(StatusCode::NOT_FOUND, "text/plain; charset=utf-8", "Page not found")
@@ -64,14 +64,14 @@ mod tests {
     use super::*;
     #[test]
     fn fixed_page_names_are_the_only_template_input() {
-        for page in ["overview", "books", "editor", "team"] {
+        for page in ["overview", "books", "editor", "team", "import"] {
             let html = render(page).unwrap();
             assert!(html.contains(&format!("data-initial-page=\"{page}\"")));
             assert!(html.contains("id=\"chapter-editor\""));
             assert!(html.contains("data-runtime=\"rust-preview\""));
             assert!(!html.contains("{{") && !html.contains("{%") && !html.contains("{#"));
         }
-        for page in ["import", "jobs", "cabinet", "<script>", "../../secret"] {
+        for page in ["jobs", "cabinet", "<script>", "../../secret"] {
             assert!(render(page).is_none());
         }
     }
