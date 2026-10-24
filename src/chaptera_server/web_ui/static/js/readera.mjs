@@ -12,6 +12,7 @@ import {createBookExportView} from './book-export-view.mjs';
 import {mountBookBatchView} from './book-batch-bind.mjs';
 import {createSourceBookImportView} from './source-book-import-view.mjs';
 import {renderDailyQuota,renderJobs} from './jobs-view.mjs';
+import {rowInput} from './import-inputs.mjs';
 import {createSessionClient} from './session-client.mjs';
 import {installAuthView} from './login-view.mjs';
 import {createGeminiCabinet} from './gemini-cabinet-view.mjs';
@@ -398,11 +399,6 @@ $('import-existing').addEventListener('change',()=>{
     ? {...row,expected_revision:null,verified_book_id:null,verified_chapter_id:null} : row);
   renderMapping();
 });
-function rowInput(type,value,label,change) {
-  const el=document.createElement(type);
-  if(type==='input'){el.type='text';el.value=value;el.setAttribute('aria-label',label);el.addEventListener('input',e=>change(e.target.value));}
-  return el;
-}
 function renderMapping() {
   const body=$('chapter-map');body.replaceChildren();
   if(!staged)return;
