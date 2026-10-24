@@ -684,3 +684,17 @@ def test_side_folder_collision_fails_before_upload(tmp_path):
     with pytest.raises(DriveExportError,match="different identity"):
         run_export(db,jid,service)
     assert len(service.creates)==count
+
+
+def test_consented_drive_scope_fails_closed_on_legacy_schema(tmp_path):
+    """An old DB with global export enabled is NOT implicit batch consent."""
+    db,_,job_id=make_job(tmp_path / "old-schema",completed=False)
+    outbox=DriveOutbox(db)
+    outbox.set_enabled(True)
+    finish_pending_book_job(db,job_id)
+    assert outbox.status()["pending"]==1
+    assert outbox.run_once(
+        lambda _: pytest.fail("Must not export legacy job without consent"),
+        consented_only=True
+    )["stage"]=="no_eligible_export"
+    assert outbox.status()["pending"]==1

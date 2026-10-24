@@ -377,17 +377,30 @@ def test_consented_chapter_batch_stages_individual_drive_files_without_network(t
             # Simulate operator-approved exporter on an isolated temp DB,
             # using fake file receipts, NOT a Google network request.
             outbox.set_enabled(True)
+            # An existing non-consented pending row can come from the
+            # legacy global mode. New MVP exporter must never claim it.
+            unconsented_id=no_drive.json()["chapters"][0]["job_id"]
+            with store._connect() as con:
+                con.execute(
+                    "INSERT INTO drive_export_outbox"
+                    "(job_id,status,run_after,created_at,updated_at)"
+                    " VALUES(?,'pending',?,?,?)",
+                    (unconsented_id,time.time(),time.time(),time.time()),
+                )
             for _ in range(2):
                 result = outbox.run_once(
                     lambda jid: {
                         "source_file_id": "offline-source-" + jid,
                         "translation_file_id": "offline-translation-" + jid,
-                    }
+                    },consented_only=True
                 )
                 assert result["stage"] == "exported"
+                assert result["job_id"] != unconsented_id
             assert outbox.status()["done"] == 2
+            assert outbox.status()["pending"] == 1
             assert outbox.run_once(
-                lambda _: pytest.fail("Never export a second time")
+                lambda _: pytest.fail("Unconsented job must not leave the queue"),
+                consented_only=True
             )["stage"] == "no_eligible_export"
             done = (await c.get(f"{BOOK_URL}/{batch['batch_id']}",
                                 headers=MOD)).json()
