@@ -181,7 +181,7 @@ const exportView=createBookExportView({
   txt:$('book-export-txt'),html:$('book-export-html'),request,
   showError:e=>flash(e.message,true),notify:m=>flash(m),
 });
-const batchView=mountBookBatchView({lookup:$,request,flash});
+const batchView=mountBookBatchView({lookup:$,request,flash,onNavigate:()=>showPage('books',true)});
 const libraryView=createLibraryView({
   body:$('book-list'),filter:$('book-filter'),ownerFilter:$('book-owner-filter'),
   empty:$('books-empty'),request,openExport:book=>exportView.open(book),

@@ -132,6 +132,8 @@ export function renderBatchProgress(batch,{progressPanel,progressTitle,progressS
  */
 export function importedChapterSelection(receipt,catalog) {
   if(!receipt || !Array.isArray(receipt.chapters) ||
+      typeof receipt.stage_id!=='string' ||
+      !/^[0-9a-f]{8}-[0-9a-f-]{27,40}$/.test(receipt.stage_id) ||
       !Number.isSafeInteger(receipt.imported_count))
     throw new Error('Квитанция импорта недоступна. Откройте книгу из библиотеки.');
   const choices=receipt.chapters.filter(c=>c.action==='create'||c.action==='replace');

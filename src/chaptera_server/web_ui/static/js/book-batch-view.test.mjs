@@ -81,9 +81,10 @@ test('after one uploaded TXT, only chapters in the exact import receipt are sele
   assert.equal(chosen.has('unrelated'),false);
 });
 test('missing, stale, duplicate or oversized import receipts cannot trigger implicit translation',()=>{
-  const one={stage_id:'test-stage',imported_count:1,
+  const one={stage_id:'a7481196-a7d4-48d0-88f2-0a4c4619251e',imported_count:1,
     chapters:[{sequence:1,action:'create',chapter_id:'c3'}]};
   assert.deepEqual([...importedChapterSelection(one,toc)],['c3']);
+  assert.throws(()=>importedChapterSelection({...one,stage_id:'bad'},toc),/Квитанция/);
   assert.throws(()=>importedChapterSelection({...one,imported_count:2},toc),/от 1 до 100/);
   assert.throws(()=>importedChapterSelection({...one,chapters:[{sequence:1,action:'create',chapter_id:'deleted'}]},toc),/изменились/);
   assert.throws(()=>importedChapterSelection({...one,imported_count:2,chapters:[one.chapters[0],one.chapters[0]]},toc),/изменились/);

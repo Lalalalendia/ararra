@@ -1,7 +1,7 @@
 /** Bind RE-06C dialog controls without bloating the main browser controller. */
 import {createBookBatchView} from './book-batch-view.mjs';
 
-export function mountBookBatchView({lookup,request,flash}){
+export function mountBookBatchView({lookup,request,flash,onNavigate}){
   const $=lookup;
   const view=createBookBatchView({
   dialog:$('book-batch-dialog'),title:$('book-batch-title'),help:$('book-batch-help'),
@@ -23,7 +23,7 @@ export function mountBookBatchView({lookup,request,flash}){
   let imported=null;
   translate.hidden=true;
   translate.addEventListener('click',()=>{
-    if(!imported)return;
+    if(!imported || (onNavigate && !onNavigate()))return;
     void view.openImported({
       book_id:imported.book_id,title:imported.book_id,
     },imported);

@@ -3,8 +3,9 @@
  */
 import {
   buildBatchPayload,chapterOrder,bookPath,importedChapterSelection,
-  renderBatchChapters,renderBatchHistory,renderBatchProgress,
+  renderBatchChapters,
 } from './book-batch-presenter.mjs';
+import {createBatchReads} from './book-batch-read.mjs';
 export {buildBatchPayload,batchProgressSummary,batchStatusLabel}
   from './book-batch-presenter.mjs';
 
@@ -20,11 +21,9 @@ export function createBookBatchView({
   let bookDetails=null;
   let selected=new Set();
   let receipt=null;
-  let currentBatchId='';
   let generation=0;
   let selectionRevision=0;
   let working=false;
-  let reading=false;
 
   const activeFor=(ticket,book)=>ticket===generation && dialog.open && active===book;
   const path=()=>bookPath(active.book_id)+'/translation-batches';
@@ -57,42 +56,19 @@ export function createBookBatchView({
   function renderChapters(){
     renderBatchChapters(chaptersBody,catalog,selected,checkedSelection);
   }
-  function renderHistory(batches){
-    renderBatchHistory(historyList,batches,loadProgress);
-  }
-  function renderProgress(batch){
-    currentBatchId=batch.batch_id;
-    renderBatchProgress(batch,{
-      progressPanel,progressTitle,progressSummary,progressBody,progressRefresh,
-    });
-  }
-  async function loadHistory(){
-    if(!active || reading)return;
-    const book=active,ticket=generation;
-    reading=true;
-    try{
-      const result=await request(path()+'?limit=20');
-      if(activeFor(ticket,book))renderHistory(result.batches||[]);
-    }catch(error){
-      if(activeFor(ticket,book))showError(error);
-    }finally{reading=false;}
-  }
-  async function loadProgress(batchId){
-    if(!active || !batchId)return;
-    const book=active,ticket=generation;
-    progressSummary.textContent='Загрузка сохранённого прогресса…';
-    try{
-      const result=await request(path()+'/'+encodeURIComponent(batchId));
-      if(activeFor(ticket,book))renderProgress(result);
-    }catch(error){if(activeFor(ticket,book))showError(error);}
-  }
+  const reads=createBatchReads({
+    getActive:()=>active,getTicket:()=>generation,activeFor,path,request,
+    historyList,progressPanel,progressTitle,progressSummary,progressBody,
+    progressRefresh,showError,
+  });
+  const {loadHistory,loadProgress,renderProgress}=reads;
 
   function reset(){
     generation+=1;selectionRevision+=1;
     selected=new Set();catalog=[];bookDetails=null;active=null;receipt=null;
     importedReceipt=null;
-    currentBatchId='';
-    working=false;reading=false;
+    reads.reset();
+    working=false;
     resetPreview();chaptersBody.replaceChildren();historyList.replaceChildren();
     setWorking(false);
     progressPanel.hidden=true;
@@ -162,7 +138,7 @@ export function createBookBatchView({
   previewButton.addEventListener('click',()=>void preview());
   submitButton.addEventListener('click',()=>void submit());
   historyRefresh.addEventListener('click',()=>void loadHistory());
-  progressRefresh.addEventListener('click',()=>void loadProgress(currentBatchId));
+  progressRefresh.addEventListener('click',()=>void loadProgress(reads.batchId()));
 
   function setWorking(state){
     working=state;
