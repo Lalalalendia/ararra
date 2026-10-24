@@ -382,6 +382,7 @@ pub fn app(state: AppState) -> Router {
             .route("/v1/imports/stages", post(import_stage::stage)
                 .layer(DefaultBodyLimit::max(12 * 1024 * 1024 + 64 * 1024)))
             .route("/v1/imports/stages/{stage_id}", axum::routing::delete(import_stage::cancel))
+            .route("/v1/imports/stages/{stage_id}/confirm", post(import_stage::confirm))
             .route("/v1/admin/members", post(admin_credentials::issue))
             .route("/v1/admin/members/{member_id}/rotate", post(admin_credentials::rotate))
             .route("/v1/admin/members/{member_id}/disable", post(admin_credentials::disable))
