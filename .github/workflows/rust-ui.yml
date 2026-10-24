@@ -22,6 +22,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Check chapter mapping defaults and fail-closed rules
+        run: node --test src/chaptera_server/web_ui/static/js/import-model.test.mjs
       - name: Test native renderer and editor grammar; build API and preview
         run: |
           cargo test --manifest-path rust/Cargo.toml -p erida-api -p erida-library --all-targets

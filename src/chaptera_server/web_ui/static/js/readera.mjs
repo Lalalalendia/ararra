@@ -372,7 +372,13 @@ function stageShown(stage) {
   document.querySelector('input[name="book_mode"][value="create"]').checked=true;
   $('import-warnings').hidden=!(stage.preview.warnings||[]).length;
   $('import-warnings').replaceChildren();
-  for(const w of stage.preview.warnings || [])text($('import-warnings'),w,'p');
+  for(const w of stage.preview.warnings || []) {
+    const unnumbered = w === 'Some entries have no explicit author number: sequence numbers are suggestions only'
+      || w === 'Some chapters have no explicit number: sequence numbers are suggestions only';
+    text($('import-warnings'), unnumbered
+      ? 'Часть глав без номера в оригинале. Предложенные номера — только позиции в новой книге; проверьте их перед записью.'
+      : w, 'p');
+  }
   fillOwnerSelect();fillBooksSelect();syncBookMode();renderMapping();
   $('import-resume').elements.stage_id.value=stage.stage_id;
   if(confirmed) showReceipt(confirmed);else markStep(2);
@@ -412,7 +418,12 @@ function renderMapping() {
     text(info,'#'+row.sequence+' · '+row.title,'strong');
     const kind=row.entry_type==='extra'?'Дополнительная запись':
       row.entry_type==='service'?'Служебная запись':'Сюжетная глава';
-    text(info,kind+' · '+(row.detected_number===null?'Без номера':'№ '+row.detected_number),'small');
+    const originNumber = row.detected_number === null
+      ? (row.provisional_assignment
+        ? 'Без авторского номера · предложена позиция '+row.chapter_index
+        : 'Без авторского номера')
+      : 'Авторский № '+row.detected_number;
+    text(info,kind+' · '+originNumber,'small');
     text(info,shorten(row.sample,90),'small');
     tr.append(info);
     const cellAction=document.createElement('td');
