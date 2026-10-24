@@ -483,7 +483,20 @@ try{
   assert.equal(book.status,200);assert.equal(book.data.owner_member_id,'writer');
   assert.equal((await api('/v1/books/browser-novel/chapters/12',issued)).data.source_revision,1);
   await screenshot(page,'05-import-success.png');
-
+  // Import → batch bridge selects exactly the two newly imported chapters.
+  // The preview is read-only and cannot call Gemini before explicit consent.
+  await page.locator('#import-translate').click();
+  await page.locator('#book-batch-dialog').waitFor({state:'visible'});
+  await page.waitForFunction(()=>
+    document.querySelector('#book-batch-selection-status')?.textContent.includes('Выбрано 2 из 2'));
+  assert.deepEqual(await page.locator('#book-batch-chapters input[type="checkbox"]:checked').evaluateAll(
+    elements=>elements.map(x=>x.dataset.chapterId).sort()),['12','13']);
+  assert.equal(await page.locator('#book-batch-ack').isChecked(),false);
+  assert.equal(await page.locator('#book-batch-submit').isEnabled(),false);
+  await page.locator('#book-batch-dialog button[value="cancel"]').click();
+  await page.locator('#book-batch-dialog').waitFor({state:'hidden'});
+  assert.equal((await api('/v1/jobs?limit=50',issued)).data.jobs.length,0);
+  
   await choose(page,'books');
   const libraryRow=page.locator('#book-list .library-book-row')
     .filter({hasText:'Браузерная проверка'});
