@@ -70,6 +70,7 @@ jobs:
           cargo build --release --manifest-path rust/Cargo.toml -p erida-source-dom --bin source-dom-probe
           cargo build --release --manifest-path rust/Cargo.toml -p erida-source-clean --bin source-clean-probe
           cargo build --release --manifest-path rust/Cargo.toml -p erida-source-clean --bin source-inline-probe
+          cargo build --release --manifest-path rust/Cargo.toml -p erida-source-clean --bin source-import-probe
       - name: Install Python reference API in disposable runner
         run: python -m pip install -e .
       - name: Inventory Python contracts and guarded Rust candidate routes
@@ -133,6 +134,8 @@ jobs:
       - name: Verify strict loopback proxy identity and shared Python Rust 429 lockout
         run: python scripts/compare_rust_proxy_login_ip.py rust/target/release/erida-api
 
+      - name: Verify canonical TXT import HTML cleaning and SHA256 against Python
+        run: python scripts/compare_rust_import_hash.py rust/target/release/source-import-probe
       - name: Compare Rust read-only TXT import preview with Python and ensure no SQLite writes
         run: python scripts/compare_rust_import_preview.py rust/target/release/erida-api
 
