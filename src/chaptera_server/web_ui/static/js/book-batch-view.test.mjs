@@ -88,7 +88,7 @@ test('missing, stale, duplicate or oversized import receipts cannot trigger impl
   assert.throws(()=>importedChapterSelection({...one,imported_count:2},toc),/от 1 до 100/);
   assert.throws(()=>importedChapterSelection({...one,chapters:[{sequence:1,action:'create',chapter_id:'deleted'}]},toc),/изменились/);
   assert.throws(()=>importedChapterSelection({...one,imported_count:2,chapters:[one.chapters[0],one.chapters[0]]},toc),/изменились/);
-  assert.throws(()=>importedChapterSelection({imported_count:0,chapters:[{action:'skip'}]},toc),/от 1 до 100/);
+  assert.throws(()=>importedChapterSelection({...one,imported_count:0,chapters:[{action:'skip'}]},toc),/от 1 до 100/);
   const tooMany=Array.from({length:101},(_,i)=>({action:'create',chapter_id:'x'+i}));
-  assert.throws(()=>importedChapterSelection({imported_count:101,chapters:tooMany},toc),/от 1 до 100/);
+  assert.throws(()=>importedChapterSelection({...one,imported_count:101,chapters:tooMany},toc),/от 1 до 100/);
 });
