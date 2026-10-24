@@ -113,8 +113,12 @@ fn meaningful_prefix(prefix:&str)->bool{
     // cannot count as meaningful. Arbitrary Python stage HTML is never
     // interpreted as an independent proof.
     let s=prefix.trim();
-    !s.is_empty() && s.starts_with("<p>") && s.ends_with("</p>")
-        && s!="<p></p>" && s.chars().any(|c|c.is_alphanumeric())
+    if !s.starts_with("<p>") || !s.ends_with("</p>") { return false; }
+    // The M1o canonical HTML contains escaped text and optional <br/>
+    // separators, never arbitrary nested tags. A tag-name by itself is
+    // not evidence of meaningful preface text.
+    let visible=s.replace("<p>","").replace("</p>","").replace("<br/>","");
+    !visible.trim().is_empty()
 }
 
 /// Only the strict, independently Python-proven H1+paragraph subset may
@@ -137,7 +141,7 @@ pub fn confirm(
     let stamp=now()?;
     if expires<stamp { return Err(StageError::Expired); }
     if status=="committed" {
-        if saved_fingerprint.as_deref()!=Some(&fingerprint) {
+        if saved_fingerprint.as_deref()!=Some(fingerprint.as_str()) {
             return Err(StageError::Conflict("Already committed with a different chapter selection"));
         }
         let receipt=receipt.ok_or(StageError::Malformed)?;
@@ -342,4 +346,164 @@ pub fn confirm(
     ).map_err(sql)?;
     tx.commit()?;
     Ok(receipt)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::import_stage;
+
+    fn db()->Connection{
+        let c=Connection::open_in_memory().unwrap();
+        c.execute_batch(r#"
+            PRAGMA foreign_keys=ON;
+            CREATE TABLE books(
+                id TEXT PRIMARY KEY,title TEXT NOT NULL,owner_member_id TEXT,
+                owner_revision INTEGER NOT NULL DEFAULT 0,
+                glossary_json TEXT NOT NULL DEFAULT '{}',
+                glossary_versions_json TEXT NOT NULL DEFAULT '{}',
+                glossary_authority TEXT NOT NULL DEFAULT 'READY',
+                glossary_revision INTEGER NOT NULL DEFAULT 0,
+                created_at REAL NOT NULL,updated_at REAL NOT NULL
+            );
+            CREATE TABLE book_owner_events(
+                book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+                revision INTEGER NOT NULL,previous_owner_member_id TEXT,
+                new_owner_member_id TEXT NOT NULL,actor_id TEXT NOT NULL,
+                changed_at REAL NOT NULL,PRIMARY KEY(book_id,revision)
+            );
+            CREATE TABLE book_chapters(
+                book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+                chapter_id TEXT NOT NULL,chapter_index INTEGER NOT NULL,
+                chapter_path TEXT NOT NULL,source_html TEXT NOT NULL,
+                source_hash TEXT NOT NULL,source_revision INTEGER NOT NULL,
+                accepted_html TEXT,accepted_revision INTEGER NOT NULL DEFAULT 0,
+                accepted_source_revision INTEGER NOT NULL DEFAULT 0,
+                updated_at REAL NOT NULL,PRIMARY KEY(book_id,chapter_id),
+                UNIQUE(book_id,chapter_index),UNIQUE(book_id,chapter_path)
+            );
+            CREATE TABLE book_import_stages(
+                id TEXT PRIMARY KEY,actor_id TEXT NOT NULL,idempotency_key TEXT,
+                input_fingerprint TEXT NOT NULL,original_sha256 TEXT NOT NULL,
+                filename TEXT NOT NULL,status TEXT NOT NULL,
+                preview_json TEXT NOT NULL,payload_json TEXT,prefix_html TEXT NOT NULL,
+                confirm_fingerprint TEXT,commit_result_json TEXT,
+                created_at REAL NOT NULL,expires_at REAL NOT NULL,
+                UNIQUE(actor_id,idempotency_key)
+            );
+            CREATE TABLE book_import_unassigned(
+                book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+                stage_id TEXT NOT NULL,filename TEXT NOT NULL,
+                source_html TEXT NOT NULL,source_sha256 TEXT NOT NULL,
+                actor_id TEXT NOT NULL,created_at REAL NOT NULL,
+                PRIMARY KEY(book_id,stage_id)
+            );"#).unwrap();
+        c
+    }
+    fn src()->String{
+        let narrative="События продолжаются вдоль широкой реки. ".repeat(20);
+        format!("Глава 1\n{narrative}\nГлава 2\n{narrative}")
+    }
+    fn stage(db:&mut Connection,data:&str)->String{
+        import_stage::stage(db,"alice","story.txt",data.as_bytes(),None).unwrap()
+            ["stage_id"].as_str().unwrap().to_owned()
+    }
+    fn request()->Value{
+        json!({
+            "book_id":"book-1","book_mode":"create","title":"История",
+            "owner_member_id":"alice","prefix_policy":"discard",
+            "chapters":[
+                {"sequence":2,"action":"create","chapter_id":"c2",
+                 "chapter_index":2,"chapter_path":"chapters/2.xhtml",
+                 "expected_revision":0},
+                {"sequence":1,"action":"create","chapter_id":"c1",
+                 "chapter_index":1,"chapter_path":"chapters/1.xhtml",
+                 "expected_revision":0}
+            ]
+        })
+    }
+    fn count(db:&Connection,table:&str)->i64{
+        db.query_row(&format!("SELECT COUNT(*) FROM {table}"),[],|r|r.get(0)).unwrap()
+    }
+
+    #[test]
+    fn two_chapter_confirm_is_atomic_canonical_and_idempotent(){
+        let mut c=db();
+        let stage_id=stage(&mut c,&src());
+        let receipt=confirm(&mut c,"alice",&stage_id,request()).unwrap();
+        assert_eq!(receipt["status"],"committed");
+        assert_eq!(receipt["created_book"],true);
+        assert_eq!(receipt["imported_count"],2);
+        assert_eq!(receipt["skipped_count"],0);
+        assert_eq!(receipt["chapters"][0]["sequence"],1);
+        assert_eq!(receipt["chapters"][1]["sequence"],2);
+        assert_eq!(count(&c,"books"),1);
+        assert_eq!(count(&c,"book_owner_events"),1);
+        assert_eq!(count(&c,"book_chapters"),2);
+        assert_eq!(count(&c,"book_import_unassigned"),0);
+        let (html,digest):(String,String)=c.query_row(
+            "SELECT source_html,source_hash FROM book_chapters WHERE book_id='book-1'
+             AND chapter_id='c1'",[],|r|Ok((r.get(0)?,r.get(1)?))
+        ).unwrap();
+        assert!(html.starts_with("<h1>Глава 1</h1>\n<p>"));
+        assert_eq!(digest,hex::encode(Sha256::digest(html.as_bytes())));
+        assert_eq!(confirm(&mut c,"alice",&stage_id,request()).unwrap(),receipt);
+        assert_eq!(count(&c,"book_chapters"),2);
+        assert_eq!(count(&c,"book_owner_events"),1);
+        let payload:Option<String>=c.query_row(
+            "SELECT payload_json FROM book_import_stages WHERE id=?1",
+            [stage_id],|r|r.get(0)
+        ).unwrap();
+        assert!(payload.is_none(),"source is purged after committed receipt");
+    }
+
+    #[test]
+    fn second_insert_sql_error_rolls_back_book_first_chapter_and_receipt(){
+        let mut c=db();
+        let id=stage(&mut c,&src());
+        c.execute_batch(r#"
+            CREATE TRIGGER inject_failure BEFORE INSERT ON book_chapters
+            WHEN NEW.chapter_id='c2'
+            BEGIN SELECT RAISE(FAIL,'simulate disk/constraint error'); END;
+        "#).unwrap();
+        assert!(confirm(&mut c,"alice",&id,request()).is_err());
+        for table in ["books","book_owner_events","book_chapters","book_import_unassigned"] {
+            assert_eq!(count(&c,table),0,"partial state in {table}");
+        }
+        let state:String=c.query_row("SELECT status FROM book_import_stages WHERE id=?1",
+            [id.as_str()],|r|r.get(0)).unwrap();
+        assert_eq!(state,"staged");
+        c.execute_batch("DROP TRIGGER inject_failure").unwrap();
+        assert_eq!(confirm(&mut c,"alice",&id,request()).unwrap()["imported_count"],2);
+    }
+
+    #[test]
+    fn unknown_actor_changed_decision_and_unproved_html_fail_closed(){
+        let mut c=db();
+        let id=stage(&mut c,&src());
+        assert!(matches!(confirm(&mut c,"bob",&id,request()),Err(StageError::Missing)));
+        let mut duplicate=request();
+        duplicate["chapters"][1]["sequence"]=json!(2);
+        assert!(matches!(confirm(&mut c,"alice",&id,duplicate),Err(StageError::Conflict(_))));
+        assert_eq!(count(&c,"book_chapters"),0);
+        let bad=stage(&mut c,"Глава 1\nA & B\nГлава 2\nВторая.");
+        assert!(matches!(
+            confirm(&mut c,"alice",&bad,request()),
+            Err(StageError::Invalid("Unproved source HTML: needs review before native confirm"))
+        ));
+        assert_eq!(count(&c,"books"),0);
+        assert_eq!(count(&c,"book_owner_events"),0);
+        assert_eq!(count(&c,"book_chapters"),0);
+    }
+
+    #[test]
+    fn new_commit_receipt_cannot_be_replayed_with_different_choices(){
+        let mut c=db();
+        let id=stage(&mut c,&src());
+        confirm(&mut c,"alice",&id,request()).unwrap();
+        let mut changed=request();
+        changed["chapters"][0]["chapter_id"]=json!("reassigned");
+        assert!(matches!(confirm(&mut c,"alice",&id,changed),Err(StageError::Conflict(_))));
+        assert_eq!(count(&c,"book_chapters"),2);
+    }
 }
