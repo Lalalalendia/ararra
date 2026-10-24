@@ -103,6 +103,30 @@ Google Workspace sharing configuration before broadening to restricted
 bootstrap is **not implemented** in this first code slice; credentials
 must be explicitly provisioned by the operator.
 
+## New MVP: readable TXT per user-consented translation batch
+
+The user workflow **one uploaded TXT containing 1..N chapters → N separate
+editable Drive translation TXT files** is opt-in via the batch's explicit
+`drive_export_requested` flag. The exporter checks immutable book revisions,
+ownership and completed job state and creates source/translation pairs. For
+**new consented batch jobs only**, the exporter now converts canonical source
+HTML and machine translation HTML to *plain readable UTF-8 text*, preserving
+chapter headings, paragraph boundaries, line breaks and Chinese/Russian
+characters. Unsupported or hidden markup fails closed; it cannot silently
+lose content. The recipient sees `Глава NNN.txt`, not HTML tags in a TXT.
+
+Legacy RE-09A non-batch/non-consented exports continue to carry exact HTML
+fragment bytes as originally documented. No existing Drive object is rewritten;
+same-name/foreign conflicts stay blocked. A preexisting HTML-fragment export
+cannot be silently replaced with the new plain-text representation.
+
+The separate operator gate remains mandatory. A user ticking the Drive checkbox
+queues a durable per-chapter handoff after translation, but makes **no**
+network request until the operator enables the exporter and starts it explicitly,
+preferably with `drive-outbox --run-once --allow-drive-write --consented-only`.
+Do not confuse synthetic HTTP MockTransport coverage with a real Gemini+Google
+Drive acceptance run.
+
 ## Safety and idempotency
 
 - The CLI reads one SQLite snapshot and requires a **completed, book-owned**
