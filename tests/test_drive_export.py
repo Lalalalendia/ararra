@@ -698,3 +698,118 @@ def test_consented_drive_scope_fails_closed_on_legacy_schema(tmp_path):
         consented_only=True
     )["stage"]=="no_eligible_export"
     assert outbox.status()["pending"]==1
+
+
+
+@pytest.mark.parametrize("n", [1, 3])
+def test_consented_batch_exports_n_actual_readable_txt_pairs_without_overwrite(tmp_path, n):
+    """No remote Google calls: real export code against an HTTP MockTransport."""
+    from chaptera_server.chapter_batches import TranslationBatches
+    from chaptera_server.drive_outbox import DriveOutbox
+
+    db = QueueStore(tmp_path / f"mvp-plain-{n}.sqlite3")
+    lib = BookLibrary(db)
+    lib.create_book("mvp-book", "Отдельные переводы",
+                    owner_member_id="moderator", actor_id="administrator")
+    hashes = {}
+    for index in range(1, n + 1):
+        ch = lib.put_chapter(
+            "mvp-book", f"c{index}", chapter_index=index,
+            chapter_path=f"chapters/{index}.xhtml",
+            source_html=f"<h1>Глава {index}</h1><p>原文 {index}<br/>Ещё строка.</p>",
+            expected_revision=0,
+        )
+        hashes[f"c{index}"] = ch["source_hash"]
+    batches = TranslationBatches(db, lib)
+    selected = {
+        "expected_glossary_revision": 0,
+        "chapters": [
+            {"chapter_id": f"c{i}", "expected_source_revision": 1}
+            for i in range(1, n + 1)
+        ],
+        "source_language": "Chinese", "target_language": "Russian",
+        "style_instructions": "", "transport": "html_v0", "max_attempts": 1,
+    }
+    digest = batches.preview("mvp-book", selected)["manifest_sha256"]
+    created = batches.submit(
+        "mvp-book", {
+            **selected, "expected_manifest_sha256": digest,
+            "drive_export_requested": True,
+        }, actor_id="moderator", idempotency_key=f"mvp-plain-{n}",
+    )
+    outbox = DriveOutbox(db)
+    assert outbox.status()["enabled"] is False
+    assert outbox.status()["pending"] == 0
+    for i in range(1, n + 1):
+        claimed = db.claim_next()
+        assert claimed is not None
+        job, lease = claimed
+        index = int(job["chapter_id"][1:])
+        assert db.complete(
+            job["id"], lease,
+            f"<p>Перевод {index} <strong>литературный</strong>.<br/>Вторая строка.</p>",
+            hashes[f"c{index}"], 1,
+        )
+    assert outbox.status()["pending"] == n
+    assert outbox.run_once(
+        lambda _: pytest.fail("Operator has not allowed Google requests"),
+        consented_only=True,
+    )["stage"] == "no_eligible_export"
+
+    google = FakeDrive()
+    outbox.set_enabled(True)  # Isolated disposable SQLite, never a VPS toggle.
+    for _ in range(n):
+        response = outbox.run_once(
+            lambda job_id: run_export(db, job_id, google),
+            consented_only=True,
+        )
+        assert response["stage"] == "exported"
+    assert outbox.status()["done"] == n
+    assert outbox.run_once(
+        lambda _: pytest.fail("Must never re-export completed chapter"),
+        consented_only=True,
+    )["stage"] == "no_eligible_export"
+
+    receipts = [run_export(db, ch["job_id"], google)
+                for ch in created["chapters"]]
+    source_ids = [r["source_file_id"] for r in receipts]
+    translation_ids = [r["translation_file_id"] for r in receipts]
+    assert len(set(source_ids)) == len(set(translation_ids)) == n
+    assert set(source_ids).isdisjoint(translation_ids)
+    assert len(google.creates) == 4 + (2 * n)
+    assert len({r["book_folder_id"] for r in receipts}) == 1
+    for i, receipt in enumerate(receipts, start=1):
+        source = google.bodies[receipt["source_file_id"]].decode("utf-8")
+        translated = google.bodies[receipt["translation_file_id"]].decode("utf-8")
+        assert source == f"Глава {i}\n\n原文 {i}\nЕщё строка."
+        assert translated == f"Перевод {i} литературный.\nВторая строка."
+        assert google.files[receipt["source_file_id"]]["name"] == f"Глава {i:03d}.txt"
+        assert google.files[receipt["translation_file_id"]]["name"] == f"Глава {i:03d}.txt"
+        assert "<p>" not in translated and "</strong>" not in translated
+
+    old_count = len(google.creates)
+    edited_id = translation_ids[0]
+    google.bodies[edited_id] = "Отредактировал человек.".encode("utf-8")
+    assert run_export(db, created["chapters"][0]["job_id"], google)["translation_file_id"] == edited_id
+    assert len(google.creates) == old_count
+    assert google.bodies[edited_id].decode() == "Отредактировал человек."
+
+
+def test_mvp_plain_txt_rejects_unsafe_markup_without_remote_drive_writes(tmp_path):
+    from chaptera_server.chapter_plain_txt import readable_txt, PlainTxtError
+
+    assert readable_txt("<p>Первый <b>абзац</b>.<br/>Строка 2</p>") == (
+        "Первый абзац.\nСтрока 2".encode("utf-8")
+    )
+    assert readable_txt("&lt;tag&gt; текст.") == "<tag> текст.".encode("utf-8")
+    for input_html in (
+        "<script>hidden()</script><p>Visible</p>",
+        "<img src='x'/>",
+        "<div class='qa'>Hidden QA</div>",
+        "<p>Some text <!-- omitted --> after</p>",
+        "<p hidden>Hidden</p>",
+        "TSEG_123",
+        "<p></p>",
+    ):
+        with pytest.raises(PlainTxtError):
+            readable_txt(input_html)
