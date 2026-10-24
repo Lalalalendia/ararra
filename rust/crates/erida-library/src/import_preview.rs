@@ -241,6 +241,101 @@ pub fn preview_txt(filename: &str, data: &[u8]) -> Result<Value, PreviewError> {
     }))
 }
 
+/// Python html.escape(text, quote=True) for canonical stage source HTML.
+fn escape_html(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#x27;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+fn paragraphs_to_html(lines: &[String]) -> String {
+    let mut paragraphs = Vec::new();
+    let mut active = Vec::new();
+    for line in lines {
+        if line.trim().is_empty() {
+            if !active.is_empty() {
+                paragraphs.push(format!("<p>{}</p>", active.join("<br/>")));
+                active.clear();
+            }
+        } else {
+            active.push(escape_html(line.trim()));
+        }
+    }
+    if !active.is_empty() {
+        paragraphs.push(format!("<p>{}</p>", active.join("<br/>")));
+    }
+    paragraphs.join("\n")
+}
+
+/// Export the precise Python ImportSessions.stage raw-text representation
+/// ONLY for the grammar that preview_txt has already proven. Python stores
+/// original chapter headings inside a canonical escaped h1, and never
+/// exposes raw staged HTML in POST/GET preview projections.
+pub fn stage_payload_txt(
+    filename: &str, data: &[u8],
+) -> Result<(Value, Value, String), PreviewError> {
+    let preview = preview_txt(filename, data)?;
+    let text = std::str::from_utf8(data)
+        .map_err(|_| PreviewError::Invalid("Unsupported TXT encoding in Rust preview"))?;
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let text = text.replace("\r\n", "\n");
+    let mut entries: Vec<Entry> = Vec::new();
+    let mut current_title: Option<String> = None;
+    let mut current_number = None;
+    let mut lines: Vec<String> = Vec::new();
+    let mut prefix_lines = Vec::new();
+
+    for raw in text.lines() {
+        let line = raw.trim();
+        if let Some(number) = numbered_heading(line) {
+            if let Some(title) = current_title.take() {
+                push_entry(&mut entries, title, current_number,
+                           std::mem::take(&mut lines))?;
+            } else {
+                prefix_lines = std::mem::take(&mut lines);
+            }
+            current_title = Some(line.to_owned());
+            current_number = Some(number);
+        } else {
+            lines.push(raw.to_owned());
+        }
+    }
+    if let Some(title) = current_title {
+        push_entry(&mut entries, title, current_number, lines)?;
+    } else {
+        push_entry(&mut entries, filename[..filename.len() - 4].to_owned(), None, lines)?;
+    }
+    if preview["chapter_count"].as_u64() != Some(entries.len() as u64) {
+        return Err(PreviewError::Invalid("Unproved TXT source representation"));
+    }
+    let prefix_html = paragraphs_to_html(&prefix_lines);
+    let chapters = entries.into_iter().enumerate()
+        .map(|(i, entry)| {
+            let sequence = i + 1;
+            let html = paragraphs_to_html(&entry.lines);
+            let source = if entry.number.is_some() {
+                format!("<h1>{}</h1>\n{}", escape_html(&entry.title), html)
+            } else { html };
+            json!({
+                "sequence": sequence, "title": entry.title,
+                "detected_number": entry.number,
+                "entry_type": "chapter", "author_number": entry.number,
+                "catalog_ordinal": sequence, "source_id": null,
+                "source_path": filename, "source_html": source,
+            })
+        }).collect::<Vec<_>>();
+    Ok((preview, json!({"chapters": chapters}), prefix_html))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -271,6 +366,20 @@ mod tests {
         assert!(preview["warnings"].as_array().unwrap().iter()
             .any(|v| v.as_str().unwrap().contains("Duplicate chapter number 1")));
     }
+    #[test]
+    fn stage_payload_preserves_python_paragraph_and_heading_html() {
+        let (_, payload, prefix) = stage_payload_txt(
+            "novel.txt",
+            "Вступление.\n\nГлава 1\nA & B\nВторая строка.\n\n"
+            .to_owned().as_bytes(),
+        ).unwrap();
+        assert_eq!(prefix, "<p>Вступление.</p>");
+        assert_eq!(payload["chapters"][0]["source_html"],
+            "<h1>Глава 1</h1>\n<p>A &amp; B<br/>Вторая строка.</p>");
+        let (_, single, _) = stage_payload_txt("book.txt", b"Only paragraph").unwrap();
+        assert_eq!(single["chapters"][0]["source_html"], "<p>Only paragraph</p>");
+    }
+
     #[test]
     fn unknown_heading_types_and_unsafe_formats_are_rejected() {
         for input in ["Глава 1. Название\nТекст", "# Глава 1\nТекст",
