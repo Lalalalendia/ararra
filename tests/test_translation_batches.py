@@ -298,3 +298,117 @@ def test_invalid_chapter_count_rejected_before_database_write(tmp_path):
             assert job_count(store) == 0
 
     asyncio.run(scenario())
+
+
+def test_consented_chapter_batch_stages_individual_drive_files_without_network(tmp_path):
+    """One confirmed 2-chapter batch yields exactly 2 durable handoffs."""
+    from chaptera_server.drive_outbox import DriveOutbox
+    import time
+
+    app, _, store, _ = make_workspace(tmp_path)
+    consented = {**selected("c2", "c1"), "drive_export_requested": True}
+    other = selected("c3")
+
+    async def scenario():
+        async with client_for(app) as c:
+            preview_receipt = (await preview(c, selected("c2", "c1"))).json()
+            assert preview_receipt["chapter_count"] == 2
+            assert job_count(store) == 0
+
+            posted = await submit(
+                c, consented, preview_receipt["manifest_sha256"], "drive-batch-1"
+            )
+            assert posted.status_code == 201, posted.text
+            batch = posted.json()
+            assert batch["drive_export_requested"] is True
+            assert batch["drive_counts"] == {"awaiting_translation": 2}
+            assert len({row["job_id"] for row in batch["chapters"]}) == 2
+
+            # Identical ACK-loss retry preserves the same 2 jobs.
+            retry = await submit(c, consented, preview_receipt["manifest_sha256"],
+                                 "drive-batch-1")
+            assert retry.status_code == 201
+            assert retry.json()["batch_id"] == batch["batch_id"]
+            changed = await submit(c, selected("c2", "c1"),
+                                   preview_receipt["manifest_sha256"], "drive-batch-1")
+            assert changed.status_code == 409
+            assert job_count(store) == 2
+
+            # Another moderator can submit ordinary jobs but cannot authorize
+            # remote export under a different book owner's folder.
+            second = await submit(c, consented, preview_receipt["manifest_sha256"],
+                                  "drive-wrong-owner", headers=SECOND)
+            assert second.status_code == 409
+            assert job_count(store) == 2
+
+            other_preview = (await preview(c, other)).json()
+            no_drive = await submit(c, other, other_preview["manifest_sha256"],
+                                    "without-drive")
+            assert no_drive.status_code == 201
+            assert no_drive.json()["drive_export_requested"] is False
+
+            with store._connect() as con:
+                for chapter in batch["chapters"]:
+                    con.execute(
+                        "UPDATE jobs SET status='completed',result_html=?,updated_at=? "
+                        "WHERE id=?", ("<p>Готовый русский перевод</p>",
+                                      time.time(), chapter["job_id"])
+                    )
+                con.execute(
+                    "UPDATE jobs SET status='completed',result_html=?,updated_at=? "
+                    "WHERE id=?", ("<p>Без разрешения на экспорт</p>",
+                                  time.time(), no_drive.json()["chapters"][0]["job_id"])
+                )
+            outbox = DriveOutbox(store)
+            assert outbox.status()["enabled"] is False
+            assert outbox.status()["pending"] == 2
+            assert outbox.run_once(lambda _id: pytest.fail("Drive must stay offline"))[
+                "stage"] == "no_eligible_export"
+            status = await c.get(
+                f"{BOOK_URL}/{batch['batch_id']}", headers=MOD
+            )
+            assert status.status_code == 200
+            details = status.json()
+            assert details["counts"]["completed"] == 2
+            assert details["drive_counts"] == {"awaiting_exporter": 2}
+            assert all(row["drive_status"] == "awaiting_exporter"
+                       for row in details["chapters"])
+
+            # Simulate operator-approved exporter on an isolated temp DB,
+            # using fake file receipts, NOT a Google network request.
+            outbox.set_enabled(True)
+            # An existing non-consented pending row can come from the
+            # legacy global mode. New MVP exporter must never claim it.
+            unconsented_id=no_drive.json()["chapters"][0]["job_id"]
+            with store._connect() as con:
+                con.execute(
+                    "INSERT INTO drive_export_outbox"
+                    "(job_id,status,run_after,created_at,updated_at)"
+                    " VALUES(?,'pending',?,?,?)",
+                    (unconsented_id,time.time(),time.time(),time.time()),
+                )
+            for _ in range(2):
+                result = outbox.run_once(
+                    lambda jid: {
+                        "source_file_id": "offline-source-" + jid,
+                        "translation_file_id": "offline-translation-" + jid,
+                    },consented_only=True
+                )
+                assert result["stage"] == "exported"
+                assert result["job_id"] != unconsented_id
+            assert outbox.status()["done"] == 2
+            assert outbox.status()["pending"] == 1
+            assert outbox.run_once(
+                lambda _: pytest.fail("Unconsented job must not leave the queue"),
+                consented_only=True
+            )["stage"] == "no_eligible_export"
+            done = (await c.get(f"{BOOK_URL}/{batch['batch_id']}",
+                                headers=MOD)).json()
+            assert done["drive_counts"] == {"exported": 2}
+            assert len({row["drive_translation_file_id"] for row
+                        in done["chapters"]}) == 2
+            assert (await c.get(
+                f"{BOOK_URL}/{no_drive.json()['batch_id']}", headers=MOD
+            )).json()["chapters"][0]["drive_status"] == "not_requested"
+
+    asyncio.run(scenario())

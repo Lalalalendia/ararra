@@ -105,8 +105,11 @@ def main() -> None:
     parser.add_argument("--disable", action="store_true", help="Pause the automatic Drive queue")
     parser.add_argument("--run-once", action="store_true", help="One targeted source step, or one queued Drive export")
     parser.add_argument("--allow-drive-write", action="store_true", help="Explicit permission for outbox remote mutations")
+    parser.add_argument("--consented-only", action="store_true", help="For drive-outbox --run-once: export only explicitly consented batches")
     parser.add_argument("--retry-held", action="store_true", help="Explicitly requeue one held job after review")
     args = parser.parse_args()
+    if args.consented_only and (args.command != "drive-outbox" or not args.run_once):
+        parser.error("--consented-only requires drive-outbox --run-once")
     if args.backup_folder_id and args.command not in ("drive-authorize", "drive-smoke"):
         parser.error("--backup-folder-id is only supported for drive-authorize or drive-smoke")
     if args.command == "source-worker":
@@ -327,7 +330,7 @@ def main() -> None:
                         legacy_source_folder_id=source_folder,
                         legacy_translation_folder_id=translation_folder,
                     )
-            receipt=outbox.run_once(export_one)
+            receipt=outbox.run_once(export_one, consented_only=args.consented_only)
         else:
             receipt={"stage":"status",**outbox.status()}
         print(json.dumps(receipt,ensure_ascii=False))

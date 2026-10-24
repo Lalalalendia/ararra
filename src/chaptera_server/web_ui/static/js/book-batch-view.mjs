@@ -2,7 +2,7 @@
  * All network requests are provided by the authenticated session client.
  */
 import {
-  buildBatchPayload,chapterOrder,bookPath,importedChapterSelection,
+  buildBatchPayload,chapterOrder,bookPath,importedChapterSelection,withDriveConsent,
   renderBatchChapters,
 } from './book-batch-presenter.mjs';
 import {createBatchReads} from './book-batch-read.mjs';
@@ -11,7 +11,7 @@ export {buildBatchPayload,batchProgressSummary,batchStatusLabel}
 
 export function createBookBatchView({
   dialog,title,help,selectionStatus,chaptersBody,selectAll,clearSelection,
-  transport,maxAttempts,previewButton,review,reviewSummary,ack,submitButton,
+  transport,maxAttempts,previewButton,review,reviewSummary,ack,driveConsent,submitButton,
   status,historyList,historyRefresh,progressPanel,progressTitle,progressSummary,
   progressBody,progressRefresh,request,showError,notify,
 }){
@@ -30,6 +30,7 @@ export function createBookBatchView({
   function resetPreview(){
     receipt=null;
     ack.checked=false;
+    driveConsent.disabled=false;
     review.hidden=true;
     submitButton.disabled=true;
   }
@@ -72,7 +73,7 @@ export function createBookBatchView({
     resetPreview();chaptersBody.replaceChildren();historyList.replaceChildren();
     setWorking(false);
     progressPanel.hidden=true;
-    transport.value='html_v0';maxAttempts.value='3';
+    transport.value='html_v0';maxAttempts.value='3';driveConsent.checked=false;
     selectionStatus.textContent='Загрузка оглавления…';
     status.textContent='Выберите главы и проверьте состав перед отправкой.';
     previewButton.disabled=true;
@@ -201,6 +202,8 @@ export function createBookBatchView({
   async function submit(){
     if(!active||!receipt||!ack.checked||working)return;
     const book=active,ticket=generation,pin=receipt;
+    pin.submission ??= withDriveConsent({...pin.payload,expected_manifest_sha256:pin.sha},driveConsent.checked);
+    driveConsent.disabled=true;
     setWorking(true);
     status.textContent='Подтверждаем создание всей партии одним действием…';
     try{
@@ -208,7 +211,7 @@ export function createBookBatchView({
         method:'POST',headers:{
           'Content-Type':'application/json','Idempotency-Key':pin.key,
         },
-        body:JSON.stringify({...pin.payload,expected_manifest_sha256:pin.sha}),
+        body:JSON.stringify(pin.submission),
       });
       if(!activeFor(ticket,book))return;
       receipt=null;
