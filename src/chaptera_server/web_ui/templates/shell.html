@@ -158,6 +158,12 @@
                            type="number" min="1" max="10" step="1" value="3">
                   </label>
                 </div>
+                  <label class="check-confirm">
+                    <input id="book-batch-drive-request" type="checkbox">
+                    После перевода запросить отдельный TXT каждой главы на Google Drive.
+                    Файлы сохраняются только при работающем и разрешённом оператором экспортёре;
+                    до этого результат останется в очереди выгрузки.
+                  </label>
                 <button id="book-batch-preview" class="ui-button ui-button--ghost"
                         type="button" disabled>Проверить партию</button>
                 <p id="book-batch-status" role="status" aria-live="polite"
@@ -167,12 +173,6 @@
                   <label class="check-confirm">
                     <input id="book-batch-ack" type="checkbox">
                     Я проверил состав партии и подтверждаю создание заданий перевода.
-                  </label>
-                  <label class="check-confirm">
-                    <input id="book-batch-drive-request" type="checkbox">
-                    После перевода запросить отдельный TXT каждой главы на Google Drive.
-                    Файлы сохраняются только при работающем и разрешённом оператором экспортёре;
-                    до этого результат останется в очереди выгрузки.
                   </label>
                   <button id="book-batch-submit" class="ui-button ui-button--primary"
                           type="button" disabled>Подтвердить отправку в очередь</button>
