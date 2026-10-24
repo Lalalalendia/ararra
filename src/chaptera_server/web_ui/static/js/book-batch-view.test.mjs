@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildBatchPayload,batchProgressSummary,batchStatusLabel,
 } from './book-batch-view.mjs';
+import {importedChapterSelection} from './book-batch-presenter.mjs';
 
 const book={book_id:'novel',glossary_revision:7};
 const toc=[
@@ -57,4 +58,37 @@ test('progress aggregates recorded durable job states, not accepted or published
   assert.equal(batchStatusLabel('completed'),'Переведена (не принята)');
   assert.equal(batchStatusLabel('retry_wait'),'Ожидание повтора');
   assert.equal(batchStatusLabel('untrusted status'),'Неизвестный статус');
+});
+
+test('after one uploaded TXT, only chapters in the exact import receipt are selected',()=>{
+  const receipt={
+    stage_id:'92b6fe77-27e0-4c32-b2b0-e915fb73aa02',
+    imported_count:2,
+    chapters:[
+      {sequence:1,action:'create',chapter_id:'c3'},
+      {sequence:2,action:'skip'},
+      {sequence:3,action:'replace',chapter_id:'c11'},
+    ],
+  };
+  const extra=[...toc,{chapter_id:'unrelated',chapter_index:2,source_revision:1}];
+  const chosen=importedChapterSelection(receipt,extra);
+  assert.deepEqual([...chosen].sort(),['c11','c3']);
+  const payload=buildBatchPayload(book,extra,chosen);
+  assert.deepEqual(payload.chapters,[
+    {chapter_id:'c3',expected_source_revision:1},
+    {chapter_id:'c11',expected_source_revision:3},
+  ]);
+  assert.equal(chosen.has('unrelated'),false);
+});
+test('missing, stale, duplicate or oversized import receipts cannot trigger implicit translation',()=>{
+  const one={stage_id:'a7481196-a7d4-48d0-88f2-0a4c4619251e',imported_count:1,
+    chapters:[{sequence:1,action:'create',chapter_id:'c3'}]};
+  assert.deepEqual([...importedChapterSelection(one,toc)],['c3']);
+  assert.throws(()=>importedChapterSelection({...one,stage_id:'bad'},toc),/Квитанция/);
+  assert.throws(()=>importedChapterSelection({...one,imported_count:2},toc),/от 1 до 100/);
+  assert.throws(()=>importedChapterSelection({...one,chapters:[{sequence:1,action:'create',chapter_id:'deleted'}]},toc),/изменились/);
+  assert.throws(()=>importedChapterSelection({...one,imported_count:2,chapters:[one.chapters[0],one.chapters[0]]},toc),/изменились/);
+  assert.throws(()=>importedChapterSelection({...one,imported_count:0,chapters:[{action:'skip'}]},toc),/от 1 до 100/);
+  const tooMany=Array.from({length:101},(_,i)=>({action:'create',chapter_id:'x'+i}));
+  assert.throws(()=>importedChapterSelection({...one,imported_count:101,chapters:tooMany},toc),/от 1 до 100/);
 });

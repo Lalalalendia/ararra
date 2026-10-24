@@ -500,7 +500,9 @@
             </section>
             <section id="import-success" class="ui-card" hidden aria-live="polite">
               <h2>Импорт завершён</h2><div id="import-receipt"></div>
-              <button type="button" class="ui-button ui-button--primary" id="import-another">Новая загрузка</button>
+              <p class="muted">Следующий шаг: проверить состав импортированных глав и дневной лимит Gemini. Платные запросы начнутся только после отдельного подтверждения. Отправка на Drive требует включённого экспортёра.</p>
+              <button type="button" class="ui-button ui-button--primary" id="import-translate" hidden>Перейти к переводу импортированных глав</button>
+              <button type="button" class="ui-button ui-button--ghost" id="import-another">Новая загрузка</button>
             </section>
           </section>
           {% include "partials/chapter_editor.html" %}

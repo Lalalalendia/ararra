@@ -181,7 +181,7 @@ const exportView=createBookExportView({
   txt:$('book-export-txt'),html:$('book-export-html'),request,
   showError:e=>flash(e.message,true),notify:m=>flash(m),
 });
-const batchView=mountBookBatchView({lookup:$,request,flash});
+const batchView=mountBookBatchView({lookup:$,request,flash,onNavigate:()=>showPage('books',true)});
 const libraryView=createLibraryView({
   body:$('book-list'),filter:$('book-filter'),ownerFilter:$('book-owner-filter'),
   empty:$('books-empty'),request,openExport:book=>exportView.open(book),
@@ -312,7 +312,7 @@ function hideImportSteps() {
   $('import-upload').hidden=false;$('import-resume').hidden=false;
   $('import-map').hidden=true;$('import-review').hidden=true;$('import-success').hidden=true;
   $('import-ack').checked=false;$('import-confirm').disabled=true;
-  staged=null;rows=[];confirmed=null;
+  staged=null;rows=[];confirmed=null;batchView.offerImported(null);
   markStep(1);
 }
 function markStep(n) {
@@ -602,6 +602,7 @@ function showReceipt(receipt){
     ['ID операции',receipt.stage_id],
   ].forEach(([label,value])=>{const p=document.createElement('p');text(p,label+': ','strong');text(p,value);el.append(p);});
   $('import-map').hidden=true;$('import-review').hidden=true;$('import-success').hidden=false;markStep(3);
+  batchView.offerImported(receipt);
 }
 $('import-another').addEventListener('click',()=>{hideImportSteps();$('chapters_file').value='';selectedFile=null;flash('');});
 const sourceBookImportView=createSourceBookImportView({
