@@ -69,3 +69,35 @@ pub async fn review(
         ).map_err(map_qa_error)
     }).await
 }
+
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScanInput {
+    expected_source_revision: i64,
+    expected_accepted_revision: i64,
+    expected_glossary_revision: i64,
+}
+
+/// Only disposable test-mode Rust SQLite writers can call this route.
+/// A non-empty glossary or unsupported HTML is an explicit error, never PASS.
+pub async fn scan(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((book_id, chapter_id)): Path<(String, String)>,
+    Json(body): Json<ScanInput>,
+) -> Result<Response, ApiError> {
+    if body.expected_source_revision < 1
+        || body.expected_accepted_revision < 1
+        || body.expected_glossary_revision < 0
+    {
+        return Err(ApiError::InvalidInput("Invalid QA scan revisions"));
+    }
+    secured_write(state, headers, move |db, actor, _| {
+        erida_library::qa_scan::scan_baseline(
+            db, &book_id, &chapter_id, body.expected_source_revision,
+            body.expected_accepted_revision, body.expected_glossary_revision,
+            actor,
+        ).map_err(map_qa_error)
+    }).await
+}
