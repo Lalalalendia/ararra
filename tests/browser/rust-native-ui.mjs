@@ -294,7 +294,7 @@ try{
   observe(mobile);
   const small=await mobile.newPage();
   await small.goto(origin+'/app/books');await login(small,editorKey);
-  await small.locator('#book-list .library-book-row').waitFor();
+  await small.locator('#book-list .library-book-row').first().waitFor();
   const [width,viewport]=await small.evaluate(()=>[document.documentElement.scrollWidth,document.documentElement.clientWidth]);
   assert.ok(width<=viewport+2,'mobile page overflows horizontally');
   await screenshot(small,'04-mobile-books.png');
