@@ -107,7 +107,8 @@ try{
   await choose(page,'books');
   await page.locator('#book-list .library-book-row').waitFor();
   assert.equal(await page.locator('#rust-preview-warning').isVisible(),true);
-  assert.equal(await page.locator('.sidebar-nav [data-page-link=import]').getAttribute('aria-disabled'),'true');
+  assert.equal(await page.locator('.sidebar-nav [data-page-link=import]').getAttribute('aria-disabled'),null);
+  assert.equal(await page.locator('#rust-txt-import-boundary').count(),1);
   assert.equal(await page.locator('#book-list button').nth(3).isDisabled(),true);
   await screenshot(page,'01-books.png');
 
@@ -247,6 +248,41 @@ try{
   }
   await screenshot(page,'03-export.png');
   await page.keyboard.press('Escape');
+
+  // Real browser import: actual input, stage mapping, explicit human check
+  // and confirmed write. All fetch requests are made by canonical UI JS.
+  await choose(page,'import');
+  await page.locator('#source-import').waitFor({state:'hidden'});
+  assert.equal(await page.locator('#chapters_file').getAttribute('accept'),'.txt');
+  const narrative='События развиваются в большом городе на берегу реки. '.repeat(16);
+  const fileBytes=Buffer.from('Глава 1\n'+narrative+'\nГлава 2\n'+narrative,'utf8');
+  await page.locator('#chapters_file').setInputFiles({
+    name:'native-rust.txt',mimeType:'text/plain',buffer:fileBytes,
+  });
+  const stagedResponse=await action(page,'POST','/v1/imports/stages',
+    ()=>page.locator('#import-upload button[type=submit]').click(),201);
+  const stagedBody=await stagedResponse.json();
+  assert.equal(stagedBody.preview.chapter_count,2);
+  await page.locator('#import-map').waitFor({state:'visible'});
+  assert.equal(await page.locator('#chapter-map tr').count(),2);
+  await page.locator('#import-book-id').fill('m1p-chromium-native');
+  await page.locator('#import-book-title').fill('Rust TXT integration');
+  await page.locator('#import-review-button').click();
+  await page.locator('#import-review').waitFor({state:'visible'});
+  await page.locator('#import-ack').check();
+  const imported=await action(page,'POST','/confirm',
+    ()=>page.locator('#import-confirm').click(),200);
+  const receipt=await imported.json();
+  assert.equal(receipt.created_book,true);
+  assert.equal(receipt.imported_count,2);
+  await page.locator('#import-success').waitFor({state:'visible'});
+  await choose(page,'books');
+  await page.waitForFunction(()=>
+    document.querySelector('#book-list')?.textContent.includes('Rust TXT integration'));
+  await page.locator('#book-list .library-book-row').filter({hasText:'Rust TXT integration'}).waitFor();
+  assert.ok(endpoints.some(e=>e.method==='POST' && e.path==='/v1/imports/stages'));
+  assert.ok(endpoints.some(e=>e.method==='POST' && e.path.endsWith('/confirm')));
+
   await action(page,'POST','/v1/session/logout',()=>page.locator('#logout').click(),204);
   await page.locator('#login-form').waitFor({state:'visible'});
   await page.reload();
@@ -258,7 +294,7 @@ try{
   observe(mobile);
   const small=await mobile.newPage();
   await small.goto(origin+'/app/books');await login(small,editorKey);
-  await small.locator('#book-list .library-book-row').waitFor();
+  await small.locator('#book-list .library-book-row').first().waitFor();
   const [width,viewport]=await small.evaluate(()=>[document.documentElement.scrollWidth,document.documentElement.clientWidth]);
   assert.ok(width<=viewport+2,'mobile page overflows horizontally');
   await screenshot(small,'04-mobile-books.png');
@@ -272,13 +308,14 @@ try{
   assert.ok(endpoints.some(e=>e.path.endsWith('/restore-accepted')&&e.method==='POST'));
   assert.ok(!endpoints.some(e=>e.path.endsWith('/qa')),'unimplemented QA must never be presented as passed');
   writeFileSync(output+'evidence.json',JSON.stringify({
-    status:'PASS',stage:'M1m',backend:'Rust only',ui:'canonical existing shell and JS; explicit QA capability adapter',
+    status:'PASS',stage:'M1p-ui',backend:'Rust only',ui:'canonical shell; experimental TXT import; explicit QA capability adapter',
     editor_coverage:['paragraphs','line breaks','quotes','ampersand','escaped markup','literal entity text','readback'],
     chapter_status_coverage:['source','draft-does-not-accept','accept','neighbour-isolation','reread','UI-history-restore'],
-    fixture_creation:'Rust HTTP before browser; NOT UI import',
-    limitations:['import','QA','quotas','Gemini','arbitrary HTML grammar','live HTTPS/Nginx'],
+    fixture_creation:'Editor fixture via Rust HTTP; separate book created through actual Chromium TXT import',
+    limitations:['source-site import','QA','quotas','Gemini','arbitrary HTML/EPUB/DOCX','live HTTPS/Nginx'],
     downloads:hashes,endpoints,pageErrors,unexpected,
   },null,2));
+  console.log('rust_chromium_txt_ui_upload_stage_confirm_book_readback=PASS');
   console.log('rust_chromium_login_team_edit_draft_notes_accept_download_logout=PASS');
   console.log('rust_chromium_multiline_editor_readback_and_exact_text_exports=PASS');
   console.log('rust_chromium_chapter_labels_accept_reread_restore=PASS');
