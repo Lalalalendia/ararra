@@ -39,7 +39,7 @@ fn proven_visible_nodes(html: &str) -> Result<Vec<&str>, QaReadError> {
         let end = rest.find(close).ok_or_else(unsupported)?;
         let text = &rest[..end];
         // Do not silently misinterpret encoded CJK, raw markup or controls.
-        if text.contains(['&', '<', '>'])
+        if text.contains('&') || text.contains('<') || text.contains('>')
             || text.chars().any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
         {
             return Err(unsupported());
