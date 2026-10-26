@@ -219,6 +219,71 @@ async def exercise(app, db: Path, url: str, settings: Settings) -> None:
         assert chapter_rows(db, "rust-book") == after_rust
 
 
+        # A real unassigned preface must not be silently discarded.
+        # Both writers must reject the default "reject" policy and preserve
+        # the exact unassigned text/hash only after explicit consent.
+        prefaced = ("Перед началом.\n\n" + SOURCE.decode("utf-8")).encode("utf-8")
+        prefix_rust_stage = await stage(py, prefaced)
+        prefix_python_stage = await stage(rust, prefaced)
+        for client, stage_id, book in (
+            (rust, prefix_rust_stage, "rust-preface"),
+            (py, prefix_python_stage, "python-preface"),
+        ):
+            staged = await client.get(f"{STAGE}/{stage_id}", headers=alice)
+            assert staged.status_code == 200, staged.text
+            prefix_html = staged.json()["unassigned_prefix_html"]
+            assert prefix_html == "<p>Перед началом.</p>", prefix_html
+            selection = request(book)
+            selection["prefix_policy"] = "reject"
+            refusal = await client.post(
+                f"{STAGE}/{stage_id}/confirm", headers=alice, json=selection,
+            )
+            assert refusal.status_code == 409, (book, refusal.text)
+            with sqlite3.connect(db) as conn:
+                assert conn.execute(
+                    "SELECT COUNT(*) FROM books WHERE id=?", (book,)
+                ).fetchone()[0] == 0
+                assert conn.execute(
+                    "SELECT status,commit_result_json FROM book_import_stages WHERE id=?",
+                    (stage_id,),
+                ).fetchone() == ("staged", None)
+            selection["prefix_policy"] = "preserve"
+            success = await client.post(
+                f"{STAGE}/{stage_id}/confirm", headers=alice, json=selection,
+            )
+            assert success.status_code == 200, (book, success.text)
+            assert success.json()["unassigned_prefix_preserved"] is True
+            with sqlite3.connect(db) as conn:
+                saved = conn.execute(
+                    "SELECT source_html,source_sha256,actor_id FROM "
+                    "book_import_unassigned WHERE book_id=?", (book,),
+                ).fetchone()
+            assert saved == (
+                prefix_html, hashlib.sha256(prefix_html.encode()).hexdigest(), "alice"
+            ), (book, "unassigned preface bytes changed")
+        assert inspect(db, "rust-preface") == inspect(db, "python-preface")
+
+        # An expired stage is never resurrected into a write by either API.
+        expired_stage = await stage(py, SOURCE)
+        with sqlite3.connect(db) as conn:
+            conn.execute(
+                "UPDATE book_import_stages SET expires_at=0 WHERE id=?",
+                (expired_stage,),
+            )
+        expiry_statuses = []
+        for client in (rust, py):
+            expired = await client.post(
+                f"{STAGE}/{expired_stage}/confirm", headers=alice,
+                json=request("should-not-exist-expired"),
+            )
+            expiry_statuses.append(expired.status_code)
+        assert expiry_statuses[0] == expiry_statuses[1], expiry_statuses
+        assert expiry_statuses[0] in (404, 410), expiry_statuses
+        with sqlite3.connect(db) as conn:
+            assert conn.execute(
+                "SELECT COUNT(*) FROM books WHERE id='should-not-exist-expired'"
+            ).fetchone()[0] == 0
+
         # A staged chapter using an unsupported escaped entity MUST NOT
         # be imported by Rust just because Python might normalize it.
         unsafe=await stage(rust,("Глава 1\n"+NARRATIVE+"A & B").encode())
