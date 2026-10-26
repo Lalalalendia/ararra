@@ -196,6 +196,29 @@ pub fn get(
     read_owned(db, actor, stage_id, now()?, true)
 }
 
+
+pub fn prefixes(db: &Connection, book_id: &str) -> Result<Value, StageError> {
+    let exists: Option<i64> = db.query_row(
+        "SELECT 1 FROM books WHERE id=?1", [book_id], |r| r.get(0),
+    ).optional()?;
+    if exists.is_none() { return Err(StageError::Missing); }
+    let mut stmt = db.prepare(
+        "SELECT stage_id,filename,source_html,source_sha256,created_at FROM book_import_unassigned WHERE book_id=?1 ORDER BY created_at",
+    )?;
+    let mut rows_out = Vec::new();
+    let rows = stmt.query_map([book_id], |r| {
+        Ok(json!({
+            "stage_id": r.get::<_, String>(0)?,
+            "filename": r.get::<_, String>(1)?,
+            "source_html": r.get::<_, String>(2)?,
+            "source_sha256": r.get::<_, String>(3)?,
+            "created_at": r.get::<_, f64>(4)?,
+        }))
+    })?;
+    for row in rows { rows_out.push(row?); }
+    Ok(json!({"book_id": book_id, "prefixes": rows_out}))
+}
+
 /// Delete is only allowed for uncommitted stages owned by the caller.
 /// No write to books, translations, accepted history or jobs.
 pub fn cancel(
