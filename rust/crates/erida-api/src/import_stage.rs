@@ -77,7 +77,7 @@ pub async fn read(
     }).await
 }
 
-pub async fn cancel(
+/// Read preserved book prefaces even when experimental Rust writes are disabled.\npub async fn prefixes(\n    State(state): State<AppState>,\n    headers: HeaderMap,\n    Path(book_id): Path<String>,\n) -> Result<Response, ApiError> {\n    secured_read(state, headers, move |db, _, _| {\n        match import_stage::prefixes(db, &book_id) {\n            Ok(result) => Ok(result),\n            Err(StageError::Missing) => Err(ApiError::BookNotFound),\n            Err(error) => Err(map_error(error)),\n        }\n    }).await\n}\n\npub async fn cancel(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(stage_id): Path<String>,
