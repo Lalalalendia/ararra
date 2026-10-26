@@ -151,3 +151,5 @@ jobs:
         run: python scripts/compare_rust_chapter_qa.py rust/target/release/erida-api
       - name: Verify disposable-only QA review CAS, immutable audit and Python parity
         run: python scripts/compare_rust_chapter_qa_review.py rust/target/release/erida-api
+      - name: Verify native CPU-only QA baseline scan Python parity and fail-closed scope
+        run: python scripts/compare_rust_qa_scan_baseline.py rust/target/release/erida-api
