@@ -16,6 +16,7 @@ from urllib.parse import quote
 import httpx
 
 from .storage import QueueStore
+from .chapter_plain_txt import readable_txt, PlainTxtError
 
 FOLDER_MIME = "application/vnd.google-apps.folder"
 TEXT_MIME = "text/plain"
@@ -137,8 +138,27 @@ def read_completed_job(store: QueueStore, job_id: str) -> DriveSource:
         index = chapter["chapter_index"]
         if type(index) is not int or not 1 <= index <= 10_000_000:
             raise DriveExportError("Invalid stored chapter index")
-        original = chapter["source_html"].encode("utf-8")
-        ru = job["result_html"].encode("utf-8")
+        # RE-MVP user-consented batches promise ordinary editable TXT files.
+        # Legacy RE-09A handoffs intentionally preserve their original raw
+        # HTML-fragment bytes; old Drive files must never be silently rewritten.
+        consented_table = con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' "
+            "AND name='translation_batch_drive_requests'"
+        ).fetchone()
+        consented = bool(consented_table and con.execute("""
+            SELECT 1 FROM translation_batch_items AS i
+            JOIN translation_batch_drive_requests AS r ON r.batch_id=i.batch_id
+            WHERE i.job_id=? LIMIT 1
+        """, (job_id,)).fetchone())
+        if consented:
+            try:
+                original = readable_txt(chapter["source_html"])
+                ru = readable_txt(job["result_html"])
+            except PlainTxtError as exc:
+                raise DriveExportError("Chapter cannot be rendered as readable TXT") from exc
+        else:
+            original = chapter["source_html"].encode("utf-8")
+            ru = job["result_html"].encode("utf-8")
         if not original.strip() or not ru.strip() or max(len(original), len(ru)) > MAX_TXT_BYTES:
             raise DriveExportError("Source or machine translation outside 4 MiB export limit")
         return DriveSource(

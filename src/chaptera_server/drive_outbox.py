@@ -89,7 +89,8 @@ class DriveOutbox:
             con.execute("COMMIT")
         return self.status()
 
-    def claim_next(self, *, lease_seconds: float = 7200) -> tuple[str,str] | None:
+    def claim_next(self, *, lease_seconds: float = 7200,
+                   consented_only: bool = False) -> tuple[str,str] | None:
         """SQLite-fenced claim; expired uncertain work requires review.
 
         Only one global job may be running. An expired process may have
@@ -125,11 +126,32 @@ class DriveOutbox:
             """).fetchone():
                 con.execute("COMMIT")
                 return None
-            row = con.execute("""
-                SELECT job_id FROM drive_export_outbox
-                WHERE status='pending' AND run_after <= ?
-                ORDER BY created_at,job_id LIMIT 1
-            """,(now,)).fetchone()
+            if consented_only:
+                # Legacy databases may not have batch-consent tables.
+                # Never fall back to scanning all jobs.
+                exists = con.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' "
+                    "AND name='translation_batch_drive_requests'"
+                ).fetchone()
+                if exists is None:
+                    con.execute("COMMIT")
+                    return None
+                row = con.execute("""
+                    SELECT o.job_id FROM drive_export_outbox AS o
+                    WHERE o.status='pending' AND o.run_after <= ?
+                      AND EXISTS (
+                        SELECT 1 FROM translation_batch_items AS i
+                        JOIN translation_batch_drive_requests AS c
+                        ON c.batch_id=i.batch_id WHERE i.job_id=o.job_id
+                      )
+                    ORDER BY o.created_at,o.job_id LIMIT 1
+                """,(now,)).fetchone()
+            else:
+                row = con.execute("""
+                    SELECT job_id FROM drive_export_outbox
+                    WHERE status='pending' AND run_after <= ?
+                    ORDER BY created_at,job_id LIMIT 1
+                """,(now,)).fetchone()
             if row is None:
                 con.execute("COMMIT")
                 return None
@@ -187,9 +209,10 @@ class DriveOutbox:
             con.execute("COMMIT")
         return count==1
 
-    def run_once(self, export: Callable[[str],dict]) -> dict:
-        """Use the already accepted exporter; never auto-retry ambiguous writes."""
-        claimed = self.claim_next()
+    def run_once(self, export: Callable[[str],dict], *,
+                 consented_only: bool = False) -> dict:
+        """Explicit operator scope; ambiguous writes still require review."""
+        claimed = self.claim_next(consented_only=consented_only)
         if claimed is None:
             return {"stage":"no_eligible_export",**self.status()}
         job_id,token = claimed

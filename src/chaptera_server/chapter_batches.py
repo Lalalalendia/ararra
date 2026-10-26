@@ -15,6 +15,7 @@ import uuid
 
 from .library import BookLibrary, LibraryConflict, LibraryNotFound
 from .storage import JobSpec, QueueStore
+from .batch_drive_consent import install_schema as install_drive_consent, record_request, describe
 
 
 class BatchConflict(LibraryConflict):
@@ -70,6 +71,7 @@ class TranslationBatches:
                     UNIQUE(batch_id, chapter_index)
                 );
             """)
+            install_drive_consent(con)
 
     def _resolve(self, con: sqlite3.Connection, book_id: str, payload: dict):
         book = con.execute("SELECT glossary_revision FROM books WHERE id=?", (book_id,)).fetchone()
@@ -187,6 +189,9 @@ class TranslationBatches:
             manifest, entries = self._resolve(con, book_id, payload)
             if manifest != expected:
                 raise BatchConflict("Batch preview expired: source or options changed")
+            requested = payload.get("drive_export_requested", False)
+            if type(requested) is not bool:
+                raise ValueError("Drive export request must be a boolean")
             now, batch_id = time.time(), str(uuid.uuid4())
             con.execute(
                 "INSERT INTO translation_batches "
@@ -194,6 +199,8 @@ class TranslationBatches:
                 "VALUES(?,?,?,?,?,?,?)",
                 (batch_id, book_id, actor_id, key, request_sha, manifest, now),
             )
+            if requested:
+                record_request(con, book_id=book_id, batch_id=batch_id, actor_id=actor_id)
             for inputs, spec in entries:
                 queued = QueueStore._enqueue_in_transaction(
                     con, actor_id, spec, now,
@@ -225,6 +232,7 @@ class TranslationBatches:
             ORDER BY i.chapter_index, i.chapter_id
         """, (batch_id,)).fetchall()
         chapters = [dict(row) for row in rows]
+        delivery = describe(con, batch_id, chapters)
         counters = {name: sum(row["status"] == name for row in chapters)
                     for name in self._STATUSES}
         total = len(chapters)
@@ -241,7 +249,7 @@ class TranslationBatches:
             "manifest_sha256": batch["manifest_sha256"],
             "created_at": batch["created_at"],
             "status": state, "chapter_count": total,
-            "counts": counters, "chapters": chapters,
+            "counts": counters, "chapters": chapters, **delivery,
         }
 
     def get(self, book_id: str, batch_id: str) -> dict:

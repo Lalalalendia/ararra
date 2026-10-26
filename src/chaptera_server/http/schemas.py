@@ -110,6 +110,9 @@ class PreviewTranslationBatch(TranslateBookChapter):
 
 class SubmitTranslationBatch(PreviewTranslationBatch):
     expected_manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    # Separate user-level consent; operator Drive policy remains disabled
+    # until accepted live preflight. Never send credentials to this route.
+    drive_export_requested: bool = False
 
 
 class SubmitChapter(BaseModel):

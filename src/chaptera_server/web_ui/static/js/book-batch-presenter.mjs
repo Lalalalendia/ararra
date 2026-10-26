@@ -40,17 +40,44 @@ export function buildBatchPayload(book,chapters,selected,{transport='html_v0',ma
   };
 }
 
+/** An unchecked checkbox cannot silently opt the batch into Drive writes. */
+export function withDriveConsent(payload,checked){
+  if(typeof checked!=='boolean')throw new Error('Drive consent must be explicit');
+  return {...payload,drive_export_requested:checked};
+}
+/** Google Drive TXT only; untrusted receipt IDs cannot redirect a browser. */
+export function driveFileUrl(fileId){
+  if(typeof fileId!=='string'||!/^[A-Za-z0-9_-]{12,256}$/.test(fileId))
+    return null;
+  return 'https://drive.google.com/file/d/'+encodeURIComponent(fileId)+'/view';
+}
+export function driveStatusLabel(status){
+  return ({
+    not_requested:'Не запрошено',
+    awaiting_translation:'Ожидает перевода',
+    awaiting_exporter:'Ожидает выгрузки',
+    uploading:'Выгружается',
+    exported:'На Google Drive',
+    requires_review:'Нужна проверка',
+    not_delivered:'Не доставлено',
+  })[status]||'Статус неизвестен';
+}
+
 export function batchProgressSummary(batch){
   if(!batch || !Number.isInteger(batch.chapter_count))
     return 'Прогресс пока недоступен.';
   const counts=batch.counts||{};
   const total=batch.chapter_count;
+  const exported=Number(batch.drive_counts?.exported||0);
+  const drive=batch.drive_export_requested
+    ? ' · На Google Drive '+exported+'/'+total+'.'
+    : ' · Автоотправка на Google Drive не запрошена.';
   return 'Глав '+total+' · готово '+Number(counts.completed||0)+
     ' · в очереди '+Number(counts.queued||0)+
     ' · выполняются '+Number(counts.running||0)+
     ' · ожидают повтора '+Number(counts.retry_wait||0)+
     ' · ошибки '+Number(counts.failed||0)+
-    ' · отменены '+Number(counts.cancelled||0)+'.';
+    ' · отменены '+Number(counts.cancelled||0)+'.'+drive;
 }
 
 const statusLabels={
@@ -120,9 +147,41 @@ export function renderBatchProgress(batch,{progressPanel,progressTitle,progressS
     progressBody.replaceChildren();
     for(const chapter of batch.chapters||[]){
       const tr=element('tr');
+      const driveCell=element('td',driveStatusLabel(chapter.drive_status||
+        (batch.drive_export_requested?'awaiting_translation':'not_requested')));
+      const url=chapter.drive_status==='exported'
+        ?driveFileUrl(chapter.drive_translation_file_id):null;
+      if(url){
+        const link=element('a','Открыть перевод на Drive');
+        link.href=url;link.target='_blank';link.rel='noopener noreferrer';
+        driveCell.append(' ',link);
+      }
       tr.append(element('td','Глава '+chapter.chapter_index),
         element('td',chapter.chapter_id),
-        element('td',batchStatusLabel(chapter.status)));
+        element('td',batchStatusLabel(chapter.status)),driveCell);
       progressBody.append(tr);
     }
   }
+
+/** The import receipt is only a selection hint, never authority to enqueue.
+ * Re-fetch the current TOC and verify every imported chapter before preview.
+ */
+export function importedChapterSelection(receipt,catalog) {
+  if(!receipt || !Array.isArray(receipt.chapters) ||
+      typeof receipt.stage_id!=='string' ||
+      !/^[0-9a-f]{8}-[0-9a-f-]{27,40}$/.test(receipt.stage_id) ||
+      !Number.isSafeInteger(receipt.imported_count))
+    throw new Error('Квитанция импорта недоступна. Откройте книгу из библиотеки.');
+  const choices=receipt.chapters.filter(c=>c.action==='create'||c.action==='replace');
+  if(!choices.length || choices.length>100 || receipt.imported_count!==choices.length)
+    throw new Error('Один запуск поддерживает от 1 до 100 импортированных глав.');
+  const catalogIds=new Set(catalog.map(c=>c.chapter_id));
+  const ids=new Set();
+  for(const c of choices) {
+    if(typeof c.chapter_id!=='string'||!c.chapter_id||
+        ids.has(c.chapter_id)||!catalogIds.has(c.chapter_id))
+      throw new Error('Импортированные главы изменились. Откройте книгу из библиотеки.');
+    ids.add(c.chapter_id);
+  }
+  return ids;
+}

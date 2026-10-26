@@ -7,18 +7,41 @@ export function createDraft(preview) {
   for (const c of preview.chapters) {
     if (c.detected_number !== null) counts.set(c.detected_number, (counts.get(c.detected_number) || 0) + 1);
   }
+  const positive = n => Number.isSafeInteger(n) && n > 0;
+  const explicitDestination = c => {
+    if (positive(c.destination_position)) return c.destination_position;
+    if (positive(c.detected_number) && counts.get(c.detected_number) === 1) return c.detected_number;
+    return null;
+  };
+  // Reserve all reliably mapped destinations first. A positional suggestion
+  // must never silently collide with a numbered or source-verified chapter.
+  const reserved = new Set(preview.chapters.map(explicitDestination).filter(n => n !== null));
+  const suggestedUsed = new Set();
   return preview.chapters.map(c => {
-    const unique = c.detected_number !== null && counts.get(c.detected_number) === 1;
-    const recommended = Number.isSafeInteger(c.destination_position) && c.destination_position>0
-      ? c.destination_position : (unique ? c.detected_number : null);
-    const number = recommended===null ? '' : String(recommended);
     const entryType = c.entry_type || 'chapter';
     const needsReview = entryType === 'extra' || entryType === 'service' || entryType === 'unknown';
+    let recommended = explicitDestination(c);
+    let provisional_assignment = false;
+    // Suggested index is a DESTINATION POSITION, not an author chapter
+    // number. Fill it only for a normal, unnumbered chapter and only when
+    // there is no collision. The explicit review/confirmation remains.
+    if (!needsReview && recommended === null && c.detected_number === null &&
+        positive(c.suggested_index) && !reserved.has(c.suggested_index) &&
+        !suggestedUsed.has(c.suggested_index)) {
+      recommended = c.suggested_index;
+      provisional_assignment = true;
+      suggestedUsed.add(recommended);
+    }
+    const number = recommended === null ? '' : String(recommended);
     return {
       sequence: c.sequence, title: c.title, sample: c.sample,
       detected_number: c.detected_number, characters: c.characters,
       entry_type: entryType, catalog_ordinal: c.catalog_ordinal ?? c.sequence,
       author_number: c.author_number ?? c.detected_number,
+      suggested_index: c.suggested_index ?? null,
+      provisional_assignment,
+      auto_generated_id: provisional_assignment,
+      auto_generated_path: provisional_assignment,
       action: needsReview ? 'review' : 'create', chapter_id: needsReview ? '' : number,
       chapter_index: needsReview ? '' : number,
       chapter_path: needsReview ? '' : (number ? 'chapters/' + number + '.xhtml' : ''),
@@ -29,14 +52,29 @@ export function createDraft(preview) {
 export function changeAction(row, action) {
   if (!['create', 'replace', 'skip'].includes(action)) throw new Error('Invalid action');
   return {...row, action,
-    ...(action === 'skip' ? { chapter_id:'', chapter_index:'', chapter_path:'' } : {}),
+    ...(action === 'skip' ? {
+      chapter_id:'', chapter_index:'', chapter_path:'', provisional_assignment:false,
+      auto_generated_id:false, auto_generated_path:false,
+    } : {}),
     expected_revision: action === 'create' ? 0 : null,
     verified_book_id: null, verified_chapter_id: null,
   };
 }
 export function destinationEdited(row, field, value) {
   if (!['chapter_id','chapter_index','chapter_path'].includes(field)) throw new Error('Invalid field');
-  return {...row, [field]:value,
+  const changed = {...row, [field]:value};
+  if (field === 'chapter_index') {
+    changed.provisional_assignment=false;
+    // Keep the two generated destination fields in sync while the user edits
+    // the suggested index. Explicitly edited IDs/paths never get overwritten.
+    if (safePositive(value)) {
+      if (row.auto_generated_id) changed.chapter_id=String(value);
+      if (row.auto_generated_path) changed.chapter_path='chapters/'+value+'.xhtml';
+    }
+  }
+  if (field === 'chapter_id') changed.auto_generated_id=false;
+  if (field === 'chapter_path') changed.auto_generated_path=false;
+  return {...changed,
     expected_revision: row.action === 'replace' ? null : 0,
     verified_book_id: null, verified_chapter_id: null,
   };
@@ -47,6 +85,7 @@ export function verifiedReplacement(row, bookId, remote) {
   }
   return {...row, chapter_index:String(remote.chapter_index),
     chapter_path:remote.chapter_path,expected_revision:remote.source_revision,
+    provisional_assignment:false,auto_generated_id:false,auto_generated_path:false,
     verified_book_id:bookId,verified_chapter_id:remote.chapter_id};
 }
 const safePositive = n => /^[1-9]\d*$/.test(String(n)) && Number.isSafeInteger(Number(n));
@@ -81,6 +120,9 @@ export function validateDraft(rows, target, stage, now=Date.now()/1000) {
     if (!safePath(path)) errors.push('Глава '+r.sequence+': укажите безопасный относительный путь.');
     if (ids.has(id)||indexes.has(index)||paths.has(path)) errors.push('Глава '+r.sequence+': дубликат номера, ID или пути.');
     ids.add(id);indexes.add(index);paths.add(path);
+    if (target.book_mode === 'existing' && r.provisional_assignment) {
+      errors.push('Глава '+r.sequence+': для существующей книги подтвердите номер назначения вручную.');
+    }
     if (r.action === 'replace') {
       if (target.book_mode !== 'existing') errors.push('Заменять можно только главы существующей книги.');
       if (r.expected_revision === null || r.verified_book_id !== target.book_id ||
@@ -105,4 +147,20 @@ export function confirmation(rows,target,stage) {
           chapter_index:Number(r.chapter_index), chapter_path:r.chapter_path.trim(),
           expected_revision:r.expected_revision }),
   };
+}
+
+/** Separate source numbering from suggested destination positions. */
+export function importWarningText(warning) {
+  const unnumbered = warning === 'Some entries have no explicit author number: sequence numbers are suggestions only'
+    || warning === 'Some chapters have no explicit number: sequence numbers are suggestions only';
+  return unnumbered
+    ? 'Часть глав без номера в оригинале. Предложенные номера — только позиции в новой книге; проверьте их перед записью.'
+    : warning;
+}
+export function sourceChapterLabel(row) {
+  return row.detected_number === null
+    ? (row.provisional_assignment
+      ? 'Без авторского номера · предложена позиция '+row.chapter_index
+      : 'Без авторского номера')
+    : 'Авторский № '+row.detected_number;
 }

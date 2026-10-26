@@ -158,6 +158,12 @@
                            type="number" min="1" max="10" step="1" value="3">
                   </label>
                 </div>
+                  <label class="check-confirm">
+                    <input id="book-batch-drive-request" type="checkbox">
+                    После перевода запросить отдельный TXT каждой главы на Google Drive.
+                    Файлы сохраняются только при работающем и разрешённом оператором экспортёре;
+                    до этого результат останется в очереди выгрузки.
+                  </label>
                 <button id="book-batch-preview" class="ui-button ui-button--ghost"
                         type="button" disabled>Проверить партию</button>
                 <p id="book-batch-status" role="status" aria-live="polite"
@@ -186,7 +192,7 @@
                           class="ui-button ui-button--ghost">Обновить прогресс</button>
                   <div class="table-scroll batch-progress-table-scroll">
                     <table class="ui-table">
-                      <thead><tr><th>Глава</th><th>ID</th><th>Состояние</th></tr></thead>
+                      <thead><tr><th>Глава</th><th>ID</th><th>Перевод</th><th>Google Drive</th></tr></thead>
                       <tbody id="book-batch-progress-rows"></tbody>
                     </table>
                   </div>
@@ -500,7 +506,9 @@
             </section>
             <section id="import-success" class="ui-card" hidden aria-live="polite">
               <h2>Импорт завершён</h2><div id="import-receipt"></div>
-              <button type="button" class="ui-button ui-button--primary" id="import-another">Новая загрузка</button>
+              <p class="muted">Следующий шаг: проверить состав импортированных глав и дневной лимит Gemini. Платные запросы начнутся только после отдельного подтверждения. Отправка на Drive требует включённого экспортёра.</p>
+              <button type="button" class="ui-button ui-button--primary" id="import-translate" hidden>Перейти к переводу импортированных глав</button>
+              <button type="button" class="ui-button ui-button--ghost" id="import-another">Новая загрузка</button>
             </section>
           </section>
           {% include "partials/chapter_editor.html" %}
