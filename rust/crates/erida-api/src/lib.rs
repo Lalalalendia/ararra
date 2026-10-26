@@ -413,6 +413,7 @@ pub fn app(state: AppState) -> Router {
                    post(editorial::create_note))
             .route("/v1/books/{book_id}/chapters/{chapter_id}/notes/{note_id}",
                    axum::routing::patch(editorial::update_note))
+            .route("/v1/books/{book_id}/chapters/{chapter_id}/qa", post(chapter_qa::scan))
             .route("/v1/books/{book_id}/chapters/{chapter_id}/qa/findings/{finding_id}",
                    axum::routing::patch(chapter_qa::review))
             .layer(DefaultBodyLimit::max(8 * 1024 * 1024));
