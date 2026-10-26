@@ -11,6 +11,7 @@ mod session;
 mod peer_identity;
 mod admin_credentials;
 mod book_export;
+mod batch_read;
 mod import_preview;
 mod import_stage;
 use axum::http::{header, HeaderMap, StatusCode};
@@ -116,6 +117,7 @@ pub enum ApiError {
     BookNotFound,
     ChapterNotFound,
     AcceptedRevisionNotFound,
+    TranslationBatchNotFound,
     ExportNotReady(Value),
     SessionRequired,
     LoginInvalidKey,
@@ -196,6 +198,7 @@ impl IntoResponse for ApiError {
             ApiError::BookNotFound => (StatusCode::NOT_FOUND, "Book not found"),
             ApiError::ChapterNotFound => (StatusCode::NOT_FOUND, "Chapter not found"),
             ApiError::AcceptedRevisionNotFound => (StatusCode::NOT_FOUND, "Accepted revision not found"),
+            ApiError::TranslationBatchNotFound => (StatusCode::NOT_FOUND, "Translation batch not found"),
             ApiError::ReviewNoteNotFound => (StatusCode::NOT_FOUND, "Review note not found"),
             ApiError::ModeratorNotFound => (StatusCode::NOT_FOUND, "Moderator not found"),
             ApiError::SessionRequired => (StatusCode::UNAUTHORIZED, "Действующая сессия необходима"),
@@ -364,6 +367,8 @@ pub fn app(state: AppState) -> Router {
         .route("/v1/jobs/{job_id}/events", get(job_events))
         .route("/v1/books", get(book::books))
         .route("/v1/books/{book_id}", get(book::book))
+        .route("/v1/books/{book_id}/translation-batches", get(batch_read::list))
+        .route("/v1/books/{book_id}/translation-batches/{batch_id}", get(batch_read::get))
         .route("/v1/imports/preview", post(import_preview::preview)
             .layer(DefaultBodyLimit::max(12 * 1024 * 1024 + 64 * 1024)))
         .route("/v1/imports/stages/{stage_id}", get(import_stage::read))
