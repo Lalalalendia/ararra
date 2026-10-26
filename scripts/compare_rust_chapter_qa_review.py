@@ -63,7 +63,9 @@ async def compare_denied(
     assert (p.status_code, r.status_code) == (status, status), (
         path, status, p.status_code, r.status_code, p.text, r.text
     )
-    assert "no-store" in r.headers["cache-control"] or status == 422
+    # Axum JSON schema rejections are 422 before the private response wrapper.
+    if status != 422:
+        assert "no-store" in r.headers.get("cache-control", "")
     assert rows(db) == before, "Rejected review left a partial mutation"
 
 
