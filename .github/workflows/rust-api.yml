@@ -143,3 +143,5 @@ jobs:
         run: python scripts/compare_rust_import_stages.py rust/target/release/erida-api
       - name: Compare atomic Rust TXT import confirmation, source hashes and SQL rollback with Python
         run: python scripts/compare_rust_import_confirm.py rust/target/release/erida-api
+      - name: Compare preserved import prefaces with Python and assert read-only team access
+        run: python scripts/compare_rust_import_prefixes.py rust/target/release/erida-api
