@@ -145,3 +145,5 @@ jobs:
         run: python scripts/compare_rust_import_confirm.py rust/target/release/erida-api
       - name: Compare preserved import prefaces with Python and assert read-only team access
         run: python scripts/compare_rust_import_prefixes.py rust/target/release/erida-api
+      - name: Verify read-only translation batch and consented Drive status Python parity
+        run: python scripts/compare_rust_translation_batches.py rust/target/release/erida-api
