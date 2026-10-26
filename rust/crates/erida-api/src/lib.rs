@@ -367,6 +367,7 @@ pub fn app(state: AppState) -> Router {
         .route("/v1/imports/preview", post(import_preview::preview)
             .layer(DefaultBodyLimit::max(12 * 1024 * 1024 + 64 * 1024)))
         .route("/v1/imports/stages/{stage_id}", get(import_stage::read))
+        .route("/v1/imports/books/{book_id}/unassigned", get(import_stage::prefixes))
         .route("/v1/books/{book_id}/export/preview", get(book_export::preview))
         .route("/v1/books/{book_id}/export", get(book_export::download))
         .route("/v1/books/{book_id}/chapters", get(book::chapters))

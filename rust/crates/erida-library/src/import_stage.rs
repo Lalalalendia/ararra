@@ -196,6 +196,29 @@ pub fn get(
     read_owned(db, actor, stage_id, now()?, true)
 }
 
+
+pub fn prefixes(db: &Connection, book_id: &str) -> Result<Value, StageError> {
+    let exists: Option<i64> = db.query_row(
+        "SELECT 1 FROM books WHERE id=?1", [book_id], |r| r.get(0),
+    ).optional()?;
+    if exists.is_none() { return Err(StageError::Missing); }
+    let mut stmt = db.prepare(
+        "SELECT stage_id,filename,source_html,source_sha256,created_at FROM book_import_unassigned WHERE book_id=?1 ORDER BY created_at",
+    )?;
+    let mut rows_out = Vec::new();
+    let rows = stmt.query_map([book_id], |r| {
+        Ok(json!({
+            "stage_id": r.get::<_, String>(0)?,
+            "filename": r.get::<_, String>(1)?,
+            "source_html": r.get::<_, String>(2)?,
+            "source_sha256": r.get::<_, String>(3)?,
+            "created_at": r.get::<_, f64>(4)?,
+        }))
+    })?;
+    for row in rows { rows_out.push(row?); }
+    Ok(json!({"book_id": book_id, "prefixes": rows_out}))
+}
+
 /// Delete is only allowed for uncommitted stages owned by the caller.
 /// No write to books, translations, accepted history or jobs.
 pub fn cancel(
@@ -259,4 +282,36 @@ mod tests {
         assert!(matches!(get(&c, "alice", first["stage_id"].as_str().unwrap()),
             Err(StageError::Missing)));
     }
+    #[test]
+    fn preserved_prefaces_have_exact_hash_order_and_missing_book_guard() {
+        let c = db();
+        c.execute_batch(
+            "CREATE TABLE books(id TEXT PRIMARY KEY);
+             CREATE TABLE book_import_unassigned(
+                book_id TEXT NOT NULL, stage_id TEXT NOT NULL,
+                filename TEXT NOT NULL, source_html TEXT NOT NULL,
+                source_sha256 TEXT NOT NULL, actor_id TEXT NOT NULL,
+                created_at REAL NOT NULL, PRIMARY KEY(book_id,stage_id));",
+        ).unwrap();
+        assert!(matches!(prefixes(&c, "missing"), Err(StageError::Missing)));
+        c.execute("INSERT INTO books(id) VALUES('one')", []).unwrap();
+        assert_eq!(prefixes(&c,"one").unwrap()["prefixes"], json!([]));
+        for (stage,html,stamp) in [
+            ("later", "<p>Второе</p>", 2.0),
+            ("earlier", "<p>前言</p>", 1.0),
+        ] {
+            c.execute(
+                "INSERT INTO book_import_unassigned
+                 (book_id,stage_id,filename,source_html,source_sha256,actor_id,created_at)
+                 VALUES('one',?1,'book.txt',?2,?3,'alice',?4)",
+                params![stage,html,sha(html.as_bytes()),stamp],
+            ).unwrap();
+        }
+        let out=prefixes(&c,"one").unwrap();
+        assert_eq!(out["prefixes"][0]["stage_id"],"earlier");
+        assert_eq!(out["prefixes"][1]["stage_id"],"later");
+        assert_eq!(out["prefixes"][0]["source_sha256"],sha("<p>前言</p>".as_bytes()));
+        assert_eq!(prefixes(&c,"one").unwrap(),out);
+    }
+
 }
