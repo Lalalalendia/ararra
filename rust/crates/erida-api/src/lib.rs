@@ -117,6 +117,7 @@ pub enum ApiError {
     BadRequest(&'static str),
     BookNotFound,
     ChapterNotFound,
+    QaMissing(&'static str),
     AcceptedRevisionNotFound,
     TranslationBatchNotFound,
     ExportNotReady(Value),
@@ -198,6 +199,7 @@ impl IntoResponse for ApiError {
             ApiError::BadRequest(reason) => (StatusCode::BAD_REQUEST, *reason),
             ApiError::BookNotFound => (StatusCode::NOT_FOUND, "Book not found"),
             ApiError::ChapterNotFound => (StatusCode::NOT_FOUND, "Chapter not found"),
+            ApiError::QaMissing(message) => (StatusCode::NOT_FOUND, message),
             ApiError::AcceptedRevisionNotFound => (StatusCode::NOT_FOUND, "Accepted revision not found"),
             ApiError::TranslationBatchNotFound => (StatusCode::NOT_FOUND, "Translation batch not found"),
             ApiError::ReviewNoteNotFound => (StatusCode::NOT_FOUND, "Review note not found"),
@@ -411,6 +413,8 @@ pub fn app(state: AppState) -> Router {
                    post(editorial::create_note))
             .route("/v1/books/{book_id}/chapters/{chapter_id}/notes/{note_id}",
                    axum::routing::patch(editorial::update_note))
+            .route("/v1/books/{book_id}/chapters/{chapter_id}/qa/findings/{finding_id}",
+                   axum::routing::patch(chapter_qa::review))
             .layer(DefaultBodyLimit::max(8 * 1024 * 1024));
     }
     app.with_state(state)

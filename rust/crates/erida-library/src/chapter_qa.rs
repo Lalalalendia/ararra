@@ -1,7 +1,7 @@
 //! M2c: exact read-only Python ChapterQaStore.current() projection.
 //! Python owns report creation, revision checks and human review. Never infer
 //! alignment proof, rescan a chapter or modify the existing SQLite schema.
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
@@ -12,6 +12,9 @@ pub enum QaReadError {
     Sqlite(rusqlite::Error),
     Malformed,
     IntegrityDrift,
+    Missing(&'static str),
+    Conflict(&'static str),
+    Invalid(&'static str),
 }
 impl From<rusqlite::Error> for QaReadError {
     fn from(error: rusqlite::Error) -> Self { Self::Sqlite(error) }
@@ -195,6 +198,105 @@ pub fn current(
         "glossary_hash": glossary_hash,
         "report": report,
     })))
+}
+
+
+/// M2d: Python's ChapterQaStore.review transaction and durable audit semantics.
+/// Every gate and the revision CAS run under one SQLite IMMEDIATE transaction.
+/// The caller MUST have passed the disposable-only writer and authenticated
+/// actor+CSRF gate in erida-api::write::secured_write.
+pub fn review(
+    db: &mut Connection,
+    book_id: &str,
+    chapter_id: &str,
+    finding_id: &str,
+    status: &str,
+    expected_review_revision: i64,
+    expected_source_revision: i64,
+    expected_accepted_revision: i64,
+    expected_glossary_revision: i64,
+    actor: &str,
+    note: &str,
+) -> Result<Value, QaReadError> {
+    if !matches!(status, "open" | "reviewed" | "waived") {
+        return Err(QaReadError::Invalid("Invalid QA review status"));
+    }
+    if note.chars().count() > 1000 {
+        return Err(QaReadError::Invalid("QA review note exceeds one thousand characters"));
+    }
+    let trimmed = note.trim();
+    if status == "waived" && trimmed.is_empty() {
+        return Err(QaReadError::Invalid("Waiving QA requires a written reason"));
+    }
+
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    // current() proves the exact source/accepted/glossary SHA-256 contract,
+    // including Python's Unicode/sorted/spaced glossary serialization.
+    let snapshot = current(&tx, book_id, chapter_id)?
+        .ok_or(QaReadError::Missing("Chapter not found"))?;
+    if snapshot["accepted_current"] != true {
+        return Err(QaReadError::Conflict(
+            "Accepted translation is missing or stale; QA unavailable",
+        ));
+    }
+    if snapshot["source_revision"] != expected_source_revision
+        || snapshot["accepted_revision"] != expected_accepted_revision
+        || snapshot["glossary_revision"] != expected_glossary_revision
+    {
+        return Err(QaReadError::Conflict(
+            "Source, accepted or glossary revision changed; QA refresh required",
+        ));
+    }
+    let report = snapshot.get("report")
+        .filter(|value| !value.is_null())
+        .ok_or(QaReadError::Missing("QA report not found"))?;
+    let report_id = report["report_id"].as_str()
+        .ok_or(QaReadError::Malformed)?;
+    let selected: Option<(String, i64)> = tx.query_row(
+        "SELECT review_status,review_revision
+         FROM chapter_qa_findings WHERE id=?1 AND report_id=?2",
+        params![finding_id, report_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    ).optional()?;
+    let (previous_status, revision) = selected
+        .ok_or(QaReadError::Missing("QA finding not found"))?;
+    if revision != expected_review_revision {
+        return Err(QaReadError::Conflict("QA review revision changed; reload required"));
+    }
+    let next_revision = revision.checked_add(1)
+        .ok_or(QaReadError::Conflict("QA review revision changed; reload required"))?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| QaReadError::Malformed)?
+        .as_secs_f64();
+
+    let changed = tx.execute(
+        "UPDATE chapter_qa_findings
+         SET review_status=?1,review_revision=?2,reviewer_id=?3,
+             review_note=?4,reviewed_at=?5
+         WHERE id=?6 AND report_id=?7 AND review_revision=?8",
+        params![status, next_revision, actor, trimmed, now,
+                finding_id, report_id, revision],
+    )?;
+    if changed != 1 {
+        return Err(QaReadError::Conflict("QA review revision changed; reload required"));
+    }
+    let event_id = uuid::Uuid::new_v4().simple().to_string();
+    tx.execute(
+        "INSERT INTO chapter_qa_review_events(
+            id,finding_id,review_revision,from_status,to_status,
+            actor_id,review_note,created_at
+         ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+        params![event_id, finding_id, next_revision, previous_status,
+                status, actor, trimmed, now],
+    )?;
+    // Return _present(report), NOT the wrapping current() object.
+    let updated = current(&tx, book_id, chapter_id)?
+        .and_then(|value| value.get("report").cloned())
+        .filter(|value| !value.is_null())
+        .ok_or(QaReadError::Malformed)?;
+    tx.commit()?;
+    Ok(updated)
 }
 
 #[cfg(test)]
