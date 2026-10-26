@@ -60,6 +60,30 @@ def inspect(db: Path, book: str) -> list[tuple]:
         return rows
 
 
+def chapter_rows(db: Path, book: str) -> list[tuple]:
+    """Read every source byte and destination version; never print chapter text."""
+    with sqlite3.connect(db) as conn:
+        return conn.execute(
+            "SELECT chapter_id,chapter_index,chapter_path,source_html,source_hash,"
+            "source_revision FROM book_chapters WHERE book_id=? ORDER BY chapter_index",
+            (book,),
+        ).fetchall()
+
+
+def replace_one_and_skip_other(book: str) -> dict:
+    """Existing book: update chapter 1, explicitly skip chapter 2."""
+    return {
+        "book_id": book, "book_mode": "existing", "title": None,
+        "owner_member_id": None, "prefix_policy": "reject",
+        "chapters": [
+            {"sequence": 2, "action": "skip"},
+            {"sequence": 1, "action": "replace", "chapter_id": "ch-1",
+             "chapter_index": 1, "chapter_path": "chapters/1.xhtml",
+             "expected_revision": 1},
+        ],
+    }
+
+
 async def exercise(app, db: Path, url: str, settings: Settings) -> None:
     alice = {"X-API-Key": settings.team_tokens["alice"]}
     bob = {"X-API-Key": settings.team_tokens["bob"]}
@@ -106,6 +130,94 @@ async def exercise(app, db: Path, url: str, settings: Settings) -> None:
         python_rows=inspect(db,"python-book")
         assert python_rows==rust_rows,(python_rows,rust_rows)
         assert (await rust.get(f"{STAGE}/{python_stage}",headers=alice)).json()["commit_result"]==py_confirm.json()
+
+
+        # M1p acceptance of EXISTING books is not just create:
+        # compare both writers' one-chapter replace + explicit skip and the
+        # exact SQLite rows that survive rejected destination decisions.
+        revised = ("Глава 1\n" +
+                   NARRATIVE.replace("между городами", "между деревнями") +
+                   "\nГлава 2\n" + NARRATIVE).encode()
+        rust_replace_stage = await stage(py, revised)
+        python_replace_stage = await stage(rust, revised)
+        providers = (
+            (rust, rust_replace_stage, "rust-book"),
+            (py, python_replace_stage, "python-book"),
+        )
+        expected_before = {
+            book: chapter_rows(db, book) for _, _, book in providers
+        }
+        assert expected_before["rust-book"] == expected_before["python-book"]
+        assert len(expected_before["rust-book"]) == 2
+        for name in ("stale_revision", "occupied_index", "occupied_path",
+                     "skip_with_destination", "missing_decision",
+                     "preserve_absent_prefix"):
+            for client, stage_id, book in providers:
+                candidate = replace_one_and_skip_other(book)
+                if name == "stale_revision":
+                    candidate["chapters"][1]["expected_revision"] = 0
+                elif name == "occupied_index":
+                    candidate["chapters"][1]["chapter_index"] = 2
+                elif name == "occupied_path":
+                    candidate["chapters"][1]["chapter_path"] = "chapters/2.xhtml"
+                elif name == "skip_with_destination":
+                    candidate["chapters"][0]["chapter_id"] = "ch-2"
+                elif name == "missing_decision":
+                    candidate["chapters"].pop(0)
+                elif name == "preserve_absent_prefix":
+                    candidate["prefix_policy"] = "preserve"
+                result = await client.post(
+                    f"{STAGE}/{stage_id}/confirm", headers=alice, json=candidate,
+                )
+                assert result.status_code == 409, (
+                    name, book, result.status_code, result.text
+                )
+                assert chapter_rows(db, book) == expected_before[book], (
+                    name, "rejected decision changed an existing book", book
+                )
+                with sqlite3.connect(db) as conn:
+                    row = conn.execute(
+                        "SELECT status,commit_result_json FROM book_import_stages "
+                        "WHERE id=?", (stage_id,),
+                    ).fetchone()
+                assert row == ("staged", None), (name, book, row)
+        for client, stage_id, book in providers:
+            selection = replace_one_and_skip_other(book)
+            confirmed = await client.post(
+                f"{STAGE}/{stage_id}/confirm", headers=alice, json=selection,
+            )
+            assert confirmed.status_code == 200, (book, confirmed.text)
+            receipt = confirmed.json()
+            assert receipt["created_book"] is False
+            assert receipt["imported_count"] == 1
+            assert receipt["skipped_count"] == 1
+            assert receipt["chapters"][0]["sequence"] == 1
+            assert receipt["chapters"][0]["source_revision"] == 2
+            assert receipt["chapters"][1] == {"sequence": 2, "action": "skip"}
+            assert (await client.post(
+                f"{STAGE}/{stage_id}/confirm", headers=alice, json=selection
+            )).json() == receipt
+        after_rust = chapter_rows(db, "rust-book")
+        after_python = chapter_rows(db, "python-book")
+        assert after_rust == after_python, "Rust/Python replace+skip changed different bytes"
+        assert after_rust[0][-1] == 2 and after_rust[1][-1] == 1
+        assert after_rust[0][3] != expected_before["rust-book"][0][3]
+        assert after_rust[1] == expected_before["rust-book"][1]
+        with sqlite3.connect(db) as conn:
+            for book in ("rust-book", "python-book"):
+                assert conn.execute(
+                    "SELECT COUNT(*) FROM book_owner_events WHERE book_id=?",
+                    (book,),
+                ).fetchone()[0] == 1, "existing import must not change book ownership"
+        # A fresh source revision makes a once-valid replace CAS stale.
+        retry_stage = await stage(py, revised)
+        stale = replace_one_and_skip_other("rust-book")
+        rejected = await rust.post(
+            f"{STAGE}/{retry_stage}/confirm", headers=alice, json=stale,
+        )
+        assert rejected.status_code == 409, rejected.text
+        assert chapter_rows(db, "rust-book") == after_rust
+
 
         # A staged chapter using an unsupported escaped entity MUST NOT
         # be imported by Rust just because Python might normalize it.
