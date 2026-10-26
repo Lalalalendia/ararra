@@ -16,6 +16,7 @@ import httpx
 from chaptera_server.storage import QueueStore
 from chaptera_server.library import BookLibrary
 from chaptera_server.editorial import EditorialStore
+from chaptera_server.import_sessions import ImportSessions
 from chaptera_server.team_credentials import TeamCredentials
 from chaptera_server.team_sessions import TeamSessions
 from chaptera_server.team_login_throttle import BrowserLoginThrottle
@@ -34,8 +35,8 @@ def main() -> None:
         directory = Path(folder)
         db = directory / 'disposable.sqlite3'
         store = QueueStore(db)
-        for constructor in (BookLibrary, EditorialStore, TeamCredentials,
-                            TeamSessions, BrowserLoginThrottle):
+        for constructor in (BookLibrary, EditorialStore, ImportSessions,
+                            TeamCredentials, TeamSessions, BrowserLoginThrottle):
             constructor(store)
         env = dict(os.environ)
         for key in ('CREDENTIALS_DIRECTORY', 'CHAPTERA_GEMINI_API_KEY',
@@ -88,7 +89,7 @@ def main() -> None:
                         })
                     assert response.status_code == 200, 'Rust fixture chapter creation failed'
                 # Negative UI and static-file boundaries use no proxy fallback.
-                assert client.get('/app/import').status_code == 501
+                assert client.get('/app/import').status_code == 200
                 assert client.get('/app/unknown').status_code == 404
                 for path in ('/app-static/.env', '/app-static/js/readera.test.mjs',
                              '/app-static/%2e%2e%2fCargo.toml'):
