@@ -12,6 +12,7 @@ mod peer_identity;
 mod admin_credentials;
 mod book_export;
 mod batch_read;
+mod chapter_qa;
 mod import_preview;
 mod import_stage;
 use axum::http::{header, HeaderMap, StatusCode};
@@ -379,6 +380,7 @@ pub fn app(state: AppState) -> Router {
         .route("/v1/books/{book_id}/chapters/{chapter_id}", get(book::chapter))
         .route("/v1/books/{book_id}/chapters/{chapter_id}/draft", get(editorial::read_draft))
         .route("/v1/books/{book_id}/chapters/{chapter_id}/notes", get(editorial::read_notes))
+        .route("/v1/books/{book_id}/chapters/{chapter_id}/qa", get(chapter_qa::current))
         .route("/v1/books/{book_id}/chapters/{chapter_id}/accepted-revisions", get(editorial::read_accepted_history))
         .route("/v1/books/{book_id}/chapters/{chapter_id}/accepted-revisions/{revision}", get(editorial::read_accepted_version));
     if state.test_writes_enabled {

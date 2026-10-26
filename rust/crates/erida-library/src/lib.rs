@@ -12,6 +12,7 @@ pub mod import_preview;
 pub mod import_stage;
 pub mod import_confirm;
 pub mod translation_batches;
+pub mod chapter_qa;
 mod editorial;
 mod review_notes;
 mod glossary;
