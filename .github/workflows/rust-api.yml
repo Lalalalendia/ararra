@@ -149,3 +149,5 @@ jobs:
         run: python scripts/compare_rust_translation_batches.py rust/target/release/erida-api
       - name: Verify read-only QA reports, review revisions and integrity fencing against Python
         run: python scripts/compare_rust_chapter_qa.py rust/target/release/erida-api
+      - name: Verify disposable-only QA review CAS, immutable audit and Python parity
+        run: python scripts/compare_rust_chapter_qa_review.py rust/target/release/erida-api
