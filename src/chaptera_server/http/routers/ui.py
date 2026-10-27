@@ -40,6 +40,6 @@ def read_ui(request: Request, page: str = ""):
     return TEMPLATES.TemplateResponse(
         request=request,
         name="shell.html",
-        context={"active_page": page or "overview"},
+        context={"active_page": page or "overview", "archive_only": request.app.state.settings.archive_only},
         headers=_PRIVATE_HTML_HEADERS,
     )
