@@ -16,6 +16,13 @@ export function renderArchiveDetails(stage, $, text) {
   text(provenance,'Исходный сайт: '+archive.domain+' · '+archive.sourceUrl,'p');
   text(provenance,'В ZIP: '+archive.chapterCount+' глав. Рабочий текст отличается от оригинала у '+archive.modifiedCount+' глав.','p');
   text(provenance,'Пропуски позиций: '+archive.gapsLabel,'p');
+  if(archive.repeatedUrlCount){
+    text(provenance,'Повторяющиеся URL глав: '+archive.repeatedUrlCount+
+      '. Позиции: '+archive.repeatedUrlsLabel+'. Проверьте, не дублируются ли страницы.','p');
+  }
+  if(archive.sourceOrderChanged){
+    text(provenance,'Внимание: позиции глав в архиве идут не по возрастанию. Проверьте порядок перед импортом.','p');
+  }
   text(provenance,archive.completenessWarning,'p');
 }
 
@@ -43,6 +50,8 @@ export function renderImportReviewSummary(root, rows, targetBook, staged, text) 
     ...(archive ? [
       ['ZIP Full Cycle App',archive.domain],
       ['Пропуски позиций',archive.gapsLabel],
+      ...(archive.repeatedUrlCount ? [['Повторяющиеся URL',archive.repeatedUrlsLabel]] : []),
+      ...(archive.sourceOrderChanged ? [['Порядок глав','Требует проверки: позиции не возрастают']] : []),
       ['Полнота сайта','Не подтверждена по архиву'],
     ] : []),
   ];
