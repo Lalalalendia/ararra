@@ -250,11 +250,11 @@ def _from_html(source: str, title: str, source_path: str) -> tuple[list[Candidat
     return candidates, '\n'.join(prefix)
 
 
-def _checked_zip(data: bytes) -> zipfile.ZipFile:
+def _checked_zip(data: bytes, *, max_entries: int = MAX_ARCHIVE_ENTRIES) -> zipfile.ZipFile:
     try:
         zf = zipfile.ZipFile(io.BytesIO(data))
         infos = zf.infolist()
-        if len(infos) > MAX_ARCHIVE_ENTRIES:
+        if len(infos) > max_entries:
             raise ImportFormatError('Too many archive entries')
         total = 0
         for item in infos:
