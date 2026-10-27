@@ -11,6 +11,8 @@ import json
 import re
 import stat
 import zipfile
+import zlib
+from urllib.parse import urlsplit
 
 ARCHIVE_FORMAT = "full_cycle_app.chapter_exchange"
 ARCHIVE_VERSION = 1
@@ -37,11 +39,28 @@ def _object_without_duplicates(pairs: list[tuple[str, object]]) -> dict:
 
 
 def _string(value: object, key: str, limit: int, *, required: bool = False) -> str:
-    if not isinstance(value, str) or len(value) > limit or "\x00" in value:
+    if (not isinstance(value, str) or len(value) > limit or
+            any(ord(ch) < 32 or 0xD800 <= ord(ch) <= 0xDFFF for ch in value)):
         raise ExchangeImportError(f"Invalid source archive {key}")
     if required and not value.strip():
         raise ExchangeImportError(f"Missing source archive {key}")
     return value
+
+
+def _web_url(value: object, field: str) -> str:
+    """Untrusted manifest links may be displayed by a future operator UI."""
+    url = _string(value, field, 2048)
+    if not url:
+        return url
+    try:
+        parsed = urlsplit(url)
+        if (parsed.scheme not in ("http", "https") or not parsed.hostname
+                or parsed.username is not None or parsed.password is not None):
+            raise ValueError("unsupported URL scheme or credentials")
+        _ = parsed.port  # Reject malformed ports before persisting URL strings.
+    except ValueError as exc:
+        raise ExchangeImportError(f"Invalid source archive {field}") from exc
+    return url
 
 
 def _sha(value: object, field: str) -> str:
@@ -57,7 +76,7 @@ def _read_member(archive: zipfile.ZipFile, member: str, max_bytes: int) -> bytes
             raise ExchangeImportError(f"Archive member exceeds safety limit: {member}")
         with archive.open(info, "r") as stream:
             result = stream.read(max_bytes + 1)
-    except (KeyError, RuntimeError, OSError, EOFError, zipfile.BadZipFile) as exc:
+    except (KeyError, RuntimeError, OSError, EOFError, zlib.error, zipfile.BadZipFile) as exc:
         raise ExchangeImportError(f"Missing or damaged archive member: {member}") from exc
     if len(result) != info.file_size or len(result) > max_bytes:
         raise ExchangeImportError(f"Archive member size mismatch: {member}")
@@ -140,7 +159,7 @@ def load_full_cycle_source(data: bytes, fallback_title: str) -> dict:
         if not isinstance(project, dict) or not isinstance(source, dict):
             raise ExchangeImportError("Source archive project/source metadata is missing")
         title = _string(project.get("title", ""), "project title", 500).strip() or fallback_title
-        source_url = _string(source.get("source_url", ""), "source URL", 2048)
+        source_url = _web_url(source.get("source_url", ""), "source URL")
         source_domain = _string(source.get("domain", ""), "source domain", 255)
         external_book_id = _string(source.get("external_book_id", ""), "external book ID", 255)
         parsed = []
@@ -157,7 +176,7 @@ def load_full_cycle_source(data: bytes, fallback_title: str) -> dict:
             used_indices.add(index)
             raw_title = _string(row.get("chapter_title", ""), "chapter title", 500)
             title_label = raw_title.strip() or f"Без названия (позиция {index})"
-            chapter_url = _string(row.get("chapter_url", ""), "chapter URL", 2048)
+            chapter_url = _web_url(row.get("chapter_url", ""), "chapter URL")
             expected_working = f"chapters/{index:06d}.txt"
             expected_original = f"original/{index:06d}.txt"
             if row.get("working_file") != expected_working or row.get("original_file") != expected_original:

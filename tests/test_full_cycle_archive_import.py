@@ -346,3 +346,40 @@ def test_http_zip_preview_stage_confirm_and_readback_after_restart(tmp_path):
     asyncio.run(flow())
     app2 = create_app(settings, QueueStore(store.db_path))
     assert app2.state.import_sessions.archive_original("imported", "ch7")["source_index"] == 7
+
+
+@pytest.mark.parametrize("change,detail", [
+    (lambda m: m["source"].update(source_url="javascript:alert(1)"), "source URL"),
+    (lambda m: m["source"].update(source_url="file:///etc/passwd"), "source URL"),
+    (lambda m: m["source"].update(source_url="https://name:password@site.test/1"), "source URL"),
+    (lambda m: m["source"].update(source_url="http://[broken-host/1"), "source URL"),
+    (lambda m: m["chapters"][0].update(chapter_url="javascript:alert(1)"), "chapter URL"),
+    (lambda m: m["chapters"][0].update(chapter_url="https://site.test:wrong/1"), "chapter URL"),
+    (lambda m: m["chapters"][0].update(chapter_title="Пролог\nвторая строка"), "chapter title"),
+    (lambda m: m["source"].update(external_book_id="id\r\ninjection"), "external book ID"),
+])
+def test_archive_manifest_untrusted_urls_fail_before_staging(change, detail):
+    with pytest.raises(ImportFormatError, match=detail):
+        preview_book_import("book.zip", build_source_zip(modify_manifest=change))
+
+
+def test_unpaired_surrogates_in_json_manifest_are_rejected_not_internal_500(tmp_path):
+    # JSON permits escaped surrogate code points, but UTF-8 staging does not.
+    # Reject in preview rather than raising an uncaught UnicodeEncodeError.
+    fixture = build_source_zip()
+    stream = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(fixture)) as original:
+        members = {name: original.read(name) for name in original.namelist()}
+    manifest = json.loads(members["manifest.json"].decode("utf-8"))
+    manifest["chapters"][0]["chapter_title"] = "\ud800"
+    members["manifest.json"] = json.dumps(manifest, ensure_ascii=True).encode("ascii")
+    with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as output:
+        for name, body in members.items():
+            output.writestr(name, body)
+    with pytest.raises(ImportFormatError, match="chapter title"):
+        preview_book_import("unpaired.zip", stream.getvalue())
+    store, _, sessions = make_store(tmp_path)
+    with pytest.raises(ImportFormatError, match="chapter title"):
+        sessions.stage("alice", "unpaired.zip", stream.getvalue())
+    with store._connect() as con:
+        assert con.execute("SELECT COUNT(*) FROM book_import_stages").fetchone()[0] == 0
