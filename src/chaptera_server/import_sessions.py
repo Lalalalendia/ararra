@@ -89,6 +89,23 @@ class ImportSessions:
                     created_at REAL NOT NULL,
                     PRIMARY KEY(book_id, stage_id)
                 );
+                CREATE TABLE IF NOT EXISTS book_import_exchange_originals (
+                    book_id TEXT NOT NULL,
+                    chapter_id TEXT NOT NULL,
+                    source_revision INTEGER NOT NULL,
+                    stage_id TEXT NOT NULL,
+                    source_index INTEGER NOT NULL,
+                    source_url TEXT NOT NULL,
+                    original_text TEXT NOT NULL,
+                    original_sha256 TEXT NOT NULL,
+                    working_text TEXT NOT NULL,
+                    working_sha256 TEXT NOT NULL,
+                    actor_id TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    PRIMARY KEY(book_id, chapter_id, source_revision),
+                    FOREIGN KEY(book_id, chapter_id)
+                        REFERENCES book_chapters(book_id, chapter_id) ON DELETE CASCADE
+                );
             """)
 
     @staticmethod
@@ -183,9 +200,12 @@ class ImportSessions:
                 "author_number": (source_entry_metadata[n-1]["author_number"]
                                   if source_entry_metadata is not None else item.number),
                 "catalog_ordinal": (source_entry_metadata[n-1]["ordinal"]
-                                    if source_entry_metadata is not None else n),
+                                    if source_entry_metadata is not None else
+                                    item.archive["chapter_index"] if item.archive else n),
                 "source_id": (source_entry_metadata[n-1]["source_id"]
                               if source_entry_metadata is not None else None),
+                **({"source_url": item.archive["source_url"],
+                    "source_exchange": item.archive} if item.archive else {}),
                 "source_path": item.path,
                 # The preview extractor separates detected headings from
                 # bodies; restore the original heading in canonical source HTML.
@@ -194,7 +214,7 @@ class ImportSessions:
                         source_entry_metadata[n-1]["title"]
                         if source_entry_metadata is not None else item.title
                     ) + "</h1>\n" + item.html
-                    if (source_entry_metadata is not None or
+                    if (source_entry_metadata is not None or item.archive is not None or
                         item.number is not None or item.entry_type != 'chapter')
                     else item.html
                 ),
@@ -278,6 +298,41 @@ class ImportSessions:
                    FROM book_import_unassigned WHERE book_id=? ORDER BY created_at""",
                 (book_id,),
             ).fetchall()]
+
+    def archive_original(self, book_id: str, chapter_id: str,
+                         source_revision: int | None = None) -> dict:
+        """Read an immutable Full Cycle App original and working checkpoint."""
+        with self.store._connect() as con:
+            if con.execute("SELECT 1 FROM books WHERE id=?", (book_id,)).fetchone() is None:
+                raise LibraryNotFound("Book not found")
+            if con.execute(
+                "SELECT 1 FROM book_chapters WHERE book_id=? AND chapter_id=?",
+                (book_id, chapter_id),
+            ).fetchone() is None:
+                raise LibraryNotFound("Chapter not found")
+            if source_revision is None:
+                row = con.execute(
+                    """SELECT * FROM book_import_exchange_originals
+                       WHERE book_id=? AND chapter_id=?
+                       ORDER BY source_revision DESC LIMIT 1""",
+                    (book_id, chapter_id),
+                ).fetchone()
+            else:
+                row = con.execute(
+                    """SELECT * FROM book_import_exchange_originals
+                       WHERE book_id=? AND chapter_id=? AND source_revision=?""",
+                    (book_id, chapter_id, source_revision),
+                ).fetchone()
+            if row is None:
+                raise LibraryNotFound("Archive original checkpoint not found")
+            return {
+                key: row[key] for key in (
+                    "book_id", "chapter_id", "source_revision", "stage_id",
+                    "source_index", "source_url", "original_text",
+                    "original_sha256", "working_text", "working_sha256",
+                    "actor_id", "created_at",
+                )
+            }
 
     def confirm(self, actor: str, stage_id: str, request: dict) -> dict:
         fingerprint = _fingerprint({
@@ -426,6 +481,43 @@ class ImportSessions:
                                VALUES(?,?,?,?,?,?,?,?)""",
                             (book_id, chapter_id, index, path, html, source_hash, revision, now),
                         )
+                    exchange = candidates[seq].get("source_exchange")
+                    if exchange is not None:
+                        # Preserve both UTF-8 texts per committed source revision.
+                        # Reusing a revision cannot silently replace its original.
+                        original, working = exchange["original_text"], exchange["working_text"]
+                        if (hashlib.sha256(original.encode("utf-8")).hexdigest()
+                                != exchange["original_sha256"] or
+                            hashlib.sha256(working.encode("utf-8")).hexdigest()
+                                != exchange["working_sha256"]):
+                            raise StageConflict("Full Cycle App archive bytes changed in staging")
+                        snapshot = (
+                            exchange["chapter_index"], exchange["source_url"],
+                            original, exchange["original_sha256"], working,
+                            exchange["working_sha256"],
+                        )
+                        saved = con.execute(
+                            """SELECT source_index,source_url,original_text,
+                                      original_sha256,working_text,working_sha256
+                               FROM book_import_exchange_originals
+                               WHERE book_id=? AND chapter_id=? AND source_revision=?""",
+                            (book_id, chapter_id, revision),
+                        ).fetchone()
+                        if saved is not None:
+                            if tuple(saved) != snapshot:
+                                raise StageConflict(
+                                    "A different source checkpoint already exists at this revision"
+                                )
+                        else:
+                            con.execute(
+                                """INSERT INTO book_import_exchange_originals(
+                                     book_id,chapter_id,source_revision,stage_id,
+                                     source_index,source_url,original_text,original_sha256,
+                                     working_text,working_sha256,actor_id,created_at)
+                                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                                (book_id, chapter_id, revision, stage_id,
+                                 *snapshot, actor, now),
+                            )
                     result_chapters.append({
                         "sequence": seq, "action": action, "chapter_id": chapter_id,
                         "chapter_index": index, "source_revision": revision,

@@ -479,8 +479,9 @@ $('import-upload').addEventListener('submit',event=>{
   event.preventDefault();
   void busyDuring(async()=>{
     const file=selectedFile||$('chapters_file').files[0];
-    if(!file||!/\.(txt|html?|xhtml|epub|docx)$/i.test(file.name)||!file.size||file.size>12*1024*1024){
-      flash('Выберите поддерживаемый непустой файл до 12 МиБ.',true);return;
+    const limit=/\.zip$/i.test(file?.name||'')?24*1024*1024:12*1024*1024;
+    if(!file||!/\.(txt|html?|xhtml|epub|docx|zip)$/i.test(file.name)||!file.size||file.size>limit){
+      flash('Выберите TXT/HTML/EPUB/DOCX до 12 МиБ или ZIP Full Cycle App до 24 МиБ.',true);return;
     }
     try {
       const form=new FormData();form.append('file',file,file.name);

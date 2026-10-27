@@ -20,6 +20,10 @@ from xml.etree import ElementTree as ET
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 
+from .full_cycle_archive import (
+    ExchangeImportError, MAX_EXCHANGE_UPLOAD_BYTES, load_full_cycle_source,
+)
+
 MAX_UPLOAD_BYTES = 12 * 1024 * 1024
 MAX_ARCHIVE_EXPANDED_BYTES = 64 * 1024 * 1024
 MAX_ARCHIVE_ENTRIES = 4000
@@ -69,6 +73,7 @@ class Candidate:
     html: str
     path: str
     entry_type: str = 'chapter'
+    archive: dict | None = None
 
 
 def _filename(name: str) -> str:
@@ -404,13 +409,34 @@ def parse_book_import(filename: str, data: bytes) -> tuple[dict, list[Candidate]
     filename = _filename(filename)
     if not data:
         raise ImportFormatError('Uploaded file is empty')
-    if len(data) > MAX_UPLOAD_BYTES:
-        raise ImportFormatError('Uploaded file exceeds 12 MiB limit')
     suffix = '.' + filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+    limit = MAX_EXCHANGE_UPLOAD_BYTES if suffix == '.zip' else MAX_UPLOAD_BYTES
+    if len(data) > limit:
+        raise ImportFormatError(f'Uploaded file exceeds {limit // (1024 * 1024)} MiB limit')
     fallback_title = filename[:-(len(suffix))] if suffix else filename
     if suffix == '.json':
         return _catalog(data), [], ''
-    if suffix == '.txt':
+    archive_info = None
+    if suffix == '.zip':
+        try:
+            archive_info = load_full_cycle_source(data, fallback_title)
+        except ExchangeImportError as exc:
+            raise ImportFormatError(str(exc)) from exc
+        title = archive_info['title']
+        # The ZIP manifest already supplies exact chapter boundaries.  Never
+        # run heading recognition on the individual plain-text bodies.
+        candidates, prefix = [], ''
+        for row in archive_info['chapters']:
+            text = row['working_text'].replace('\r\n', '\n').replace('\r', '\n')
+            safe = '<p>' + html.escape(text, quote=False).replace('\n', '<br/>') + '</p>'
+            if len(safe) > MAX_CHAPTER_CHARACTERS:
+                raise ImportFormatError('Archive chapter HTML exceeds 2M characters')
+            candidates.append(Candidate(
+                row['chapter_title'], None, safe,
+                f"chapters/{row['chapter_index']:06d}.txt", 'chapter',
+                archive=row,
+            ))
+    elif suffix == '.txt':
         title, (candidates, prefix) = fallback_title, _from_lines(_decode(data), fallback_title, filename)
     elif suffix in {'.html', '.htm', '.xhtml'}:
         title, (candidates, prefix) = fallback_title, _from_html(_decode(data), fallback_title, filename)
@@ -419,7 +445,7 @@ def parse_book_import(filename: str, data: bytes) -> tuple[dict, list[Candidate]
     elif suffix == '.docx':
         title, candidates, prefix = _docx(data, fallback_title)
     else:
-        raise ImportFormatError('Supported formats: TXT, HTML, EPUB, DOCX, and Rulate metadata JSON')
+        raise ImportFormatError('Supported formats: TXT, HTML, EPUB, DOCX, Full Cycle App source ZIP, and Rulate metadata JSON')
     if not candidates or len(candidates) > MAX_CHAPTERS:
         raise ImportFormatError('Book has no chapters or exceeds the chapter limit')
     numbered: set[int] = set()
@@ -465,7 +491,7 @@ def parse_book_import(filename: str, data: bytes) -> tuple[dict, list[Candidate]
         for before, after in zip(ordered_numbers, ordered_numbers[1:])
         if after > before + 1
     ]
-    if not all(chapter.number is not None for chapter in candidates):
+    if archive_info is None and not all(chapter.number is not None for chapter in candidates):
         warnings.append('Some entries have no explicit author number: sequence numbers are suggestions only')
     if entry_counts['extra'] or entry_counts['service']:
         warnings.append(
@@ -478,7 +504,21 @@ def parse_book_import(filename: str, data: bytes) -> tuple[dict, list[Candidate]
         warnings.append('Duplicate story bodies detected by SHA-256; review before import')
     if _text(prefix):
         warnings.append('Text before the first chapter heading is unassigned and needs review')
-    return ({'kind': 'book', 'format': suffix.lstrip('.'), 'filename': filename,
+    if archive_info is not None:
+        if archive_info['missing_positions']:
+            warnings.append('Archive has internal gaps in source indexes; verify missing chapters')
+        warnings.append('Archive includes collected chapters only; full source TOC coverage is not proven')
+        for item, chapter in zip(output, candidates):
+            origin = chapter.archive
+            item.update({
+                'catalog_ordinal': origin['chapter_index'],
+                'destination_position': origin['chapter_index'],
+                'suggested_index': origin['chapter_index'],
+                'source_url': origin['source_url'],
+                'source_original_sha256': origin['original_sha256'],
+                'source_working_sha256': origin['working_sha256'],
+            })
+    preview = {'kind': 'book', 'format': suffix.lstrip('.'), 'filename': filename,
              'title': title[:500], 'chapter_count': len(output), 'chapters': output,
              'story_chapter_count': entry_counts['chapter'],
              'extra_entry_count': entry_counts['extra'],
@@ -487,7 +527,18 @@ def parse_book_import(filename: str, data: bytes) -> tuple[dict, list[Candidate]
              'duplicate_body_pairs': duplicate_body_pairs,
              'unassigned_prefix_characters': len(_text(prefix)),
              'unassigned_prefix_sample': _text(prefix)[:180], 'warnings': warnings,
-             'stored': False}, candidates, prefix)
+             'stored': False}
+    if archive_info is not None:
+        preview['source_archive'] = {
+            'format': archive_info['format'], 'version': archive_info['version'],
+            'source_url': archive_info['source_url'],
+            'source_domain': archive_info['source_domain'],
+            'external_book_id': archive_info['external_book_id'],
+            'missing_positions': archive_info['missing_positions'],
+            'boundaries': 'manifest',
+            'original_text_preserved_on_confirm': True,
+        }
+    return preview, candidates, prefix
 
 
 def preview_book_import(filename: str, data: bytes) -> dict:
