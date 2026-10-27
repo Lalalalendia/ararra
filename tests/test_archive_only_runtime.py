@@ -25,7 +25,7 @@ def test_archive_only_mode_keeps_full_cycle_import_and_editor_routes(tmp_path):
         admin_member_id="chief", archive_only=True,
     )
     app = create_app(settings, QueueStore(settings.db_path))
-    routes = {route.path for route in app.routes}
+    routes = {getattr(route, 'path', '') for route in app.routes}
     assert "/v1/imports/preview" in routes
     assert "/v1/imports/stages" in routes
     assert "/v1/books" in routes
