@@ -35,8 +35,8 @@ fn main() {
     let intro = "<p>{% if archive_only %}Загрузите ZIP из Full Cycle App или файл с главами · без запуска перевода.{% else %}Из файла или по ссылке на книгу · без запуска перевода.{% endif %}</p>";
     assert_eq!(shell.matches(intro).count(), 1, "Review archive-only import intro");
     shell = shell.replace(intro, "<p>Из файла или по ссылке на книгу · без запуска перевода.</p>");
-    let source_open = "            {% if not archive_only %}\\n";
-    let source_close = "            {% endif %}\\n";
+    let source_open = "            {% if not archive_only %}\n";
+    let source_close = "            {% endif %}\n";
     assert_eq!(shell.matches(source_open).count(), 1, "Review archive-only source opening");
     assert_eq!(shell.matches(source_close).count(), 1, "Review archive-only source closing");
     shell = shell.replace(source_open, "").replace(source_close, "");
