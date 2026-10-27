@@ -233,6 +233,9 @@ test('Full Cycle ZIP keeps manifest positions and original-versus-working proof'
     modifiedCount:1,
     gapsLabel:'8, 10–12',
     gapCount:2,
+    repeatedUrlCount:0,
+    repeatedUrlsLabel:'Не обнаружено',
+    sourceOrderChanged:false,
     completenessWarning:'Архив содержит только скачанные главы. Отсутствие пропусков внутри ZIP не доказывает, что весь сайт собран.',
   });
 });
@@ -251,4 +254,28 @@ test('archive provenance is absent for ordinary TXT and gap lists are bounded',(
   assert.match(importWarningText(
     'Archive includes collected chapters only; full source TOC coverage is not proven'
   ),/Полнота оглавления сайта не подтверждена/);
+});
+
+
+test('source ZIP warnings preserve duplicate URL identities without merging entries',()=>{
+  const archive=preview([null,null,null]);
+  archive.source_archive={
+    boundaries:'manifest',missing_positions:[],
+    repeated_source_url_count:16,
+    repeated_source_url_pairs:Array.from({length:12},(_,i)=>[7,9+i]),
+    manifest_order_not_monotonic:true,
+  };
+  const summary=sourceArchiveSummary(archive);
+  assert.equal(summary.repeatedUrlCount,16);
+  assert.equal(summary.sourceOrderChanged,true);
+  assert.match(summary.repeatedUrlsLabel,/7 ↔ 9/);
+  assert.match(summary.repeatedUrlsLabel,/ещё 8 совпадений/);
+  assert.ok(!summary.repeatedUrlsLabel.includes('7 ↔ 17'));
+  assert.match(importWarningText(
+    'Archive maps multiple chapter positions to the same source URL; verify TOC'
+  ),/Один URL/);
+  assert.match(importWarningText(
+    'Archive chapter positions are out of order; verify the manifest'
+  ),/manifest.json/);
+  assert.deepEqual(createDraft(archive).map(row=>row.sequence),[1,2,3]);
 });
