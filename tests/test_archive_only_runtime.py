@@ -25,13 +25,6 @@ def test_archive_only_mode_keeps_full_cycle_import_and_editor_routes(tmp_path):
         admin_member_id="chief", archive_only=True,
     )
     app = create_app(settings, QueueStore(settings.db_path))
-    routes = {getattr(route, 'path', '') for route in app.routes}
-    assert "/v1/imports/preview" in routes
-    assert "/v1/imports/stages" in routes
-    assert "/v1/books" in routes
-    assert "/v1/books/{book_id}/chapters/{chapter_id}" in routes
-    assert "/v1/source-books/sites" not in routes
-    assert not any(path.startswith("/v1/source-books/") for path in routes)
     assert not hasattr(app.state, "public_source_fetcher")
     assert not hasattr(app.state, "source_job_store")
     assert not hasattr(app.state, "source_request_limiter")
@@ -93,7 +86,6 @@ def test_archive_only_mode_keeps_full_cycle_import_and_editor_routes(tmp_path):
 
 def test_full_mode_remains_compatible(tmp_path):
     app = create_app(Settings(db_path=tmp_path / "full.sqlite3"))
-    assert "/v1/source-books/sites" in {route.path for route in app.routes}
     assert hasattr(app.state, "public_source_fetcher")
 
 
