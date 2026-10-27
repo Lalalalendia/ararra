@@ -20,6 +20,7 @@ from .library import LibraryConflict, LibraryNotFound, _normalized_path, _normal
 from .storage import QueueStore
 
 MAX_STAGE_BYTES = 24 * 1024 * 1024
+MAX_EXCHANGE_STAGE_BYTES = 80 * 1024 * 1024
 MAX_ACTIVE_STAGES_PER_ACTOR = 3
 STAGE_TTL_SECONDS = 1800
 COMMITTED_TTL_SECONDS = 86400
@@ -79,6 +80,23 @@ class ImportSessions:
                 );
                 CREATE INDEX IF NOT EXISTS ix_book_import_stages_expiry
                     ON book_import_stages(expires_at);
+                CREATE TABLE IF NOT EXISTS book_import_source_originals (
+                    book_id TEXT NOT NULL,
+                    chapter_id TEXT NOT NULL,
+                    stage_id TEXT NOT NULL,
+                    chapter_position INTEGER NOT NULL,
+                    chapter_title TEXT NOT NULL,
+                    chapter_url TEXT NOT NULL,
+                    original_text TEXT NOT NULL,
+                    original_sha256 TEXT NOT NULL,
+                    working_text TEXT NOT NULL,
+                    working_sha256 TEXT NOT NULL,
+                    actor_id TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    PRIMARY KEY (book_id, chapter_id, stage_id),
+                    FOREIGN KEY (book_id,chapter_id) REFERENCES
+                        book_chapters(book_id,chapter_id) ON DELETE CASCADE
+                );
                 CREATE TABLE IF NOT EXISTS book_import_unassigned (
                     book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
                     stage_id TEXT NOT NULL,
@@ -187,6 +205,9 @@ class ImportSessions:
                 "source_id": (source_entry_metadata[n-1]["source_id"]
                               if source_entry_metadata is not None else None),
                 "source_path": item.path,
+                # Full Cycle stores both the original parser bytes and the
+                # manually normalised working copy. Neither is public preview.
+                "exchange": item.exchange,
                 # The preview extractor separates detected headings from
                 # bodies; restore the original heading in canonical source HTML.
                 "source_html": (
@@ -195,14 +216,16 @@ class ImportSessions:
                         if source_entry_metadata is not None else item.title
                     ) + "</h1>\n" + item.html
                     if (source_entry_metadata is not None or
+                        item.exchange is not None or
                         item.number is not None or item.entry_type != 'chapter')
                     else item.html
                 ),
             } for n, item in enumerate(candidates, start=1)]
         }
         packed = _packed(payload)
-        if len(packed.encode("utf-8")) + len(prefix.encode("utf-8")) > MAX_STAGE_BYTES:
-            raise StageTooLarge("Expanded source exceeds the 24 MiB staging limit")
+        budget = MAX_EXCHANGE_STAGE_BYTES if preview.get('archive_source') else MAX_STAGE_BYTES
+        if len(packed.encode("utf-8")) + len(prefix.encode("utf-8")) > budget:
+            raise StageTooLarge(f"Expanded source exceeds the {budget // 1048576} MiB staging limit")
         source_sha256 = hashlib.sha256(data).hexdigest()
         fingerprint = _fingerprint([preview["filename"], source_sha256])
         now = time.time()
@@ -267,6 +290,30 @@ class ImportSessions:
                 (stage_id, actor),
             )
             return {"stage_id": stage_id, "status": "cancelled"}
+
+
+    def source_originals(self, book_id: str, chapter_id: str) -> list[dict]:
+        """Original and working TXT, proven by ZIP digests, for a stored chapter.
+
+        Append-only per confirmed archive stage. Re-importing a different
+        chapter revision never destroys the prior parser-original evidence.
+        """
+        with self.store._connect() as con:
+            if con.execute(
+                "SELECT 1 FROM book_chapters WHERE book_id=? AND chapter_id=?",
+                (book_id, chapter_id),
+            ).fetchone() is None:
+                raise LibraryNotFound("Chapter not found")
+            return [dict(row) for row in con.execute(
+                """SELECT stage_id,chapter_position,chapter_title,chapter_url,
+                          original_text,original_sha256,working_text,
+                          working_sha256,actor_id,created_at
+                   FROM book_import_source_originals
+                   WHERE book_id=? AND chapter_id=?
+                   ORDER BY created_at,stage_id""",
+                (book_id, chapter_id),
+            )]
+
 
     def prefixes(self, book_id: str) -> list[dict]:
         """Expose preserved, explicitly unassigned prefaces to team editors."""
@@ -425,6 +472,21 @@ class ImportSessions:
                                chapter_path,source_html,source_hash,source_revision,updated_at)
                                VALUES(?,?,?,?,?,?,?,?)""",
                             (book_id, chapter_id, index, path, html, source_hash, revision, now),
+                        )
+                    archive = candidates[seq].get('exchange')
+                    if archive is not None:
+                        con.execute(
+                            """INSERT INTO book_import_source_originals(
+                                book_id,chapter_id,stage_id,chapter_position,
+                                chapter_title,chapter_url,original_text,
+                                original_sha256,working_text,working_sha256,
+                                actor_id,created_at
+                            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            (book_id, chapter_id, stage_id, archive['position'],
+                             archive['title'], archive['url'],
+                             archive['original_text'], archive['original_sha256'],
+                             archive['working_text'], archive['working_sha256'],
+                             actor, now),
                         )
                     result_chapters.append({
                         "sequence": seq, "action": action, "chapter_id": chapter_id,
