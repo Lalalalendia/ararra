@@ -138,7 +138,7 @@ def test_archive_manifest_is_toc_not_heading_recognition():
     public = json.dumps(preview, ensure_ascii=False)
     assert "source_html" not in public
     assert "原文九." not in public
-    assert "手工 исправленный текст." not in public or "sample" in public
+    assert preview["chapters"][1]["sample"].startswith("手工 исправленный")
 
 
 @pytest.mark.parametrize("change,error", [
@@ -171,8 +171,11 @@ def test_reject_missing_extra_duplicate_and_traversal_members():
         target.writestr("manifest.json", "{}")
     with pytest.raises(ImportFormatError, match="Duplicate"):
         preview_book_import("dup.zip", stream.getvalue())
+    empty_manifest = io.BytesIO()
+    with zipfile.ZipFile(empty_manifest, "w") as target:
+        target.writestr("README.txt", "no manifest")
     with pytest.raises(ImportFormatError, match="manifest.json"):
-        preview_book_import("book.zip", build_source_zip(extras={"manifest.json": b""}))
+        preview_book_import("book.zip", empty_manifest.getvalue())
     with pytest.raises(ImportFormatError, match="24 MiB"):
         preview_book_import("book.zip", b"x" * (MAX_EXCHANGE_UPLOAD_BYTES + 1))
 
