@@ -604,16 +604,12 @@ function showReceipt(receipt){
   batchView.offerImported(receipt);
 }
 $('import-another').addEventListener('click',()=>{hideImportSteps();$('chapters_file').value='';selectedFile=null;flash('');});
-// Only full-mode browsers load source collection code and UI.
-// The archive-only shell has no crawler markup and makes no source API calls.
-let sourceBookImportView = {reset(){},hide(){}};
-if ($('source-import')) {
-  const {createSourceBookImportView} = await import('./source-book-import-view.mjs');
+let sourceBookImportView={reset(){},hide(){}};
+if($('source-import')){
+  const {createSourceBookImportView}=await import('./source-book-import-view.mjs');
   sourceBookImportView=createSourceBookImportView({
-    request,flash,
-    onStage:async stageId=>stageShown(
-      await request('/v1/imports/stages/'+encodeURIComponent(stageId))
-    ),
+    request,flash,onStage:async id=>stageShown(await request(
+      '/v1/imports/stages/'+encodeURIComponent(id))),
   });
 }
 editor=initChapterEditor({request,flash,getBooks:()=>books});
