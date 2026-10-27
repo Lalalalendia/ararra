@@ -34,8 +34,8 @@ class ArchiveOnlyBuildPy(build_py):
             return files
         return [
             path for path in files
-            if "/web_ui/static/js/source-" not in path.replace("\\\\", "/")
-            and not path.replace("\\\\", "/").startswith("web_ui/static/js/source-")
+            if "/web_ui/static/js/source-" not in path.replace("\\", "/")
+            and not path.replace("\\", "/").startswith("web_ui/static/js/source-")
         ]
 
 
