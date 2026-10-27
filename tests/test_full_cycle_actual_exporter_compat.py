@@ -42,6 +42,9 @@ def test_actual_full_cycle_exporter_zip_preview_commit_and_raw_readback(tmp_path
     assert len(parsed) == 3
     assert parsed[1].archive["original_text"] != parsed[1].archive["working_text"]
     store = QueueStore(tmp_path / "authentic-fullcycle.sqlite3")
+    # ImportSessions writes into the BookLibrary schema, which QueueStore alone
+    # does not create. Match the production initialization order.
+    library = BookLibrary(store)
     staged = ImportSessions(store).stage("alice", "fullcycle.zip", data)
     payload = {
         "book_id": "fullcycle-fixture",
@@ -57,7 +60,6 @@ def test_actual_full_cycle_exporter_zip_preview_commit_and_raw_readback(tmp_path
     }
     receipt = ImportSessions(store).confirm("alice", staged["stage_id"], payload)
     assert receipt["imported_count"] == 3
-    library = BookLibrary(store)
     assert "第999章" in library.get_chapter("fullcycle-fixture", "chapter-7")["source_html"]
     restored = ImportSessions(QueueStore(store.db_path)).archive_original("fullcycle-fixture", "chapter-9")
     assert restored["original_text"] == "原文九.\n\nАбзац два."
