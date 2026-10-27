@@ -21,6 +21,7 @@ from xml.etree import ElementTree as ET
 from bs4 import BeautifulSoup, NavigableString, Tag
 
 MAX_UPLOAD_BYTES = 12 * 1024 * 1024
+MAX_EXCHANGE_UPLOAD_BYTES = 32 * 1024 * 1024
 MAX_ARCHIVE_EXPANDED_BYTES = 64 * 1024 * 1024
 MAX_ARCHIVE_ENTRIES = 4000
 MAX_CHAPTERS = 2000
@@ -69,6 +70,7 @@ class Candidate:
     html: str
     path: str
     entry_type: str = 'chapter'
+    exchange: dict | None = None
 
 
 def _filename(name: str) -> str:
@@ -404,13 +406,26 @@ def parse_book_import(filename: str, data: bytes) -> tuple[dict, list[Candidate]
     filename = _filename(filename)
     if not data:
         raise ImportFormatError('Uploaded file is empty')
-    if len(data) > MAX_UPLOAD_BYTES:
-        raise ImportFormatError('Uploaded file exceeds 12 MiB limit')
     suffix = '.' + filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+    upload_limit = MAX_EXCHANGE_UPLOAD_BYTES if suffix == '.zip' else MAX_UPLOAD_BYTES
+    if len(data) > upload_limit:
+        raise ImportFormatError(f'Uploaded file exceeds {upload_limit // 1048576} MiB limit')
     fallback_title = filename[:-(len(suffix))] if suffix else filename
     if suffix == '.json':
         return _catalog(data), [], ''
-    if suffix == '.txt':
+    exchange_info, exchange_warnings = None, []
+    if suffix == '.zip':
+        from .full_cycle_exchange import read_exchange
+        title, entries, exchange_warnings, exchange_info = read_exchange(
+            data, _checked_zip, _archive_member, ImportFormatError,
+            chapter_limit=MAX_CHAPTERS, character_limit=MAX_CHAPTER_CHARACTERS,
+        )
+        candidates = [Candidate(
+            item['title'], None, _paragraphs_to_html(item['working_text'].splitlines()),
+            item['working_file'], 'chapter', item,
+        ) for item in entries]
+        prefix = ''
+    elif suffix == '.txt':
         title, (candidates, prefix) = fallback_title, _from_lines(_decode(data), fallback_title, filename)
     elif suffix in {'.html', '.htm', '.xhtml'}:
         title, (candidates, prefix) = fallback_title, _from_html(_decode(data), fallback_title, filename)
@@ -426,7 +441,7 @@ def parse_book_import(filename: str, data: bytes) -> tuple[dict, list[Candidate]
     body_digests: dict[str, int] = {}
     duplicate_body_pairs: list[dict[str, int]] = []
     output: list[dict] = []
-    warnings: list[str] = []
+    warnings: list[str] = list(exchange_warnings)
     entry_counts = {'chapter': 0, 'extra': 0, 'service': 0}
     for order, chapter in enumerate(candidates, start=1):
         source_text = _text(chapter.html)
@@ -450,13 +465,26 @@ def parse_book_import(filename: str, data: bytes) -> tuple[dict, list[Candidate]
                 })
             else:
                 body_digests.setdefault(digest, order)
-        output.append({'sequence': order, 'catalog_ordinal': order,
-                       'detected_number': chapter.number, 'author_number': chapter.number,
-                       'entry_type': chapter.entry_type,
-                       'suggested_index': chapter.number if chapter.number is not None else order,
-                       'title': chapter.title[:500], 'source_path': chapter.path[:1024],
-                       'characters': len(source_text), 'sha256': digest,
-                       'sample': source_text[:180], 'has_text': bool(source_text)})
+        item = {'sequence': order, 'catalog_ordinal': order,
+                'detected_number': chapter.number, 'author_number': chapter.number,
+                'entry_type': chapter.entry_type,
+                'suggested_index': chapter.number if chapter.number is not None else order,
+                'title': chapter.title[:500], 'source_path': chapter.path[:1024],
+                'characters': len(source_text), 'sha256': digest,
+                'sample': source_text[:180], 'has_text': bool(source_text)}
+        if chapter.exchange is not None:
+            ex = chapter.exchange
+            item.update({
+                'suggested_index': ex['position'],
+                'destination_position': ex['position'],
+                'source_url': ex['url'],
+                'source_original_sha256': ex['original_sha256'],
+                'source_working_sha256': ex['working_sha256'],
+                'source_position': ex['position'],
+                'source_original_preserved': True,
+                'classification_source': 'full_cycle_manifest',
+            })
+        output.append(item)
     ordered_numbers = sorted(numbered)
     # Report only internal gaps. Never allocate range(max(author_number)):
     # legitimate books can start at chapter 517 or label chapter 9_999_999.
@@ -478,7 +506,8 @@ def parse_book_import(filename: str, data: bytes) -> tuple[dict, list[Candidate]
         warnings.append('Duplicate story bodies detected by SHA-256; review before import')
     if _text(prefix):
         warnings.append('Text before the first chapter heading is unassigned and needs review')
-    return ({'kind': 'book', 'format': suffix.lstrip('.'), 'filename': filename,
+    preview = {'kind': 'book', 'format': ('full_cycle_app.chapter_exchange' if exchange_info else suffix.lstrip('.')),
+               'filename': filename,
              'title': title[:500], 'chapter_count': len(output), 'chapters': output,
              'story_chapter_count': entry_counts['chapter'],
              'extra_entry_count': entry_counts['extra'],
@@ -487,7 +516,10 @@ def parse_book_import(filename: str, data: bytes) -> tuple[dict, list[Candidate]
              'duplicate_body_pairs': duplicate_body_pairs,
              'unassigned_prefix_characters': len(_text(prefix)),
              'unassigned_prefix_sample': _text(prefix)[:180], 'warnings': warnings,
-             'stored': False}, candidates, prefix)
+             'stored': False}
+    if exchange_info is not None:
+        preview['archive_source'] = exchange_info
+    return preview, candidates, prefix
 
 
 def preview_book_import(filename: str, data: bytes) -> dict:
