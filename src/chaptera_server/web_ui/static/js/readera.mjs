@@ -12,7 +12,6 @@ import {initChapterEditor} from './editor.mjs';
 import {createLibraryView} from './library-view.mjs';
 import {createBookExportView} from './book-export-view.mjs';
 import {mountBookBatchView} from './book-batch-bind.mjs';
-import {createSourceBookImportView} from './source-book-import-view.mjs';
 import {renderDailyQuota,renderJobs} from './jobs-view.mjs';
 import {rowInput} from './import-inputs.mjs';
 import {createSessionClient} from './session-client.mjs';
@@ -605,12 +604,18 @@ function showReceipt(receipt){
   batchView.offerImported(receipt);
 }
 $('import-another').addEventListener('click',()=>{hideImportSteps();$('chapters_file').value='';selectedFile=null;flash('');});
-const sourceBookImportView=createSourceBookImportView({
-  request,flash,
-  onStage:async stageId=>stageShown(
-    await request('/v1/imports/stages/'+encodeURIComponent(stageId))
-  ),
-});
+// Only full-mode browsers load source collection code and UI.
+// The archive-only shell has no crawler markup and makes no source API calls.
+let sourceBookImportView = {reset(){},hide(){}};
+if ($('source-import')) {
+  const {createSourceBookImportView} = await import('./source-book-import-view.mjs');
+  sourceBookImportView=createSourceBookImportView({
+    request,flash,
+    onStage:async stageId=>stageShown(
+      await request('/v1/imports/stages/'+encodeURIComponent(stageId))
+    ),
+  });
+}
 editor=initChapterEditor({request,flash,getBooks:()=>books});
 hideImportSteps();
 showPage(currentPage());
