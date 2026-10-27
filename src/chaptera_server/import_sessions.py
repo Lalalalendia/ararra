@@ -214,7 +214,7 @@ class ImportSessions:
                         source_entry_metadata[n-1]["title"]
                         if source_entry_metadata is not None else item.title
                     ) + "</h1>\n" + item.html
-                    if (source_entry_metadata is not None or
+                    if (source_entry_metadata is not None or item.archive is not None or
                         item.number is not None or item.entry_type != 'chapter')
                     else item.html
                 ),
