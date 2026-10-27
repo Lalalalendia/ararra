@@ -204,10 +204,8 @@ class ImportSessions:
                                     item.archive["chapter_index"] if item.archive else n),
                 "source_id": (source_entry_metadata[n-1]["source_id"]
                               if source_entry_metadata is not None else None),
-                "source_url": (source_entry_metadata[n-1]["url"]
-                               if source_entry_metadata is not None else
-                               item.archive["source_url"] if item.archive else None),
-                "source_exchange": item.archive,
+                **({"source_url": item.archive["source_url"],
+                    "source_exchange": item.archive} if item.archive else {}),
                 "source_path": item.path,
                 # The preview extractor separates detected headings from
                 # bodies; restore the original heading in canonical source HTML.
