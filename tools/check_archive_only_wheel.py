@@ -107,7 +107,7 @@ def check_installed(root: Path, wheel: Path) -> None:
                           team_tokens={"operator":"operator-probe"},
                           archive_only=True)
         app=create_app(settings, QueueStore(settings.db_path))
-        assert "/v1/source-books/sites" not in {r.path for r in app.routes}
+        assert not hasattr(app.state, "public_source_fetcher")
         assert not hasattr(app.state,"source_job_store")
         raw=base64.b64decode((root / "real-exporter-zip.b64").read_text())
         async def run():
