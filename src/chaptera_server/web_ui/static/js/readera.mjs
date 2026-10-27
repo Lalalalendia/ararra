@@ -5,6 +5,7 @@
 import {
   createDraft, changeAction, destinationEdited, verifiedReplacement,
   validateDraft, confirmation, importWarningText, sourceChapterLabel,
+  sourceArchiveSummary,
 } from './import-model.mjs';
 import {initChapterEditor} from './editor.mjs';
 import {createLibraryView} from './library-view.mjs';
@@ -374,6 +375,17 @@ function stageShown(stage) {
   $('import-warnings').hidden=!(stage.preview.warnings||[]).length;
   $('import-warnings').replaceChildren();
   for(const w of stage.preview.warnings || [])text($('import-warnings'),importWarningText(w),'p');
+  const archive=sourceArchiveSummary(stage.preview);
+  const provenance=$('import-archive-details');provenance.replaceChildren();provenance.hidden=!archive;
+  $('import-archive-ack-wrap').hidden=!archive;
+  $('import-archive-ack').checked=false;
+  if(archive){
+    text(provenance,'Архив Full Cycle App · границы глав из manifest.json','strong');
+    text(provenance,'Исходный сайт: '+archive.domain+' · '+archive.sourceUrl,'p');
+    text(provenance,'В ZIP: '+archive.chapterCount+' глав. Рабочий текст отличается от оригинала у '+archive.modifiedCount+' глав.','p');
+    text(provenance,'Пропуски позиций: '+archive.gapsLabel,'p');
+    text(provenance,archive.completenessWarning,'p');
+  }
   fillOwnerSelect();fillBooksSelect();syncBookMode();renderMapping();
   $('import-resume').elements.stage_id.value=stage.stage_id;
   if(confirmed) showReceipt(confirmed);else markStep(2);
@@ -410,6 +422,12 @@ function renderMapping() {
       row.entry_type==='service'?'Служебная запись':'Сюжетная глава';
     text(info,kind+' · '+sourceChapterLabel(row),'small');
     text(info,shorten(row.sample,90),'small');
+    if(row.source_original_sha256 && row.source_working_sha256){
+      text(info,'Позиция в архиве: '+row.catalog_ordinal+' · URL: '+shorten(row.source_url||'не указан',100),'small');
+      text(info,'Оригинал SHA-256: '+row.source_original_sha256.slice(0,12)+
+        '… · Рабочая версия: '+row.source_working_sha256.slice(0,12)+'…'+
+        (row.source_original_sha256!==row.source_working_sha256?' (исправлена)':''),'small');
+    }
     tr.append(info);
     const cellAction=document.createElement('td');
     const select=document.createElement('select');select.className='ui-input';
@@ -566,20 +584,34 @@ $('import-review-button').addEventListener('click',()=>{
     ['Пропустить глав',counts.skip],
     ['Предисловие',staged.unassigned_prefix_saved?targetBook.prefix_policy:'Не обнаружено'],
     ['Хеш файла',staged.file_sha256],
+    ...(sourceArchiveSummary(staged.preview) ? [
+      ['ZIP Full Cycle App',sourceArchiveSummary(staged.preview).domain],
+      ['Пропуски позиций',sourceArchiveSummary(staged.preview).gapsLabel],
+      ['Полнота сайта','Не подтверждена по архиву'],
+    ] : []),
   ].forEach(([label,value])=>{
     const div=document.createElement('p');
     text(div,label+': ','strong');text(div,value);root.append(div);
   });
   $('import-map').hidden=true;$('import-review').hidden=false;markStep(3);flash('');
-  $('import-ack').checked=false;$('import-confirm').disabled=true;
+  $('import-ack').checked=false;
+  $('import-archive-ack').checked=false;
+  refreshImportConfirmEnabled();
 });
-$('import-ack').addEventListener('change',event=>{$('import-confirm').disabled=!event.currentTarget.checked;});
+function refreshImportConfirmEnabled(){
+  const archive=sourceArchiveSummary(staged?.preview);
+  $('import-confirm').disabled=!$('import-ack').checked ||
+    (archive!==null&&!$('import-archive-ack').checked);
+}
+$('import-ack').addEventListener('change',refreshImportConfirmEnabled);
+$('import-archive-ack').addEventListener('change',refreshImportConfirmEnabled);
 $('import-back').addEventListener('click',()=>{
   $('import-review').hidden=true;$('import-map').hidden=false;
-  $('import-ack').checked=false;markStep(2);
+  $('import-ack').checked=false;$('import-archive-ack').checked=false;markStep(2);
 });
 $('import-confirm').addEventListener('click',()=>{
-  if(!staged||!$('import-ack').checked||confirmed)return;
+  if(!staged||!$('import-ack').checked||
+     (sourceArchiveSummary(staged.preview)!==null&&!$('import-archive-ack').checked)||confirmed)return;
   const errors=validateDraft(rows,targetBook,staged);
   if(errors.length){flash(errors.slice(0,12).join(' \n'),true);return;}
   void busyDuring(async()=>{
