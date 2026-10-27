@@ -37,7 +37,7 @@ def read_exchange(data: bytes, checked_zip, archive_member, error_type,
     checked_zip and archive_member are the importer's existing bounded ZIP
     primitives: no extraction, symlinks or unbounded uncompressed payloads.
     """
-    with checked_zip(data) as zf:
+    with checked_zip(data, max_entries=chapter_limit * 2 + 2) as zf:
         infos = zf.infolist()
         names = [info.filename for info in infos if not info.is_dir()]
         if len(names) != len(set(names)):
