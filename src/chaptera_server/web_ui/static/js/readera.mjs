@@ -7,6 +7,7 @@ import {
   validateDraft, confirmation, importWarningText, sourceChapterLabel,
   sourceArchiveSummary,
 } from './import-model.mjs';
+import {renderArchiveDetails,renderArchiveRowDetails,renderImportReviewSummary} from './import-archive-review-view.mjs';
 import {initChapterEditor} from './editor.mjs';
 import {createLibraryView} from './library-view.mjs';
 import {createBookExportView} from './book-export-view.mjs';
@@ -375,17 +376,7 @@ function stageShown(stage) {
   $('import-warnings').hidden=!(stage.preview.warnings||[]).length;
   $('import-warnings').replaceChildren();
   for(const w of stage.preview.warnings || [])text($('import-warnings'),importWarningText(w),'p');
-  const archive=sourceArchiveSummary(stage.preview);
-  const provenance=$('import-archive-details');provenance.replaceChildren();provenance.hidden=!archive;
-  $('import-archive-ack-wrap').hidden=!archive;
-  $('import-archive-ack').checked=false;
-  if(archive){
-    text(provenance,'Архив Full Cycle App · границы глав из manifest.json','strong');
-    text(provenance,'Исходный сайт: '+archive.domain+' · '+archive.sourceUrl,'p');
-    text(provenance,'В ZIP: '+archive.chapterCount+' глав. Рабочий текст отличается от оригинала у '+archive.modifiedCount+' глав.','p');
-    text(provenance,'Пропуски позиций: '+archive.gapsLabel,'p');
-    text(provenance,archive.completenessWarning,'p');
-  }
+  renderArchiveDetails(stage,$,text);
   fillOwnerSelect();fillBooksSelect();syncBookMode();renderMapping();
   $('import-resume').elements.stage_id.value=stage.stage_id;
   if(confirmed) showReceipt(confirmed);else markStep(2);
@@ -422,12 +413,7 @@ function renderMapping() {
       row.entry_type==='service'?'Служебная запись':'Сюжетная глава';
     text(info,kind+' · '+sourceChapterLabel(row),'small');
     text(info,shorten(row.sample,90),'small');
-    if(row.source_original_sha256 && row.source_working_sha256){
-      text(info,'Позиция в архиве: '+row.catalog_ordinal+' · URL: '+shorten(row.source_url||'не указан',100),'small');
-      text(info,'Оригинал SHA-256: '+row.source_original_sha256.slice(0,12)+
-        '… · Рабочая версия: '+row.source_working_sha256.slice(0,12)+'…'+
-        (row.source_original_sha256!==row.source_working_sha256?' (исправлена)':''),'small');
-    }
+    renderArchiveRowDetails(row,info,text,shorten);
     tr.append(info);
     const cellAction=document.createElement('td');
     const select=document.createElement('select');select.className='ui-input';
@@ -573,26 +559,7 @@ $('import-review-button').addEventListener('click',()=>{
   targetBook=currentTarget();
   const errors=validateDraft(rows,targetBook,staged);
   if(errors.length){flash(errors.slice(0,12).join(' \n'),true);return;}
-  const root=$('import-summary');root.replaceChildren();
-  const counts={create:0,replace:0,skip:0};
-  rows.forEach(r=>counts[r.action]++);
-  [
-    ['Книга',targetBook.book_id],
-    ['Режим',targetBook.book_mode==='create'?'Создание книги':'Дополнение книги'],
-    ['Создать глав',counts.create],
-    ['Заменить глав',counts.replace],
-    ['Пропустить глав',counts.skip],
-    ['Предисловие',staged.unassigned_prefix_saved?targetBook.prefix_policy:'Не обнаружено'],
-    ['Хеш файла',staged.file_sha256],
-    ...(sourceArchiveSummary(staged.preview) ? [
-      ['ZIP Full Cycle App',sourceArchiveSummary(staged.preview).domain],
-      ['Пропуски позиций',sourceArchiveSummary(staged.preview).gapsLabel],
-      ['Полнота сайта','Не подтверждена по архиву'],
-    ] : []),
-  ].forEach(([label,value])=>{
-    const div=document.createElement('p');
-    text(div,label+': ','strong');text(div,value);root.append(div);
-  });
+  renderImportReviewSummary($('import-summary'),rows,targetBook,staged,text);
   $('import-map').hidden=true;$('import-review').hidden=false;markStep(3);flash('');
   $('import-ack').checked=false;
   $('import-archive-ack').checked=false;
