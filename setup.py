@@ -29,14 +29,30 @@ class ArchiveOnlyBuildPy(build_py):
         return modules
 
     def find_data_files(self, package, src_dir):
+        # Setuptools may classify static folders as implicit namespace packages.
+        # Match their source directory, not just the chaptera_server package.
+        from pathlib import Path
         files = super().find_data_files(package, src_dir)
-        if package != "chaptera_server":
-            return files
-        return [
-            path for path in files
-            if "/web_ui/static/js/source-" not in path.replace("\\", "/")
-            and not path.replace("\\", "/").startswith("web_ui/static/js/source-")
-        ]
+        directory = Path(src_dir).as_posix().replace("\\\\", "/")
+        if not directory.endswith("web_ui/static/js"):
+            return [
+                name for name in files
+                if "web_ui/static/js/source-" not in name.replace("\\\\", "/")
+            ]
+        return [name for name in files if not Path(name).name.startswith("source-")]
+
+    def build_package_data(self):
+        # Final protection if package_data arrives via a namespace package
+        # that bypasses find_data_files. Remove only crawler JS from build_lib;
+        # import-model, archive-review, editor and all other JS stay untouched.
+        super().build_package_data()
+        from pathlib import Path
+        root = Path(self.build_lib) / "chaptera_server/web_ui/static/js"
+        if root.is_dir():
+            for file in root.glob("source-*.mjs"):
+                file.unlink()
+            for file in root.glob("source-*.js"):
+                file.unlink()
 
 
 if choice == "1":
