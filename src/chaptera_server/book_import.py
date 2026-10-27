@@ -507,6 +507,10 @@ def parse_book_import(filename: str, data: bytes) -> tuple[dict, list[Candidate]
     if archive_info is not None:
         if archive_info['missing_positions']:
             warnings.append('Archive has internal gaps in source indexes; verify missing chapters')
+        if archive_info['repeated_source_url_count']:
+            warnings.append('Archive maps multiple chapter positions to the same source URL; verify TOC')
+        if archive_info['manifest_order_not_monotonic']:
+            warnings.append('Archive chapter positions are out of order; verify the manifest')
         warnings.append('Archive includes collected chapters only; full source TOC coverage is not proven')
         for item, chapter in zip(output, candidates):
             origin = chapter.archive
@@ -535,6 +539,9 @@ def parse_book_import(filename: str, data: bytes) -> tuple[dict, list[Candidate]
             'source_domain': archive_info['source_domain'],
             'external_book_id': archive_info['external_book_id'],
             'missing_positions': archive_info['missing_positions'],
+            'repeated_source_url_count': archive_info['repeated_source_url_count'],
+            'repeated_source_url_pairs': archive_info['repeated_source_url_pairs'],
+            'manifest_order_not_monotonic': archive_info['manifest_order_not_monotonic'],
             'boundaries': 'manifest',
             'original_text_preserved_on_confirm': True,
         }

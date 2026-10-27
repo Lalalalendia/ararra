@@ -383,3 +383,76 @@ def test_unpaired_surrogates_in_json_manifest_are_rejected_not_internal_500(tmp_
         sessions.stage("alice", "unpaired.zip", stream.getvalue())
     with store._connect() as con:
         assert con.execute("SELECT COUNT(*) FROM book_import_stages").fetchone()[0] == 0
+
+
+def test_repeated_source_urls_and_scrambled_manifest_order_warn_without_merging(tmp_path):
+    # A chapter identity is its manifest row, not the title or URL alone.
+    rows = example_rows()
+    rows[1]["url"] = rows[0]["url"]
+    rows[2]["url"] = rows[0]["url"]
+    reordered = [rows[1], rows[0], rows[2]]
+    archive = build_source_zip(reordered)
+    preview, candidates, prefix = parse_book_import("book.zip", archive)
+    meta = preview["source_archive"]
+    assert prefix == ""
+    assert [item["catalog_ordinal"] for item in preview["chapters"]] == [9, 7, 10]
+    assert meta["repeated_source_url_count"] == 2
+    assert meta["repeated_source_url_pairs"] == [[9, 7], [9, 10]]
+    assert meta["manifest_order_not_monotonic"] is True
+    assert [candidate.title for candidate in candidates] == [
+        "Ночь наступила", "Ночь наступила", "Эпилог / 番外",
+    ]
+    assert sum("multiple chapter positions" in warning for warning in preview["warnings"]) == 1
+    assert any("out of order" in warning for warning in preview["warnings"])
+    # Warnings are never automatic skips: both distinct texts remain importable.
+    store, library, sessions = make_store(tmp_path)
+    stage = sessions.stage("alice", "book.zip", archive)
+    receipt = sessions.confirm(
+        "alice", stage["stage_id"], confirm_payload(items=[
+            choose(1, 9), choose(2, 7), choose(3, 10),
+        ]),
+    )
+    assert receipt["imported_count"] == 3
+    assert "手工" in library.get_chapter("imported", "ch9")["source_html"]
+    assert "第999章" in library.get_chapter("imported", "ch7")["source_html"]
+    assert sessions.archive_original("imported", "ch9")["source_url"] == rows[0]["url"]
+    assert sessions.archive_original("imported", "ch7")["source_url"] == rows[0]["url"]
+
+
+def test_repeated_url_diagnostics_are_bounded_and_ignore_blank_urls():
+    rows = [
+        {"index": i, "title": f"Отдельная глава {i}",
+         "url": "https://example.test/shared",
+         "working": f"不同的中文内容 {i}", "original": f"不同的中文内容 {i}"}
+        for i in range(1, 41)
+    ]
+    preview = preview_book_import("source.zip", build_source_zip(rows))
+    archive = preview["source_archive"]
+    assert archive["repeated_source_url_count"] == 39
+    assert len(archive["repeated_source_url_pairs"]) == 32
+    assert archive["repeated_source_url_pairs"][0] == [1, 2]
+    assert archive["repeated_source_url_pairs"][-1] == [1, 33]
+    assert archive["manifest_order_not_monotonic"] is False
+    rows[1]["url"] = ""
+    rows[2]["url"] = ""
+    preview = preview_book_import("source.zip", build_source_zip(rows))
+    assert preview["source_archive"]["repeated_source_url_count"] == 37
+
+
+def test_unsupported_zip_codec_rejected_before_sqlite_stage(tmp_path):
+    original_zip = build_source_zip()
+    repacked = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(original_zip)) as src, zipfile.ZipFile(
+        repacked, "w", compression=zipfile.ZIP_BZIP2
+    ) as target:
+        for member in src.namelist():
+            target.writestr(member, src.read(member))
+    payload = repacked.getvalue()
+    store, _, sessions = make_store(tmp_path)
+    with pytest.raises(ImportFormatError, match="Unsupported.*compression"):
+        preview_book_import("repacked.zip", payload)
+    with pytest.raises(ImportFormatError, match="Unsupported.*compression"):
+        sessions.stage("alice", "repacked.zip", payload)
+    with store._connect() as con:
+        assert con.execute("SELECT COUNT(*) FROM book_import_stages").fetchone()[0] == 0
+        assert con.execute("SELECT COUNT(*) FROM books").fetchone()[0] == 0

@@ -99,3 +99,29 @@ test('review shows archive gaps only for ZIP, ordinary TXT flow unchanged',()=>{
     globalThis.document=previous;
   }
 });
+
+
+test('repeated source URL and out-of-order warnings appear before operator confirmation',()=>{
+  const {$,text}=setup(),root=node();
+  const p=preview();
+  p.source_archive.repeated_source_url_count=12;
+  p.source_archive.repeated_source_url_pairs=[[7,8],[7,11]];
+  p.source_archive.manifest_order_not_monotonic=true;
+  renderArchiveDetails({preview:p},$,text);
+  const lines=$('import-archive-details').children.map(c=>c.content).join('\n');
+  assert.match(lines,/Повторяющиеся URL глав: 12/);
+  assert.match(lines,/7 ↔ 8/);
+  assert.match(lines,/7 ↔ 11/);
+  assert.match(lines,/позиции глав в архиве идут не по возрастанию/);
+  const previous=globalThis.document;
+  globalThis.document={createElement:tag=>node(tag)};
+  try{
+    const stage={preview:p,unassigned_prefix_saved:false,file_sha256:'f'.repeat(64)};
+    renderImportReviewSummary(root,[{action:'create'},{action:'skip'}],
+      {book_id:'book',book_mode:'create',prefix_policy:'reject'},stage,text);
+    const review=root.children.map(n=>n.children.map(c=>c.content).join('')).join('\n');
+    assert.match(review,/Повторяющиеся URL: 7 ↔ 8/);
+    assert.match(review,/Порядок глав: Требует проверки/);
+    assert.match(review,/Полнота сайта: Не подтверждена/);
+  }finally{globalThis.document=previous;}
+});

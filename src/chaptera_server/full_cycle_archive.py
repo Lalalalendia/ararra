@@ -102,6 +102,11 @@ def _validate_archive(archive: zipfile.ZipFile) -> set[str]:
             raise ExchangeImportError("Source archive contains a non-regular file")
         if info.flag_bits & 1:
             raise ExchangeImportError("Encrypted source archives are not supported")
+        # Full Cycle exports DEFLATED members. Also permit STORED for ordinary
+        # re-packed ZIPs, but fail before reading unsupported ZIP codecs.
+        # Otherwise ZipFile.open may raise NotImplementedError => HTTP 500.
+        if info.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+            raise ExchangeImportError("Unsupported source archive compression method")
         if info.is_dir():
             if name not in ("chapters/", "original/"):
                 raise ExchangeImportError("Unexpected source archive directory")
@@ -165,6 +170,15 @@ def load_full_cycle_source(data: bytes, fallback_title: str) -> dict:
         parsed = []
         used_indices = set()
         used_members = {"manifest.json", "README.txt"}
+        # A repeated source URL may indicate that Full Cycle accidentally
+        # assigned the same fetched page to multiple chapter identities.
+        # This is a warning, not an automatic merge: multipart sources may
+        # legitimately share a URL. Blank URLs have no identity to compare.
+        first_urls: dict[str, int] = {}
+        repeated_urls: list[list[int]] = []
+        repeated_url_count = 0
+        previous_index = 0
+        nonmonotonic_positions = False
         for sequence, row in enumerate(chapters, start=1):
             if not isinstance(row, dict):
                 raise ExchangeImportError(f"Invalid source chapter {sequence}")
@@ -177,6 +191,15 @@ def load_full_cycle_source(data: bytes, fallback_title: str) -> dict:
             raw_title = _string(row.get("chapter_title", ""), "chapter title", 500)
             title_label = raw_title.strip() or f"Без названия (позиция {index})"
             chapter_url = _web_url(row.get("chapter_url", ""), "chapter URL")
+            if chapter_url:
+                first = first_urls.setdefault(chapter_url, index)
+                if first != index:
+                    repeated_url_count += 1
+                    if len(repeated_urls) < 32:
+                        repeated_urls.append([first, index])
+            if previous_index and index < previous_index:
+                nonmonotonic_positions = True
+            previous_index = index
             expected_working = f"chapters/{index:06d}.txt"
             expected_original = f"original/{index:06d}.txt"
             if row.get("working_file") != expected_working or row.get("original_file") != expected_original:
@@ -227,5 +250,8 @@ def load_full_cycle_source(data: bytes, fallback_title: str) -> dict:
             "source_domain": source_domain,
             "external_book_id": external_book_id,
             "missing_positions": gaps,
+            "repeated_source_url_count": repeated_url_count,
+            "repeated_source_url_pairs": repeated_urls,
+            "manifest_order_not_monotonic": nonmonotonic_positions,
             "chapters": parsed,
         }
