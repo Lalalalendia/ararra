@@ -160,6 +160,12 @@ export function importWarningText(warning) {
   if (warning === 'Archive includes collected chapters only; full source TOC coverage is not proven') {
     return 'В архив входят только собранные главы. Полнота оглавления сайта не подтверждена.';
   }
+  if (warning === 'Archive maps multiple chapter positions to the same source URL; verify TOC') {
+    return 'Один URL в архиве соответствует нескольким позициям глав. Проверьте оглавление и текст перед импортом.';
+  }
+  if (warning === 'Archive chapter positions are out of order; verify the manifest') {
+    return 'Позиции глав в manifest.json идут не по возрастанию. Проверьте порядок до подтверждения.';
+  }
   const unnumbered = warning === 'Some entries have no explicit author number: sequence numbers are suggestions only'
     || warning === 'Some chapters have no explicit number: sequence numbers are suggestions only';
   return unnumbered
@@ -191,6 +197,17 @@ export function sourceArchiveSummary(preview) {
   const modified=chapters.filter(ch => ch.source_original_sha256
     && ch.source_working_sha256
     && ch.source_original_sha256 !== ch.source_working_sha256).length;
+  const repeats=Array.isArray(archive.repeated_source_url_pairs)
+    ? archive.repeated_source_url_pairs : [];
+  const repeatSamples=repeats.slice(0,8)
+    .filter(pair=>Array.isArray(pair) && pair.length===2)
+    .map(pair=>pair[0]+' ↔ '+pair[1]);
+  const repeatedUrlCount=Number.isSafeInteger(archive.repeated_source_url_count)
+    && archive.repeated_source_url_count>=0 ? archive.repeated_source_url_count : 0;
+  const repeatedUrlsLabel=repeatSamples.length
+    ? repeatSamples.join(', ')+(repeatedUrlCount>repeatSamples.length
+      ? ' и ещё '+(repeatedUrlCount-repeatSamples.length)+' совпадений' : '')
+    : 'Не обнаружено';
   return {
     domain: archive.source_domain || 'Не указан',
     sourceUrl: archive.source_url || 'Не указан',
@@ -198,6 +215,9 @@ export function sourceArchiveSummary(preview) {
     modifiedCount: modified,
     gapsLabel,
     gapCount: gaps.length,
+    repeatedUrlCount,
+    repeatedUrlsLabel,
+    sourceOrderChanged: archive.manifest_order_not_monotonic === true,
     completenessWarning: 'Архив содержит только скачанные главы. Отсутствие пропусков внутри ZIP не доказывает, что весь сайт собран.',
   };
 }
