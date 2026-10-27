@@ -207,8 +207,9 @@
           <section data-page="import" hidden class="chapter-import-create-page">
             <div class="ui-page-header"><div>
               <p class="kicker">РидЭра / Импорт</p><h1>Импорт глав</h1>
-              <p>Из файла или по ссылке на книгу · без запуска перевода.</p>
+              <p>{% if archive_only %}Загрузите ZIP из Full Cycle App или файл с главами · без запуска перевода.{% else %}Из файла или по ссылке на книгу · без запуска перевода.{% endif %}</p>
             </div></div>
+            {% if not archive_only %}
             <section id="source-import" class="ui-card" aria-labelledby="source-import-title">
               <div class="ui-section-header">
                 <h2 id="source-import-title">Книга по ссылке</h2>
@@ -416,6 +417,7 @@
                 </div>
               </details>
             </section>
+            {% endif %}
 
             <ol class="steps" id="import-steps">
               <li data-step="1"><span>1</span>Загрузка</li>
