@@ -5,7 +5,9 @@
 import {
   createDraft, changeAction, destinationEdited, verifiedReplacement,
   validateDraft, confirmation, importWarningText, sourceChapterLabel,
+  sourceArchiveSummary,
 } from './import-model.mjs';
+import {renderArchiveDetails,renderArchiveRowDetails,renderImportReviewSummary} from './import-archive-review-view.mjs';
 import {initChapterEditor} from './editor.mjs';
 import {createLibraryView} from './library-view.mjs';
 import {createBookExportView} from './book-export-view.mjs';
@@ -374,6 +376,7 @@ function stageShown(stage) {
   $('import-warnings').hidden=!(stage.preview.warnings||[]).length;
   $('import-warnings').replaceChildren();
   for(const w of stage.preview.warnings || [])text($('import-warnings'),importWarningText(w),'p');
+  renderArchiveDetails(stage,$,text);
   fillOwnerSelect();fillBooksSelect();syncBookMode();renderMapping();
   $('import-resume').elements.stage_id.value=stage.stage_id;
   if(confirmed) showReceipt(confirmed);else markStep(2);
@@ -410,6 +413,7 @@ function renderMapping() {
       row.entry_type==='service'?'Служебная запись':'Сюжетная глава';
     text(info,kind+' · '+sourceChapterLabel(row),'small');
     text(info,shorten(row.sample,90),'small');
+    renderArchiveRowDetails(row,info,text,shorten);
     tr.append(info);
     const cellAction=document.createElement('td');
     const select=document.createElement('select');select.className='ui-input';
@@ -555,31 +559,26 @@ $('import-review-button').addEventListener('click',()=>{
   targetBook=currentTarget();
   const errors=validateDraft(rows,targetBook,staged);
   if(errors.length){flash(errors.slice(0,12).join(' \n'),true);return;}
-  const root=$('import-summary');root.replaceChildren();
-  const counts={create:0,replace:0,skip:0};
-  rows.forEach(r=>counts[r.action]++);
-  [
-    ['Книга',targetBook.book_id],
-    ['Режим',targetBook.book_mode==='create'?'Создание книги':'Дополнение книги'],
-    ['Создать глав',counts.create],
-    ['Заменить глав',counts.replace],
-    ['Пропустить глав',counts.skip],
-    ['Предисловие',staged.unassigned_prefix_saved?targetBook.prefix_policy:'Не обнаружено'],
-    ['Хеш файла',staged.file_sha256],
-  ].forEach(([label,value])=>{
-    const div=document.createElement('p');
-    text(div,label+': ','strong');text(div,value);root.append(div);
-  });
+  renderImportReviewSummary($('import-summary'),rows,targetBook,staged,text);
   $('import-map').hidden=true;$('import-review').hidden=false;markStep(3);flash('');
-  $('import-ack').checked=false;$('import-confirm').disabled=true;
+  $('import-ack').checked=false;
+  $('import-archive-ack').checked=false;
+  refreshImportConfirmEnabled();
 });
-$('import-ack').addEventListener('change',event=>{$('import-confirm').disabled=!event.currentTarget.checked;});
+function refreshImportConfirmEnabled(){
+  const archive=sourceArchiveSummary(staged?.preview);
+  $('import-confirm').disabled=!$('import-ack').checked ||
+    (archive!==null&&!$('import-archive-ack').checked);
+}
+$('import-ack').addEventListener('change',refreshImportConfirmEnabled);
+$('import-archive-ack').addEventListener('change',refreshImportConfirmEnabled);
 $('import-back').addEventListener('click',()=>{
   $('import-review').hidden=true;$('import-map').hidden=false;
-  $('import-ack').checked=false;markStep(2);
+  $('import-ack').checked=false;$('import-archive-ack').checked=false;markStep(2);
 });
 $('import-confirm').addEventListener('click',()=>{
-  if(!staged||!$('import-ack').checked||confirmed)return;
+  if(!staged||!$('import-ack').checked||
+     (sourceArchiveSummary(staged.preview)!==null&&!$('import-archive-ack').checked)||confirmed)return;
   const errors=validateDraft(rows,targetBook,staged);
   if(errors.length){flash(errors.slice(0,12).join(' \n'),true);return;}
   void busyDuring(async()=>{

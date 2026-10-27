@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   createDraft, changeAction, destinationEdited, verifiedReplacement,
   validateDraft, confirmation, importWarningText, sourceChapterLabel,
+  sourceArchiveSummary,
 } from './import-model.mjs';
 
 const preview = detected => ({
@@ -198,4 +199,56 @@ test('source labels and warning translations preserve original numbering',()=>{
   assert.equal(sourceChapterLabel({detected_number:null,provisional_assignment:true,chapter_index:'1'}),'Без авторского номера · предложена позиция 1');
   assert.equal(sourceChapterLabel({detected_number:null,provisional_assignment:false}),'Без авторского номера');
   assert.equal(sourceChapterLabel({detected_number:10}),'Авторский № 10');
+});
+
+
+test('Full Cycle ZIP keeps manifest positions and original-versus-working proof',()=>{
+  const archive=preview([null,null,null]);
+  archive.source_archive={
+    boundaries:'manifest',source_domain:'source.example',
+    source_url:'https://source.example/book/77',
+    missing_positions:[[8,8],[10,12]],
+  };
+  const indexes=[7,9,13];
+  archive.chapters.forEach((c,i)=>{
+    c.destination_position=indexes[i];
+    c.catalog_ordinal=indexes[i];
+    c.source_url='https://source.example/chapter/'+indexes[i];
+    c.source_original_sha256='a'.repeat(64);
+    c.source_working_sha256=(i===1?'b':'a').repeat(64);
+    c.title='Повторяющееся название';
+  });
+  const rows=createDraft(archive);
+  assert.deepEqual(rows.map(r=>r.chapter_index),['7','9','13']);
+  assert.deepEqual(rows.map(r=>r.chapter_id),['7','9','13']);
+  assert.deepEqual(rows.map(r=>r.detected_number),[null,null,null]);
+  assert.equal(rows[1].source_url,'https://source.example/chapter/9');
+  assert.equal(rows[1].source_original_sha256,'a'.repeat(64));
+  assert.equal(rows[1].source_working_sha256,'b'.repeat(64));
+  assert.deepEqual(validateDraft(rows,newBook,stage),[]);
+  assert.deepEqual(sourceArchiveSummary(archive),{
+    domain:'source.example',
+    sourceUrl:'https://source.example/book/77',
+    chapterCount:3,
+    modifiedCount:1,
+    gapsLabel:'8, 10–12',
+    gapCount:2,
+    completenessWarning:'Архив содержит только скачанные главы. Отсутствие пропусков внутри ZIP не доказывает, что весь сайт собран.',
+  });
+});
+test('archive provenance is absent for ordinary TXT and gap lists are bounded',()=>{
+  assert.equal(sourceArchiveSummary(preview([1])),null);
+  const archive=preview([null]);
+  archive.source_archive={boundaries:'manifest',missing_positions:
+    Array.from({length:15},(_,i)=>[i*3+2,i*3+2])};
+  const summary=sourceArchiveSummary(archive);
+  assert.equal(summary.gapCount,15);
+  assert.match(summary.gapsLabel,/ещё 7 диапазонов/);
+  assert.equal(summary.domain,'Не указан');
+  assert.match(importWarningText(
+    'Archive has internal gaps in source indexes; verify missing chapters'
+  ),/пропуски/);
+  assert.match(importWarningText(
+    'Archive includes collected chapters only; full source TOC coverage is not proven'
+  ),/Полнота оглавления сайта не подтверждена/);
 });
