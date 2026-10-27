@@ -85,8 +85,24 @@ def test_archive_only_mode_keeps_full_cycle_import_and_editor_routes(tmp_path):
 
 
 def test_full_mode_remains_compatible(tmp_path):
-    app = create_app(Settings(db_path=tmp_path / "full.sqlite3"))
+    app = create_app(Settings(
+        db_path=tmp_path / "full.sqlite3",
+        team_tokens={"operator": "full-test-token"},
+    ))
     assert hasattr(app.state, "public_source_fetcher")
+
+    async def run():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://offline.test",
+        ) as client:
+            response = await client.get(
+                "/v1/source-books/sites",
+                headers={"X-API-Key": "full-test-token"},
+            )
+            assert response.status_code == 200, response.text
+            assert response.json()["sources"]
+    asyncio.run(run())
 
 
 def test_archive_only_source_worker_fails_closed(tmp_path):
