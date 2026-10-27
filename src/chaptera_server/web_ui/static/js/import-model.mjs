@@ -37,6 +37,9 @@ export function createDraft(preview) {
       sequence: c.sequence, title: c.title, sample: c.sample,
       detected_number: c.detected_number, characters: c.characters,
       entry_type: entryType, catalog_ordinal: c.catalog_ordinal ?? c.sequence,
+      source_url: c.source_url ?? '',
+      source_original_sha256: c.source_original_sha256 ?? '',
+      source_working_sha256: c.source_working_sha256 ?? '',
       author_number: c.author_number ?? c.detected_number,
       suggested_index: c.suggested_index ?? null,
       provisional_assignment,
@@ -151,6 +154,12 @@ export function confirmation(rows,target,stage) {
 
 /** Separate source numbering from suggested destination positions. */
 export function importWarningText(warning) {
+  if (warning === 'Archive has internal gaps in source indexes; verify missing chapters') {
+    return 'В ZIP есть пропуски между индексами глав. Проверьте, какие главы не скачаны.';
+  }
+  if (warning === 'Archive includes collected chapters only; full source TOC coverage is not proven') {
+    return 'В архив входят только собранные главы. Полнота оглавления сайта не подтверждена.';
+  }
   const unnumbered = warning === 'Some entries have no explicit author number: sequence numbers are suggestions only'
     || warning === 'Some chapters have no explicit number: sequence numbers are suggestions only';
   return unnumbered
@@ -163,4 +172,32 @@ export function sourceChapterLabel(row) {
       ? 'Без авторского номера · предложена позиция '+row.chapter_index
       : 'Без авторского номера')
     : 'Авторский № '+row.detected_number;
+}
+
+
+/** Present source provenance without treating a ZIP subset as a complete TOC. */
+export function sourceArchiveSummary(preview) {
+  const archive=preview?.source_archive;
+  if (!archive || archive.boundaries !== 'manifest') return null;
+  const gaps=Array.isArray(archive.missing_positions) ? archive.missing_positions : [];
+  const positions=gaps.slice(0,8).map(pair => {
+    const [start,end]=pair;
+    return start===end ? String(start) : start+'–'+end;
+  });
+  const gapsLabel=positions.length
+    ? positions.join(', ')+(gaps.length>8?' и ещё '+(gaps.length-8)+' диапазонов':'')
+    : 'Не обнаружены между полученными главами';
+  const chapters=Array.isArray(preview.chapters) ? preview.chapters : [];
+  const modified=chapters.filter(ch => ch.source_original_sha256
+    && ch.source_working_sha256
+    && ch.source_original_sha256 !== ch.source_working_sha256).length;
+  return {
+    domain: archive.source_domain || 'Не указан',
+    sourceUrl: archive.source_url || 'Не указан',
+    chapterCount: chapters.length,
+    modifiedCount: modified,
+    gapsLabel,
+    gapCount: gaps.length,
+    completenessWarning: 'Архив содержит только скачанные главы. Отсутствие пропусков внутри ZIP не доказывает, что весь сайт собран.',
+  };
 }
