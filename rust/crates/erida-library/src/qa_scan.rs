@@ -260,7 +260,7 @@ mod tests {
         assert_eq!(findings[0]["blocking"], false);
         assert_eq!(findings[0]["evidence"]["sample"], "汉字テスト가나다𠀀");
         assert_eq!(findings[0]["evidence"]["count"], 9);
-        assert_eq!(baseline_findings("<p>Русский перевод.</p>").unwrap(), vec![]);
+        assert!(baseline_findings("<p>Русский перевод.</p>").unwrap().is_empty());
     }
 
     #[test]
