@@ -444,3 +444,43 @@ workers, or the replacement of either resident Python process.
 No production RAM reduction may be claimed from these isolated tests.
 Promote only after an exact-head Rust + Python/Web/Chromium PASS
 and an independently reviewed merge of this integration.
+
+## RUST-M2e-1: native diagnostic-only CJK QA on disposable SQLite
+
+The first **CPU-only** Python `ChapterQaStore.scan()` subset is now implemented
+natively in `erida-library::qa_scan`, not delegated to Python. The existing
+`POST /v1/books/{book_id}/chapters/{chapter_id}/qa` is registered only while
+both `ERIDA_RUST_TEST_WRITES=1` and a verified temporary disposable database
+root are enabled. Default runtime remains read-only for this route.
+
+Scope is intentionally strict:
+
+- Current accepted-source, accepted-translation and glossary revision tuple,
+  hashes and actor identity must agree with the Python-owned SQLite snapshot.
+- Only an **empty** glossary and empty version map, with a target consisting
+  solely of nonempty, attribute-free `<p>` and `<h1>` elements and plain text,
+  may yield a report. No HTML entities, nested elements, control bytes,
+  comments or implicit DOM repair. Unsupported material receives HTTP 400,
+  before any mutation; a previously existing immutable report is replayed.
+- CJK residue covers exactly Python's bounded Han, Japanese and Hangul Unicode
+  ranges and produces the same `CJK_RESIDUE` count, sample, severity, and
+  message. No source/target alignment proof is inferred.
+- A zero-finding report is valid **only** within this proven subset and is
+  diagnostic, not an approval of translation quality or production readiness.
+- Diagnostic computation occurs outside the `BEGIN IMMEDIATE` writer lock.
+  The transaction revalidates accepted text, glossary content, versions and
+  source/accepted/glossary hashes, and persists report+findings atomically.
+  Concurrent Python/Rust scans return one stable idempotent report.
+
+`scripts/compare_rust_qa_scan_baseline.py` creates one disposable Python-owned
+database, then runs both APIs on matching chapters. It checks authenticated
+CJK and clean reports, 400/401/404/409/422 and immutable denial, Python/Rust
+idempotent replay, concurrent scan receipt, restoration from Python read API,
+and disabled production route. No Gemini, Google Drive or VPS is involved.
+
+**Not yet migrated:** morphology, glossary-driven terms and entity names,
+complex manuscript markup, coverage/alignment verification, real translation
+work, persistent production SQLite writes, remote export and complete Python
+API replacement. Python `ChapterQaStore.scan` remains authoritative for all
+unsupported QA cases. The old VPS is unavailable; further Rust migration uses
+GitHub Actions and disposable local data only.
