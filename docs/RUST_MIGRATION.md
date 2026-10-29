@@ -484,3 +484,38 @@ work, persistent production SQLite writes, remote export and complete Python
 API replacement. Python `ChapterQaStore.scan` remains authoritative for all
 unsupported QA cases. The old VPS is unavailable; further Rust migration uses
 GitHub Actions and disposable local data only.
+
+## RUST-M2f-1: native verified Full Cycle App source ZIP (offline proof)
+
+The primary **source input is the versioned desktop Full Cycle App ZIP**, not
+a website crawler. A new standalone Rust `erida-full-cycle-archive` crate
+accepts `full_cycle_app.chapter_exchange` v1 `kind=source` and reconstructs
+a read-only manifest-ordered set of original/working chapters. The Python
+`chaptera_server.full_cycle_archive.load_full_cycle_source` remains the
+production importer and complete reference oracle.
+
+This native slice validates **the entire archive before returning anything**:
+ZIP <=24 MiB, expanded total <=64 MiB, <=2000 chapters, per-member and
+manifest limits, file names, traversal, directory/symlink/codec safety,
+decompression ratio, duplicate members and duplicate JSON keys. It validates
+UTF-8 bytes, canonical member names/indices, exact individual SHA-256s and
+source links without rewriting provenance or guessing chapter headings.
+The original and edited working texts remain separate. Duplicate URLs,
+nonmonotonic manifest order and missing positions are diagnostics, not
+automatic chapter merges or an assertion that a website's TOC is complete.
+
+`scripts/compare_rust_full_cycle_zip.py` uses the **real desktop exporter
+synthetic ZIP fixture** plus deliberately damaged/repacked archives. The
+offline Rust `full-cycle-zip-probe` output must match Python's returned JSON
+including both texts, titles, ordered positions, hashes and warning counts.
+Expected failure inputs must be rejected by **both** runtimes. The probe
+does not register an HTTP route, stage chapters, open SQLite, send network
+requests, call Gemini or write to Drive.
+
+**Not yet migrated:** authenticated ZIP multipart preview, actor-owned stage,
+confirmed atomic create/replace/skip, immutable original readback after SQLite
+restart, complex book workflows, Gemini worker, production API/worker runtime.
+These remain Python until separate API and SQLite differential acceptance
+proves them. The previous VPS is unavailable, so this is entirely offline
+GitHub CI work on synthetic data. No deployment or production readiness
+is inferred from a passing ZIP verification probe.
