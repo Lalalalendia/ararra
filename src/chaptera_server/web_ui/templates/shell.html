@@ -207,8 +207,9 @@
           <section data-page="import" hidden class="chapter-import-create-page">
             <div class="ui-page-header"><div>
               <p class="kicker">РидЭра / Импорт</p><h1>Импорт глав</h1>
-              <p>Из файла или по ссылке на книгу · без запуска перевода.</p>
+              <p>{% if archive_only %}Загрузите ZIP из Full Cycle App или файл с главами · без запуска перевода.{% else %}Из файла или по ссылке на книгу · без запуска перевода.{% endif %}</p>
             </div></div>
+            {% if not archive_only %}
             <section id="source-import" class="ui-card" aria-labelledby="source-import-title">
               <div class="ui-section-header">
                 <h2 id="source-import-title">Книга по ссылке</h2>
@@ -416,6 +417,7 @@
                 </div>
               </details>
             </section>
+            {% endif %}
 
             <ol class="steps" id="import-steps">
               <li data-step="1"><span>1</span>Загрузка</li>
@@ -427,13 +429,13 @@
               books_platform/backend/app/web/templates/books/import_chapters.html -->
             <form id="import-upload" class="chapter-import-upload" enctype="multipart/form-data">
               <section class="chapter-import-upload__section">
-                <div class="ui-section-header"><h2>Файл</h2><p>Выберите или перетащите TXT, HTML, EPUB или DOCX (до 12 МиБ).</p></div>
+                <div class="ui-section-header"><h2>Файл</h2><p>Выберите TXT, HTML, EPUB, DOCX (до 12 МиБ) или архив исходников Full Cycle App ZIP (до 24 МиБ).</p></div>
                 <div class="readera-dropzone" id="import-dropzone">
                   <p class="readera-dropzone-title">Перетащите файл сюда или выберите с устройства</p>
                   <label class="ui-field chapter-import-upload__field">
                     <span>Файл с главами</span>
                     <input id="chapters_file" class="ui-input chapter-import-upload__file" name="file"
-                      type="file" accept=".txt,.html,.htm,.xhtml,.epub,.docx" required
+                      type="file" accept=".txt,.html,.htm,.xhtml,.epub,.docx,.zip" required
                       aria-describedby="import-file-state">
                   </label>
                   <p class="muted" id="import-file-state" role="status" aria-live="polite">Файл не выбран.</p>
@@ -455,6 +457,7 @@
               <div class="chapter-import-job-card">
                 <div class="ui-section-header"><h2>Сопоставление глав</h2>
                   <p id="stage-details">Проверьте выбор перед сохранением.</p></div>
+                <div id="import-archive-details" class="ui-card" hidden aria-live="polite"></div>
                 <fieldset class="ui-fieldset"><legend>Назначение книги</legend>
                   <div class="radio-row">
                     <label><input type="radio" name="book_mode" value="create" checked> Новая книга</label>
@@ -499,6 +502,8 @@
               <div id="import-summary"></div>
               <label class="check-confirm"><input id="import-ack" type="checkbox">
                 Я проверил назначения, включая пропуски дополнительных и служебных записей, и понимаю, что «Заменить» обновит исходные главы.</label>
+              <label id="import-archive-ack-wrap" class="check-confirm" hidden><input id="import-archive-ack" type="checkbox">
+                Я понимаю, что ZIP Full Cycle App может содержать лишь часть глав книги, и проверил пропуски и исходный сайт перед импортом.</label>
               <div class="chapter-import-page__actions">
                 <button class="ui-button ui-button--ghost" type="button" id="import-back">Вернуться</button>
                 <button class="ui-button ui-button--primary" type="button" id="import-confirm" disabled>Подтвердить импорт</button>

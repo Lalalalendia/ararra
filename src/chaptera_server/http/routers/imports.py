@@ -1,9 +1,10 @@
 """Safe read-only preview plus explicitly confirmed, revision-safe team imports."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile, Request
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile, Request
 
 from ...book_import import ImportFormatError, MAX_UPLOAD_BYTES, preview_book_import
+from ...full_cycle_archive import MAX_EXCHANGE_UPLOAD_BYTES
 from ...auth import role_for
 from ...import_sessions import (
     ImportSessions, StageConflict, StageExpired, StageMissing, StageTooLarge,
@@ -17,9 +18,13 @@ router = APIRouter(prefix="/v1/imports", dependencies=[Depends(require_member)])
 
 async def _upload_bytes(file: UploadFile) -> bytes:
     try:
-        content = await file.read(MAX_UPLOAD_BYTES + 1)
-        if len(content) > MAX_UPLOAD_BYTES:
-            raise HTTPException(status_code=413, detail="File exceeds 12 MiB limit")
+        limit = (MAX_EXCHANGE_UPLOAD_BYTES if (file.filename or "").lower().endswith(".zip")
+                 else MAX_UPLOAD_BYTES)
+        content = await file.read(limit + 1)
+        if len(content) > limit:
+            raise HTTPException(
+                status_code=413, detail=f"File exceeds {limit // (1024 * 1024)} MiB limit"
+            )
         return content
     finally:
         await file.close()
@@ -112,5 +117,17 @@ def get_unassigned(book_id: str, actor: str = Depends(require_member),
                    sessions: ImportSessions = Depends(get_import_sessions)):
     try:
         return {"book_id": book_id, "prefixes": sessions.prefixes(book_id)}
+    except LibraryNotFound as exc:
+        raise _import_error(exc) from exc
+
+
+@router.get("/books/{book_id}/chapters/{chapter_id}/archive-original")
+def get_archive_original(book_id: str, chapter_id: str,
+                         source_revision: int | None = Query(default=None, ge=1),
+                         actor: str = Depends(require_member),
+                         sessions: ImportSessions = Depends(get_import_sessions)):
+    """Read the exact original and working text imported from a source ZIP."""
+    try:
+        return sessions.archive_original(book_id, chapter_id, source_revision)
     except LibraryNotFound as exc:
         raise _import_error(exc) from exc

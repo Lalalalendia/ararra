@@ -124,6 +124,8 @@ def main() -> None:
         if args.dry_run:
             parser.error("source-worker does not support --dry-run")
     settings = Settings.from_env()
+    if args.command == "source-worker" and settings.archive_only:
+        parser.error("source-worker unavailable: CHAPTERA_ARCHIVE_ONLY=1 (ZIP import remains enabled)")
     logging.basicConfig(level=logging.INFO)
     if args.command == "serve":
         import uvicorn

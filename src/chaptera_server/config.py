@@ -51,6 +51,10 @@ class Settings:
     # Desktop-compatible streaming transport is opt-in for atom packets only.
     gemini_stream_atoms: bool = False
     worker_poll_seconds: float = 1.0
+    # Release profile: no web-crawler, source routes or source-worker process.
+    # ZIP/TXT/EPUB/DOCX import, editor, queue and Drive stay available.
+    # Defaults to full mode for existing installations and backwards tests.
+    archive_only: bool = False
     # Bounds apply to verified raw crawler text across all historical jobs;
     # protect small VPS disks independently of the per-job 256 MiB cap.
     source_actor_quota_mib: int = 512
@@ -59,6 +63,8 @@ class Settings:
     port: int = 8000
 
     def __post_init__(self) -> None:
+        if type(self.archive_only) is not bool:
+            raise ValueError("archive_only must be bool")
         if self.admin_member_id and self.admin_member_id not in self.team_tokens:
             raise ValueError("Configured admin member must exist in team_tokens")
         if not 300 <= self.browser_session_ttl_seconds <= 604_800:
@@ -88,6 +94,9 @@ class Settings:
         tokens = {k.strip(): v.strip() for k, v in data.items()}
         if len(set(tokens.values())) != len(tokens):
             raise ValueError("Each team member must have a different token")
+        archive = os.environ.get("CHAPTERA_ARCHIVE_ONLY", "0").strip().lower()
+        if archive not in {"0", "1", "false", "true", "no", "yes", "off", "on"}:
+            raise ValueError("CHAPTERA_ARCHIVE_ONLY must be a boolean")
         return cls(
             db_path=Path(os.environ.get("CHAPTERA_DB_PATH", "./data/jobs.sqlite3")),
             team_tokens=tokens,
@@ -106,6 +115,7 @@ class Settings:
             gemini_stream_atoms=os.environ.get("CHAPTERA_GEMINI_STREAM_ATOMS", "0").strip().lower()
                                 in {"1", "true", "yes", "on"},
             worker_poll_seconds=max(0.1, float(os.environ.get("CHAPTERA_WORKER_POLL_SECONDS", "1.0"))),
+            archive_only=archive in {"1", "true", "yes", "on"},
             source_actor_quota_mib=int(os.environ.get("CHAPTERA_SOURCE_ACTOR_QUOTA_MIB", "512")),
             source_global_quota_mib=int(os.environ.get("CHAPTERA_SOURCE_GLOBAL_QUOTA_MIB", "2048")),
             bind=os.environ.get("CHAPTERA_BIND", "127.0.0.1"),
