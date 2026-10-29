@@ -134,7 +134,7 @@ fn http_url(row: &Value, name: &str) -> Result<String> {
     Ok(value)
 }
 
-fn sha_field(row: &Value, name: &str) -> Result<&str> {
+fn sha_field<'a>(row: &'a Value, name: &str) -> Result<&'a str> {
     let s = row.get(name).and_then(Value::as_str).ok_or_else(invalid)?;
     if s.len() != 64 || !s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
         return Err(invalid());
@@ -299,7 +299,9 @@ pub fn load_source(data: &[u8], fallback_title: &str) -> Result<Value> {
         previous_index = index;
         let working_file = format!("chapters/{index:06}.txt");
         let original_file = format!("original/{index:06}.txt");
-        if row["working_file"] != working_file || row["original_file"] != original_file {
+        if row.get("working_file").and_then(Value::as_str) != Some(working_file.as_str())
+            || row.get("original_file").and_then(Value::as_str) != Some(original_file.as_str())
+        {
             return Err(invalid());
         }
         for path in [&working_file, &original_file] {
