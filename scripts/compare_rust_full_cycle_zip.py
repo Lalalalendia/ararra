@@ -158,6 +158,16 @@ def invalid_cases(raw: bytes) -> list[tuple[str, bytes]]:
         ("non_utf8_working_with_valid_sha", repack(edit_member(entries, 1, "working", b"\xff"))),
         ("non_utf8_original_with_valid_sha", repack(edit_member(entries, 1, "original", b"\xfe"))),
     ])
+    # A STORED member whose local payload was tampered with must fail CRC32
+    # *before* any preview can be returned, even if its manifest SHA is intact.
+    stored = bytearray(repack(entries, zipfile.ZIP_STORED))
+    working_member = manifest_of(entries)["chapters"][1]["working_file"]
+    working_payload = dict(entries)[working_member]
+    needle = stored.find(working_payload)
+    assert needle >= 0, "Expected raw member bytes in STORED ZIP"
+    stored[needle] ^= 1
+    bad.append(("tampered_stored_member_crc", bytes(stored)))
+
     # Both runtimes must detect duplicate manifest JSON keys even inside a row.
     manifest = encode_manifest(manifest_of(entries))
     assert b'"chapter_index":7' in manifest
